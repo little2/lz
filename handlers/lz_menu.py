@@ -393,7 +393,7 @@ async def load_sora_content_by_id(content_id: int) -> str:
                     thumb_file_id = random.choice(file_id_list)
                 else:
                     # 处理找不到的情况
-                    print("❌ 没有找到 file_id")
+                    print("❌ 没有找到 default_thumb_unique_file_ids")
 
 
         ret_content = ""

@@ -25,6 +25,14 @@ from telethon.tl.types import InputDocument
 from telethon import events
 
 
+from telethon.tl.functions.photos import DeletePhotosRequest
+from telethon.tl.types import InputPhoto
+from telethon.tl.functions.account import UpdateProfileRequest
+from telethon.tl.functions.account import UpdateUsernameRequest
+from telethon.tl.functions.channels import InviteToChannelRequest, TogglePreHistoryHiddenRequest,LeaveChannelRequest
+from telethon.errors import ChannelPrivateError
+
+
 print(f"✅ aiogram version: {aiogram.__version__}")
 
 lz_var.start_time = time.time()
@@ -45,11 +53,13 @@ lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引�
 # ================= 9. 私聊媒体处理：人类账号 =================
 @user_client.on(events.NewMessage(incoming=True))
 async def handle_user_private_media(event):
-    print(f"【Telethon】收到私聊媒体：{event.message.media}，来自 {event.message.from_id}",flush=True)
+    # print(f"【Telethon】收到私聊媒体：{event.message.media}，来自 {event.message.from_id}",flush=True)
+    print(f"【Telethon】收到私聊消息",flush=True)
     msg = event.message
     if not msg.is_private:
         return
 
+    media = None
     if msg.document:
         media = msg.document
         file_type = 'document'
@@ -66,7 +76,9 @@ async def handle_user_private_media(event):
 
     # 转发到群组，并删除私聊
     if media:
-        ret = await user_client.send_file(lz_var.bot_id, media)
+        print(f"{lz_var.bot_id} {media}")
+        ret = await user_client.send_file(lz_var.bot_username, media)
+        
     elif msg.text:
         try:
             match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', msg.text, re.IGNORECASE)
@@ -101,13 +113,51 @@ async def health(request):
         return web.Response(text="⏳ Bot 正在唤醒，请稍候...", status=503)
     return web.Response(text="✅ Bot 正常运行", status=200)
 
+
+
+async def delete_my_profile_photos(client):
+    photos = await client.get_profile_photos('me')
+
+    if not photos:
+        print("你没有设置头像。")
+        return
+
+    input_photos = []
+    for photo in photos:
+        if hasattr(photo, 'id') and hasattr(photo, 'access_hash') and hasattr(photo, 'file_reference'):
+            input_photos.append(InputPhoto(
+                id=photo.id,
+                access_hash=photo.access_hash,
+                file_reference=photo.file_reference
+            ))
+
+    await client(DeletePhotosRequest(id=input_photos))
+    print("头像已删除。")
+
+async def update_my_name(client, first_name, last_name=''):
+    await client(UpdateProfileRequest(first_name=first_name, last_name=last_name))
+    print(f"已更新用户姓名为：{first_name} {last_name}")
+
+async def update_username(client,username):
+    try:
+        await client(UpdateUsernameRequest(username))  # 设置空字符串即为移除
+        print("用户名已成功变更。")
+    except Exception as e:
+        print(f"变更失败：{e}")
+
+
 async def main():
     print("🟢 正在启动 Bot...",flush=True)
-    # await user_client.start(PHONE_NUMBER)
-    # print("【Telethon】人类账号 已启动。",flush=True)
+    await user_client.start(PHONE_NUMBER)
+    print("【Telethon】人类账号 已启动。",flush=True)
     # 10.2 并行运行 Telethon 与 Aiogram
-    # task_telethon = asyncio.create_task(user_client.run_until_disconnected())
+    task_telethon = asyncio.create_task(user_client.run_until_disconnected())
    
+    # await delete_my_profile_photos(user_client)
+    # await update_my_name(user_client,'Luzai', 'Man')
+    # await update_username(user_client,"luzai09man")
+
+
     
     bot = Bot(
         token=BOT_TOKEN,

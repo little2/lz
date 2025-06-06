@@ -7,6 +7,8 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramFor
 from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter
 
 
+
+
 from utils.aes_crypto import AESCrypto
 from lz_db import db
 from lz_config import AES_KEY
@@ -90,7 +92,7 @@ async def handle_search_by_id(message: Message, command: Command = Command("id")
         # ret_content, [file_id, thumb_file_id], [owner_user_id] = await load_sora_content_by_id(int(args[1]))
 
         result = await load_sora_content_by_id(int(args[1]))
-        print("Returned:", result)
+        print("Returned==>:", result)
 
         ret_content, file_info, user_info = result
         file_id = file_info[0] if len(file_info) > 0 else None
@@ -144,6 +146,7 @@ async def handle_start(message: Message, command: Command = Command("start")):
                     return
 
                 # ✅ 发送带封面图的消息
+                # print(f"{file_id}")
                 await message.answer_photo(
                     photo=thumb_file_id,
                     caption=ret_content,
@@ -151,7 +154,7 @@ async def handle_start(message: Message, command: Command = Command("start")):
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [
                             InlineKeyboardButton(text="⬅️", callback_data="sora_prev"),
-                            InlineKeyboardButton(text="🎁 兑换", callback_data=f"sora_redeem:{file_id}"),
+                            InlineKeyboardButton(text="🎁 兑换", callback_data=f"sora_redeem:{content_id}"),
                             InlineKeyboardButton(text="➡️", callback_data="sora_next"),
                         ],
                         [
@@ -264,6 +267,9 @@ async def handle_redeem(callback: CallbackQuery):
     file_id = callback.data.split(":")[1]
     await callback.answer(f"🎁 你尝试兑换资源：{file_id}")
 
+
+
+
 async def fetch_by_file_id(source_id: str):
     conn, cursor = await MySQLPool.get_conn_cursor()
     try:
@@ -282,13 +288,13 @@ async def fetch_by_file_id(source_id: str):
         await MySQLPool.release(conn, cursor)
 
     if not row:
-        print("❌ 没有找到匹配记录 file_id")
-        return
+        print(" ❌ 没有找到匹配记录 file_id")
+        return None
 
-    try:
-        await lz_var.user_client.send_message(row['bot_id'], "/start")
-    except Exception as e:
-        pass
+    # try:
+    #     await lz_var.user_client.send_message(row['bot_id'], "/start")
+    # except Exception as e:
+    #     pass
         
 
    
@@ -296,19 +302,22 @@ async def fetch_by_file_id(source_id: str):
     chat_id = lz_var.man_bot_id
 
     if chat_id:
+        retSend = None
         from aiogram import Bot
         mybot = Bot(token=f"{row['bot_id']}:{row['bot_token']}")
         try:
             if row["file_type"] == "photo":
-                await mybot.send_photo(chat_id=chat_id, photo=row["file_id"])
+                retSend = await mybot.send_photo(chat_id=chat_id, photo=row["file_id"])
             elif row["file_type"] == "video":
-                await mybot.send_video(chat_id=chat_id, video=row["file_id"])
+                retSend = await mybot.send_video(chat_id=chat_id, video=row["file_id"])
             elif row["file_type"] == "document":
-                await mybot.send_document(chat_id=chat_id, document=row["file_id"])
+                retSend = await mybot.send_document(chat_id=chat_id, document=row["file_id"])
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问: {e}")
         finally:
             await mybot.session.close()  # ✅ 释放连接资源
+            return retSend
+    return None
 
     
 
@@ -336,9 +345,17 @@ async def load_sora_content_by_id(content_id: int) -> str:
 
         # ✅ 若 thumb_file_id 为空，则给默认值
         if not thumb_file_id:
-            print(f"❌ 没有找到 thumb_file_id，尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
-            await fetch_by_file_id(thumb_file_unique_id)
+            print(f"🔍 没有找到 thumb_file_id，尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
+            retSend = await fetch_by_file_id(thumb_file_unique_id)
+            if retSend.photo:
+                largest_photo = max(retSend.photo, key=lambda p: p.file_size or 0)
+                thumb_file_id = largest_photo.file_id
+                thumb_file_unique_id = largest_photo.file_unique_id
+                print("✅ file_id:", thumb_file_id)
+           
 
+        if not thumb_file_id:
+            print("❌ 没有找到 thumb_file_id，尝试从默认值获取")
             # 传送消息给 @ztdthumb011bot
             result_send = None
             try:
@@ -346,16 +363,17 @@ async def load_sora_content_by_id(content_id: int) -> str:
                     chat_id=lz_var.sungfeng,
                     text=f"|_ask_|{record_id}@{lz_var.bot_username}"
                 )
-            except TelegramNotFound as e:
-                print(f"❌ 目标 chat 不存在或无法访问: {e}")
-            except TelegramForbiddenError as e:
-                print(f"❌ 被禁或没权限: {e}")
-            except TelegramBadRequest as e:
-                print(f"⚠️ BadRequest 错误: {e}")
-            except TelegramAPIError as e:
-                print(f"❗ 通用 Telegram 错误: {e}")
+            # except TelegramNotFound as e:
+            #     print(f"❌ 目标 chat 不存在或无法访问: {lz_var.sungfeng} - {e}")
+            # except TelegramForbiddenError as e:
+            #     print(f"❌ 被禁或没权限: {e}")
+            # except TelegramBadRequest as e:
+            #     print(f"⚠️ BadRequest 错误: {e}")
+            # except TelegramAPIError as e:
+            #     print(f"❗ 通用 Telegram 错误: {e}")
             except Exception as e:
-                print(f"🔥 未知错误: {e}")
+                pass
+                # print(f"🔥 未知错误: {e}")
 
             # print(f"{result_send}")
             # print(f"🔍 发送消息给 @ztdthumb011bot: |_ask_|{record_id}@{lz_var.bot_username}")
@@ -395,7 +413,7 @@ async def load_sora_content_by_id(content_id: int) -> str:
             tag_length = len(ret_content)
     
         if not file_id:
-            print(f"❌ 没有找到 file_id，尝试从 source_id {source_id} 获取")
+            print(f"🔍 没有找到 file_id，尝试从 source_id {source_id} 获取")
             await fetch_by_file_id(source_id)
 
         # 计算可用空间

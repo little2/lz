@@ -9,6 +9,8 @@ from aiogram.enums import ParseMode
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.filters import Command  # ✅ v3 filter 写法
 
+
+
 from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER
 from lz_db import db
 from lz_mysql import MySQLPool
@@ -18,6 +20,9 @@ from handlers import lz_menu
 
 import lz_var
 import re
+
+from lz_redis import RedisManager
+lz_var.redis_manager = RedisManager()
 #
 from telethon.sessions import StringSession
 from telethon import TelegramClient, events
@@ -33,17 +38,17 @@ from telethon.tl.functions.channels import InviteToChannelRequest, TogglePreHist
 from telethon.errors import ChannelPrivateError
 
 
-print(f"✅ aiogram version: {aiogram.__version__}")
+
 
 lz_var.start_time = time.time()
 lz_var.cold_start_flag = True
 
 if SESSION_STRING:
-    print("【Telethon】使用 StringSession 登录。",flush=True)
+    # print("【Telethon】使用 StringSession 登录。",flush=True)
     user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
     
 else:
-    print("【Telethon】使用 USER_SESSION 登录。",flush=True)
+    # print("【Telethon】使用 USER_SESSION 登录。",flush=True)
     user_client = TelegramClient(USER_SESSION, API_ID, API_HASH)
 
 lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引用
@@ -147,9 +152,12 @@ async def update_username(client,username):
 
 
 async def main():
-    print("🟢 正在启动 Bot...",flush=True)
+
+   
+
+   
     await user_client.start(PHONE_NUMBER)
-    print("【Telethon】人类账号 已启动。",flush=True)
+    
     # 10.2 并行运行 Telethon 与 Aiogram
     task_telethon = asyncio.create_task(user_client.run_until_disconnected())
    
@@ -157,24 +165,41 @@ async def main():
     # await update_my_name(user_client,'Luzai', 'Man')
     # await update_username(user_client,"luzai09man")
 
-
+    # import aiohttp
+    # from aiogram import Bot
     
+    # # 禁用 SSL 验证（仅开发环境调试时使用）
+    # connector = aiohttp.TCPConnector(ssl=False)
+
+    # # 增加超时到 60 秒
+    # timeout = aiohttp.ClientTimeout(total=60)
+
+    # session = aiohttp.ClientSession(connector=connector, timeout=timeout)
+   
+    # bot = Bot(token=BOT_TOKEN, session=session)
+
     bot = Bot(
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
+    
 
     
      # ✅ 赋值给 lz_var 让其他模块能引用
     lz_var.bot = bot
-
-    me = await bot.get_me()
-    lz_var.bot_username = me.username
-    lz_var.bot_id = me.id
+    try:
+        me = await bot.get_me()
+        lz_var.bot_username = me.username
+        lz_var.bot_id = me.id
+        print(f"✅ Bot 已启动", flush=True)
+    except Exception as e:
+        print(f"❌ 无法获取 Bot 信息：{e}", flush=True)
+        return
 
     try:
         man_me = await user_client.get_me()
         lz_var.man_bot_id = man_me.id
+        print("✅ 【Telethon】人类账号 已启动。",flush=True)
     except Exception as e:
         print(f"❌ 无法获取人类账号信息：{e}", flush=True)
 

@@ -13,3 +13,4 @@ default_thumb_unique_file_ids: list[str] = [
 ]
 bot = None  # 预留 bot 全局变量
 user_client = None  # Telethon 用户客户端
+redis_manager = None  # Redis client

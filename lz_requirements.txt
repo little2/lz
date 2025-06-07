@@ -5,3 +5,4 @@ pycryptodome>=3.19.0
 aiomysql>=0.0.23
 aiofiles
 telethon==1.38.0
+redis >= 4.2

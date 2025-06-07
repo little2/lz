@@ -1,3 +1,12 @@
 .lzbot.env
 .DS_Store
 25195066session_name.session
+__pycache__
+__pycache__/*.*
+*.pyc
+__pycache__/lz_db.cpython-312.pyc
+__pycache__/lz_memory_cache.cpython-312.pyc
+__pycache__/lz_mysql.cpython-312.pyc
+__pycache__/lz_memory_cache.cpython-312.pyc
+__pycache__/lz_var.cpython-312.pyc
+__pycache__/lz_db.cpython-312.pyc

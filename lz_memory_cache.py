@@ -22,3 +22,10 @@ class MemoryCache:
 
     def clear(self):
         self.store.clear()
+
+    def delete(self, key):
+        if key in self.store:
+            del self.store[key]
+            print(f"🔹 MemoryCache deleted key: {key}")
+        else:
+            print(f"🔹 MemoryCache delete skipped, key not found: {key}")

@@ -174,10 +174,11 @@ async def handle_start(message: Message, command: Command = Command("start")):
                             InlineKeyboardButton(text="💎 60", callback_data=f"sora_redeem:{content_id}"),
                             InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:0:1"),
 
-                        ],
-                        [
-                            InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
                         ]
+                        # ,
+                        # [
+                        #     InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                        # ]
                     ])
                 )
 
@@ -189,7 +190,8 @@ async def handle_start(message: Message, command: Command = Command("start")):
         else:
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")
     else:
-        await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+        #await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+        pass
 
 
 # == 主菜单选项响应 ==

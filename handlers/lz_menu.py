@@ -170,9 +170,9 @@ async def handle_start(message: Message, command: Command = Command("start")):
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [
                           
-                            InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:0:-1"),
+                            # InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:0:-1"),
                             InlineKeyboardButton(text="💎 60", callback_data=f"sora_redeem:{content_id}"),
-                            InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:0:1"),
+                            # InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:0:1"),
 
                         ]
                         # ,
@@ -322,13 +322,13 @@ async def handle_sora_page(callback: CallbackQuery):
             },
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:{new_pos}:-1"),
+                    # InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:{new_pos}:-1"),
                     InlineKeyboardButton(text="💎 60", callback_data=f"sora_redeem:{next_content_id}"),
-                    InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{new_pos}:1"),
+                    # InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{new_pos}:1"),
                 ],
-                [
-                    InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
-                ]
+                # [
+                #     InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                # ]
             ])
         )
         await callback.answer()

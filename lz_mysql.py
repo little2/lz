@@ -20,7 +20,8 @@ class MySQLPool:
                 charset="utf8mb4",
                 autocommit=True,
                 minsize=1,
-                maxsize=5,
+                maxsize=5, 
+                pool_recycle=3600
             )
             print("✅ MySQL 连接池初始化完成")
 

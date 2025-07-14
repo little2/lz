@@ -373,7 +373,7 @@ async def handle_redeem(callback: CallbackQuery):
 
     
     from_user_id = callback.from_user.id
-    sender_fee = 60  # ✅ 发送者手续费
+    sender_fee = -60  # ✅ 发送者手续费
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': owner_user_id or 0,

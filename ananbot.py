@@ -35,10 +35,7 @@ class ProductPreviewFSM(StatesGroup):
     waiting_for_price_input = State(state="product_preview:waiting_for_price_input")
     waiting_for_collection_media = State(state="product_preview:waiting_for_collection_media")
     waiting_for_removetag_source = State(state="product_preview:waiting_for_removetag_source")  # ✅ 新增
-
-
-
-
+    waiting_for_content_input = State(state="product_preview:waiting_for_content_input")  # ✅ 新增
 
 
 def get_largest_photo(photo_sizes):
@@ -138,11 +135,12 @@ async def get_product_info(content_id):
 
     preview_text = f"""文件商品
 - 数据库ID:{content_id}
-- 商品标题:🈚️
+
 - 商品价格:{product_info['price']} 积分
 - 商店链接:🈚️
-- 预览图:✅
-- 内容文件:✅
+
+{product_info['content']}
+
 - 密码: 🈚️
 - 标签:
 - 状态:处理中
@@ -811,6 +809,84 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         await state.clear()
     except Exception as e:
         print(f"⚠️ 清除状态失败：{e}", flush=True)
+
+############
+#  content     
+############
+@dp.callback_query(F.data.startswith("set_content:"))
+async def handle_set_content(callback_query: CallbackQuery, state: FSMContext):
+    content_id = callback_query.data.split(":")[1]
+
+    product_info = await AnanBOTPool.get_existing_product(content_id)
+
+    caption = f"<code>{product_info['content']}</code> (点选复制) \r\n\r\n📘 请输入完整的内容介绍（文本形式）"
+    cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="取消，不修改", callback_data=f"cancel_set_content:{content_id}")]
+    ])
+
+    try:
+        await callback_query.message.edit_caption(caption=caption, reply_markup=cancel_keyboard, parse_mode="HTML")
+    except Exception as e:
+        print(f"⚠️ 设置内容 edit_caption 失败: {e}", flush=True)
+
+    await state.set_state(ProductPreviewFSM.waiting_for_content_input)
+    await state.set_data({
+        "content_id": content_id,
+        "chat_id": callback_query.message.chat.id,
+        "message_id": callback_query.message.message_id
+    })
+
+    # 60秒超时处理
+    asyncio.create_task(clear_content_input_timeout(state, content_id, callback_query.message.chat.id, callback_query.message.message_id))
+
+async def clear_content_input_timeout(state: FSMContext, content_id: str, chat_id: int, message_id: int):
+    await asyncio.sleep(60)
+    if await state.get_state() == ProductPreviewFSM.waiting_for_content_input:
+        await state.clear()
+        thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+        try:
+            await bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+                reply_markup=preview_keyboard
+            )
+        except Exception as e:
+            print(f"⚠️ 设置内容超时恢复失败: {e}", flush=True)
+
+@dp.message(F.chat.type == "private", ProductPreviewFSM.waiting_for_content_input, F.text)
+async def receive_content_input(message: Message, state: FSMContext):
+    content_text = message.text.strip()
+    data = await state.get_data()
+    content_id = data["content_id"]
+    chat_id = data["chat_id"]
+    message_id = data["message_id"]
+
+    await AnanBOTPool.update_product_content(content_id, content_text)
+    await message.delete()
+    await state.clear()
+
+    thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+    try:
+        await bot.edit_message_media(
+            chat_id=chat_id,
+            message_id=message_id,
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+            reply_markup=preview_keyboard
+        )
+    except Exception as e:
+        print(f"⚠️ 更新内容失败：{e}", flush=True)
+
+@dp.callback_query(F.data.startswith("cancel_set_content:"))
+async def cancel_set_content(callback_query: CallbackQuery, state: FSMContext):
+    content_id = callback_query.data.split(":")[1]
+    await state.clear()
+    thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+    await callback_query.message.edit_media(
+        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+        reply_markup=preview_keyboard
+    )
+
 
 
 #

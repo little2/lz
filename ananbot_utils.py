@@ -148,11 +148,11 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
-                "SELECT id,price FROM product WHERE content_id = %s LIMIT 1",
+                "SELECT id,price,content FROM product WHERE content_id = %s LIMIT 1",
                 (content_id,)
             )
             row = await cur.fetchone()
-            return {"id": row["id"], "price": row["price"]} if row else None
+            return {"id": row["id"], "price": row["price"],"content": row['content']} if row else None
         finally:
             await cls.release(conn, cur)
 
@@ -366,3 +366,12 @@ class AnanBOTPool(LYBase):
         cls._all_tags_grouped_cache_ts = now
         
         return grouped
+
+    @classmethod
+    async def update_product_content(cls, content_id: str, content: str):
+        async with cls._pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE product SET content = %s WHERE content_id = %s",
+                    (content, content_id)
+                )

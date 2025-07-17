@@ -116,7 +116,7 @@ class MySQLPool:
                     # 扣除 sender point
                     await cur.execute("""
                         UPDATE user
-                        SET point = point - %s
+                        SET point = point + %s
                         WHERE user_id = %s
                     """, (transaction_data['sender_fee'], transaction_data['sender_id']))
 

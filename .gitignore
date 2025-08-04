@@ -11,3 +11,5 @@ __pycache__/lz_memory_cache.cpython-312.pyc
 __pycache__/lz_var.cpython-312.pyc
 __pycache__/lz_db.cpython-312.pyc
 venv/*
+.ananbot.env
+.ananbot.env

@@ -156,23 +156,60 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+
+
     @classmethod
     async def get_preview_thumb_file_id(cls, bot_username: str, content_id: int):
         conn, cur = await cls.get_conn_cursor()
         try:
+            # 1. 查 sora_media
             await cur.execute(
-                """
-                SELECT sm.thumb_file_id 
-                FROM sora_media sm
-                WHERE sm.source_bot_name = %s AND sm.content_id = %s
-                LIMIT 1
-                """,
+                "SELECT thumb_file_id FROM sora_media WHERE source_bot_name = %s AND content_id = %s LIMIT 1",
                 (bot_username, content_id)
             )
             row = await cur.fetchone()
-            return row["thumb_file_id"] if row else None
+            if row and row["thumb_file_id"]:
+                return row["thumb_file_id"], None
+
+            # 2. 查 sora_content
+            print(f"❌ 未找到缩略图 in sora_media for content_id: {content_id}")
+            await cur.execute(
+                "SELECT thumb_file_unique_id FROM sora_content WHERE id = %s",
+                (content_id,)
+            )
+            row = await cur.fetchone()
+            if not row or not row["thumb_file_unique_id"]:
+                return None, None
+            thumb_uid = row["thumb_file_unique_id"]
+
+            # 3. 查 file_extension
+            print(f"🔍 查找缩略图 file_unique_id: {thumb_uid} in file_extension")
+            await cur.execute(
+                "SELECT file_id, bot FROM file_extension WHERE file_unique_id = %s AND bot = %s",
+                (thumb_uid,bot_username)
+            )
+            row = await cur.fetchone()
+            if row:
+                thumb_file_id = row["file_id"]
+                await cur.execute(
+                    """
+                    INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE thumb_file_id = VALUES(thumb_file_id)
+                    """,
+                    (content_id, bot_username, thumb_file_id)
+                )
+                print(f"✅ 已找到缩略图: {thumb_file_id} for content_id: {content_id}")
+                return thumb_file_id, thumb_uid
+            else:
+                print(f" ❌ 未找到缩略图 file_id for thumb_uid: {thumb_uid}")
+                return None,thumb_uid
+                
+
         finally:
             await cls.release(conn, cur)
+
+
 
     @classmethod
     async def insert_collection_item(cls, content_id: int, member_content_id: int, file_unique_id: str, file_type: str, position: int = 0):
@@ -375,3 +412,13 @@ class AnanBOTPool(LYBase):
                     "UPDATE product SET content = %s WHERE content_id = %s",
                     (content, content_id)
                 )
+
+    @classmethod
+    async def update_product_file_type(cls, content_id: int, file_type: str):
+        async with cls._pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE product SET file_type = %s WHERE content_id = %s",
+                    (file_type, content_id)
+                )
+                await conn.commit()

@@ -13,3 +13,4 @@ __pycache__/lz_db.cpython-312.pyc
 venv/*
 .lzbot_test.env
 .ananbot.env
+*.env

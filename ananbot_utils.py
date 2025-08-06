@@ -10,7 +10,8 @@ class AnanBOTPool(LYBase):
     _all_tags_grouped_cache = None
     _all_tags_grouped_cache_ts = 0
     _cache_ttl = 30  # 缓存有效时间（秒）
-
+    _all_tags_types_cache = None
+    _all_tags_types_cache_ts = 0
 
 
     @classmethod
@@ -29,8 +30,19 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def release(cls, conn, cursor):
-        await cursor.close()
-        cls._pool.release(conn)
+        try:
+            await cursor.close()
+        except Exception as e:
+            print(f"⚠️ 关闭 cursor 时失败: {e}")
+
+        try:
+            # ✅ 关键防呆：避免重复释放或非法连接释放
+            if hasattr(cls._pool, "_used") and conn in cls._pool._used:
+                cls._pool.release(conn)
+        except Exception as e:
+            print(f"⚠️ 释放连接失败: {e}")
+
+
 
     @classmethod
     async def is_media_published(cls, file_type, file_unique_id):
@@ -148,11 +160,11 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
-                "SELECT id,price,content FROM product WHERE content_id = %s LIMIT 1",
+                "SELECT id,price,content,file_type FROM product WHERE content_id = %s LIMIT 1",
                 (content_id,)
             )
             row = await cur.fetchone()
-            return {"id": row["id"], "price": row["price"],"content": row['content']} if row else None
+            return {"id": row["id"], "price": row["price"],"content": row['content'],"file_type":row['file_type']} if row else None
         finally:
             await cls.release(conn, cur)
 
@@ -172,7 +184,7 @@ class AnanBOTPool(LYBase):
                 return row["thumb_file_id"], None
 
             # 2. 查 sora_content
-            print(f"❌ 未找到缩略图 in sora_media for content_id: {content_id}")
+            print(f"❌ sora_media 目前不存在  for content_id: {content_id}")
             await cur.execute(
                 "SELECT thumb_file_unique_id FROM sora_content WHERE id = %s",
                 (content_id,)
@@ -183,7 +195,7 @@ class AnanBOTPool(LYBase):
             thumb_uid = row["thumb_file_unique_id"]
 
             # 3. 查 file_extension
-            print(f"🔍 查找缩略图 file_unique_id: {thumb_uid} in file_extension")
+           
             await cur.execute(
                 "SELECT file_id, bot FROM file_extension WHERE file_unique_id = %s AND bot = %s",
                 (thumb_uid,bot_username)
@@ -199,10 +211,10 @@ class AnanBOTPool(LYBase):
                     """,
                     (content_id, bot_username, thumb_file_id)
                 )
-                print(f"✅ 已找到缩略图: {thumb_file_id} for content_id: {content_id}")
+                print(f"✅ 有缩略图，正在更新: {thumb_file_id} for content_id: {content_id}")
                 return thumb_file_id, thumb_uid
             else:
-                print(f" ❌ 未找到缩略图 file_id for thumb_uid: {thumb_uid}")
+                print(f" ❌ 其他机器人有缩略图，通知更新 file_id for thumb_uid: {thumb_uid}")
                 return None,thumb_uid
                 
 
@@ -288,10 +300,27 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def get_all_tag_types(cls):
+
+
+        now = time.time()
+        if cls._all_tags_types_cache and now - cls._all_tags_types_cache_ts < cls._cache_ttl:
+            return cls._all_tags_types_cache  # ✅ 命中缓存
+
+
         async with cls._pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute("SELECT type_code, type_cn FROM tag_type ")
-                return await cur.fetchall()
+                await cur.execute("SELECT type_code, type_cn FROM tag_type WHERE type_code NOT IN ('xiaoliu','system','serial','gallery','gallery_set') ORDER BY FIELD(type_code, 'age', 'eth', 'face', 'feedback','nudity','act','par','att','pro','fetish','position','hardcore')")
+                # return await cur.fetchall()
+                rows = await cur.fetchall()
+        
+       
+        
+        # ✅ 更新缓存
+        cls._all_tags_types_cache = rows
+        cls._all_tags_types_cache_ts = now
+        
+        return rows
+
 
 
 
@@ -392,7 +421,7 @@ class AnanBOTPool(LYBase):
 
         async with cls._pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute("SELECT tag, tag_cn, tag_type FROM tag")
+                await cur.execute("SELECT tag, tag_cn, tag_type FROM tag ")
                 rows = await cur.fetchall()
         
         grouped = {}
@@ -403,6 +432,8 @@ class AnanBOTPool(LYBase):
         cls._all_tags_grouped_cache_ts = now
         
         return grouped
+
+
 
     @classmethod
     async def update_product_content(cls, content_id: str, content: str):
@@ -422,3 +453,25 @@ class AnanBOTPool(LYBase):
                     (file_type, content_id)
                 )
                 await conn.commit()
+
+
+    @classmethod
+    async def get_sora_content_by_id(cls, content_id: int):
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute("SELECT * FROM sora_content WHERE id = %s", (content_id,))
+            return await cur.fetchone()
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_bid_thumbnail_by_source_id(cls, source_id: str, bot_username: str):
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute("SELECT b.thumb_file_unique_id, f.file_id as thumb_file_id FROM bid_thumbnail b LEFT JOIN file_extension f ON f.file_unique_id = b.thumb_file_unique_id and f.bot=%s  WHERE b.file_unique_id = %s and b.confirm_status >= 10;", (bot_username,source_id,))
+            # await cur.execute("SELECT thumb_file_unique_id FROM bid_thumbnail LEFT JOIN file_extension f ON f.file_unique_id = bid_thumbnail.file_unique_id WHERE bid_thumbnail.file_unique_id = %s", (source_id,))
+            return await cur.fetchone()
+        finally:
+            await cls.release(conn, cur)
+
+         

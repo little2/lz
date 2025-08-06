@@ -191,7 +191,7 @@ async def main():
         me = await bot.get_me()
         lz_var.bot_username = me.username
         lz_var.bot_id = me.id
-        print(f"✅ Bot 已启动", flush=True)
+        print(f"✅ Bot {me.id} - {me.username} 已启动", flush=True)
     except Exception as e:
         print(f"❌ 无法获取 Bot 信息：{e}", flush=True)
         return
@@ -199,7 +199,7 @@ async def main():
     try:
         man_me = await user_client.get_me()
         lz_var.man_bot_id = man_me.id
-        print("✅ 【Telethon】人类账号 已启动。",flush=True)
+        print(f"✅ 【Telethon】人类账号 {man_me.id} {man_me.username} 已启动。", flush=True)
     except Exception as e:
         print(f"❌ 无法获取人类账号信息：{e}", flush=True)
 

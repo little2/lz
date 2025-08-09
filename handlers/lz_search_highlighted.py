@@ -82,9 +82,9 @@ def shorten_content(text: str, max_length: int = 30) -> str:
 
 @router.message(Command("s"))
 async def handle_search(message: Message):
-    if getattr(message.chat, "type", None) not in {ChatType.GROUP, ChatType.SUPERGROUP}:
-        await message.reply("⚠️ 此指令只能在群組中使用。")
-        return
+    # if getattr(message.chat, "type", None) not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+    #     await message.reply("⚠️ 此指令只能在群組中使用。")
+    #     return
 
 
     parts = message.text.split(maxsplit=1)

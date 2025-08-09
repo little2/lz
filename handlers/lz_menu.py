@@ -1,24 +1,52 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
+from aiogram.enums import ContentType
 from aiogram.utils.text_decorations import markdown_decoration
 
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter
 
+from aiogram.fsm.context import FSMContext
 
 from utils.unit_converter import UnitConverter
-
 from utils.aes_crypto import AESCrypto
+from utils.media_utils import Media
+
+import asyncio
+
 from lz_db import db
-from lz_config import AES_KEY
+from lz_config import AES_KEY, ENVIRONMENT
 import lz_var
 import traceback
 import random
 
+from utils.media_utils import Media
+from utils.tpl import Tplate
+
 from lz_mysql import MySQLPool
 
 router = Router()
+
+_background_tasks: dict[str, asyncio.Task] = {}
+
+def spawn_once(key: str, coro: "Coroutine"):
+    """相同 key 的后台任务只跑一个；结束后自动清理。"""
+    task = _background_tasks.get(key)
+    if task and not task.done():
+        return
+
+    async def _runner():
+        try:
+            # 可按需加超时
+            await asyncio.wait_for(coro, timeout=15)
+        except Exception:
+            print(f"🔥 background task failed for key={key}", flush=True)
+
+    t = asyncio.create_task(_runner(), name=f"backfill:{key}")
+    _background_tasks[key] = t
+    t.add_done_callback(lambda _: _background_tasks.pop(key, None))
+
 
 # == 主菜单 ==
 def main_menu_keyboard():
@@ -85,13 +113,11 @@ def upload_menu_keyboard():
 
 # == 启动指令 == # /id 360242
 @router.message(Command("id"))
-async def handle_search_by_id(message: Message, command: Command = Command("id")):
+async def handle_search_by_id(message: Message, state: FSMContext, command: Command = Command("id")):
     args = message.text.split(maxsplit=1)
     if len(args) > 1:
         # ✅ 调用并解包返回的三个值
-        # ret_content, [file_id, thumb_file_id], [owner_user_id] = await load_sora_content_by_id(int(args[1]))
-
-        result = await load_sora_content_by_id(int(args[1]))
+        result = await load_sora_content_by_id(int(args[1]), state)
         print("Returned==>:", result)
 
         ret_content, file_info, user_info = result
@@ -99,7 +125,8 @@ async def handle_search_by_id(message: Message, command: Command = Command("id")
         file_type = file_info[1] if len(file_info) > 1 else None
         file_id = file_info[2] if len(file_info) > 2 else None
         thumb_file_id = file_info[3] if len(file_info) > 3 else None
-        owner_user_id = user_info[0] if user_info else None
+        owner_user_id = user_info[0] if user_info[0] else None
+        fee = user_info[1] if user_info[1] else None
 
 
         # ✅ 检查是否找不到资源（根据返回第一个值）
@@ -124,7 +151,7 @@ async def handle_search_by_id(message: Message, command: Command = Command("id")
 
 # == 启动指令 ==
 @router.message(Command("start"))
-async def handle_start(message: Message, command: Command = Command("start")):
+async def handle_start(message: Message, state: FSMContext, command: Command = Command("start")):
     # 删除 /start 这个消息
     try:
         await message.delete()
@@ -153,33 +180,40 @@ async def handle_start(message: Message, command: Command = Command("start")):
                
                
                 # ✅ 调用并解包返回的三个值
-                ret_content, [source_id, file_type,file_id, thumb_file_id], [owner_user_id] = await load_sora_content_by_id(content_id, search_key_index)
-                print(f"thumb_file_id:{thumb_file_id}")
+                ret_content, [source_id, file_type,file_id, thumb_file_id], [owner_user_id,fee] = await load_sora_content_by_id(content_id, state, search_key_index)
+                # print(f"thumb_file_id:{thumb_file_id}")
                 # ✅ 检查是否找不到资源（根据返回第一个值）
                 if ret_content.startswith("⚠️"):
                     await message.answer(ret_content, parse_mode="HTML")
                     return
 
+                if ENVIRONMENT == "dev":
+                    reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:0:-1"),
+                            InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}"),
+                            InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:0:1"),
+                        ],
+                        [
+                            InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                        ]
+                    ])
+                else:
+                    reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                        [
+                            InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
+                        ]
+                    ])
+
+
                 # ✅ 发送带封面图的消息
-                print(f"{thumb_file_id}")
+                # print(f"{thumb_file_id}")
                 # print(f"{file_id}")
                 await message.answer_photo(
                     photo=thumb_file_id,
                     caption=ret_content,
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                          
-                            # InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:0:-1"),
-                            InlineKeyboardButton(text="💎 60", callback_data=f"sora_redeem:{content_id}"),
-                            # InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:0:1"),
-
-                        ]
-                        # ,
-                        # [
-                        #     InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
-                        # ]
-                    ])
+                    reply_markup=reply_markup
                 )
 
             except Exception as e:
@@ -190,8 +224,69 @@ async def handle_start(message: Message, command: Command = Command("start")):
         else:
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")
     else:
-        #await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+        await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         pass
+
+
+@router.message(Command("post"))
+async def handle_post(message: Message, state: FSMContext, command: Command = Command("post")):
+    # 删除 /post 这个消息
+    try:
+        await message.delete()
+    except (TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter) as e:
+        print(f"❌ 删除 /post 消息失败: {e}", flush=True)
+
+    # 获取 start 后面的参数（如果有）
+    args = message.text.split(maxsplit=1)
+    if len(args) > 1:
+        content_id = args[1].strip()
+
+        aes = AESCrypto(AES_KEY)
+        content_id_str = aes.aes_encode(content_id)
+
+        # await message.answer(f"📦 你提供的参数是：`{content_id}`", parse_mode="HTML")
+
+        # 2) 再往指定 chat & thread 发一则 HTML 文本 +「兑换」按钮
+        try:
+            tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
+            # tpl_data = await db.search_sora_content_by_id(int(content_id))
+            print(f"tpl_data: {tpl_data}", flush=True)
+
+            conllect_str = "📦 文件列表：\r\n🎬 103.23 MB | 11:21\r\n🎬 323.23 MB | 31:21\r\n\r\n📊 本合集包含：🎬 x2 🖼️ x3"
+
+            # tpl_data = {
+            #     "file_type": "video",
+            #     "fee": 39,
+            #     # "file_size": 32989,
+            #     "duration": 33,
+            #     "create_timestamp": 333,
+            #     "tag": "#黑人 #高年级_小五 #没有露脸 #没反应 #露出鸡鸡 #正太与叔叔 #手持拍摄 #舔肛",
+            #     "collection":conllect_str
+            # }
+            if tpl_data['guild_keyword']:
+                keyword_id = await db.get_search_keyword_id(tpl_data['guild_keyword'])
+            else:
+                keyword_id = '-1'
+            content = await Tplate.pure_text_tpl(tpl_data)
+
+
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="👀 看看先", url=f"https://t.me/{lz_var.bot_username}?start=f_{keyword_id}_{content_id_str}")]
+            ])
+            await message.bot.send_message(
+                chat_id=-1002040123861,            # 目标频道/群
+                text=content,                       # HTML 文本
+                parse_mode="HTML",
+                message_thread_id=14,               # 主题(Topic) ID
+                reply_markup=kb
+            )
+        except Exception as e:
+            print(f"❌ 发送到目标 thread 失败: {e}", flush=True)
+
+    else:
+        await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+        pass
+
 
 
 # == 主菜单选项响应 ==
@@ -276,7 +371,7 @@ async def handle_go_home(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("sora_page:"))
-async def handle_sora_page(callback: CallbackQuery):
+async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
     try:
         # 新 callback_data 结构: sora_page:<search_key_index>:<current_pos>:<offset>
         _, search_key_index_str, current_pos_str, offset_str = callback.data.split(":")
@@ -307,11 +402,30 @@ async def handle_sora_page(callback: CallbackQuery):
         next_content_id = next_record["id"]
 
         # 调用 load_sora_content_by_id
-        ret_content, [source_id, file_type, file_id, thumb_file_id], [owner_user_id] = await load_sora_content_by_id(next_content_id, search_key_index)
+        ret_content, [source_id, file_type, file_id, thumb_file_id], [owner_user_id,fee] = await load_sora_content_by_id(next_content_id, state, search_key_index)
 
         if ret_content.startswith("⚠️"):
             await callback.answer(ret_content, show_alert=True)
             return
+
+        if ENVIRONMENT == "dev":
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:{new_pos}:-1"),
+                    InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{next_content_id}"),
+                    InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{new_pos}:1"),
+                ],
+                [
+                    InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                ]
+            ])
+        else:
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{next_content_id}")
+                ]
+            ])
+
 
         await callback.message.edit_media(
             media={
@@ -320,16 +434,7 @@ async def handle_sora_page(callback: CallbackQuery):
                 "caption": ret_content,
                 "parse_mode": "HTML"
             },
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    # InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:{new_pos}:-1"),
-                    InlineKeyboardButton(text="💎 60", callback_data=f"sora_redeem:{next_content_id}"),
-                    # InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{new_pos}:1"),
-                ],
-                # [
-                #     InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
-                # ]
-            ])
+            reply_markup=reply_markup
         )
         await callback.answer()
 
@@ -338,16 +443,11 @@ async def handle_sora_page(callback: CallbackQuery):
         await callback.answer("⚠️ 翻页失败", show_alert=True)
 
 
-
-
-
 @router.callback_query(F.data.startswith("sora_redeem:"))
-async def handle_redeem(callback: CallbackQuery):
+async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     source_id = callback.data.split(":")[1]
-    
 
-
-    result = await load_sora_content_by_id(int(source_id))
+    result = await load_sora_content_by_id(int(source_id), state)
     # print("Returned==>:", result)
 
     ret_content, file_info, user_info = result
@@ -356,7 +456,8 @@ async def handle_redeem(callback: CallbackQuery):
     file_id = file_info[2] if len(file_info) > 2 else None
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
 
-    owner_user_id = user_info[0] if user_info else None
+    owner_user_id = user_info[0] if user_info[0] else None
+    fee = user_info[1] if user_info[1] else None
 
     
 
@@ -373,7 +474,7 @@ async def handle_redeem(callback: CallbackQuery):
 
     
     from_user_id = callback.from_user.id
-    sender_fee = -60  # ✅ 发送者手续费
+    sender_fee = int(fee) * (-1)  # ✅ 发送者手续费
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': owner_user_id or 0,
@@ -420,21 +521,18 @@ async def handle_redeem(callback: CallbackQuery):
         
 
    
-    
-
-
-
-
-    
 
 # 📌 功能函数：根据 sora_content id 载入资源
-async def load_sora_content_by_id(content_id: int, search_key_index=None) -> str:
+async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key_index=None) -> str:
     convert = UnitConverter()  # ✅ 实例化转换器
     record = await db.search_sora_content_by_id(content_id)
+    print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
         
          # 取出字段，并做基本安全处理
-       
+        fee = record.get('fee', 60)
+        owner_user_id = record.get('owner_user_id', 0)
+
         record_id = record.get('id', '')
         tag = record.get('tag', '')
         file_size = record.get('file_size', '')
@@ -451,23 +549,24 @@ async def load_sora_content_by_id(content_id: int, search_key_index=None) -> str
         # print(f"🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
 
         # ✅ 若 thumb_file_id 为空，则给默认值
-        if not thumb_file_id:
+        if not thumb_file_id and thumb_file_unique_id != None:
             print(f"🔍 没有找到 thumb_file_id，尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
-            retSend = await MySQLPool.fetch_file_by_file_id(thumb_file_unique_id)
-           
-            if retSend !=None and retSend.photo:
-                largest_photo = max(retSend.photo, key=lambda p: p.file_size or 0)
-                thumb_file_id = largest_photo.file_id
-                thumb_file_unique_id = largest_photo.file_unique_id
-                print("✅ file_id:", thumb_file_id)
-                try:
-                    await lz_var.bot.send_message(
-                        chat_id=lz_var.sungfeng,
-                        text=f"|_ask_|{record_id}@{lz_var.bot_username}"
-                    )
-                except Exception as e:
-                    pass
+            # retSend = await MySQLPool.fetch_file_by_file_id(thumb_file_unique_id)
+            # if retSend !=None and retSend.photo:
+            #     largest_photo = max(retSend.photo, key=lambda p: p.file_size or 0)
+            #     thumb_file_id = largest_photo.file_id
+            #     thumb_file_unique_id = largest_photo.file_unique_id
+            #     print("✅ file_id:", thumb_file_id)
+            #     try:
+            #         await lz_var.bot.send_message(
+            #             chat_id=lz_var.sungfeng,
+            #             text=f"|_ask_|{record_id}@{lz_var.bot_username}"
+            #         )
+            #     except Exception as e:
+            #         pass
 
+            thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
+           
 
         if not thumb_file_id:
             print("❌ 在延展库没有，用预设图")
@@ -486,11 +585,16 @@ async def load_sora_content_by_id(content_id: int, search_key_index=None) -> str
                     lz_var.default_thumb_file_id = file_id_list
                     thumb_file_id = random.choice(file_id_list)
                 else:
+                    print("❌ 没有找到 default_thumb_unique_file_ids,增加扩展库中")
                     # 遍历 lz_var.default_thumb_unique_file_ids
                     for unique_id in lz_var.default_thumb_unique_file_ids:
-                        await MySQLPool.fetch_file_by_file_id(unique_id)
+                        
+                        # 进入等待态（最多 10 秒）
+                        thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, unique_id, 10)
+                        print(f"✅ 取到的 thumb_file_id: {thumb_file_id}")
                     # 处理找不到的情况
-                    print("❌ 没有找到 default_thumb_unique_file_ids,增加扩展库中")
+                    
+                    
 
 
         ret_content = ""
@@ -502,7 +606,7 @@ async def load_sora_content_by_id(content_id: int, search_key_index=None) -> str
 
         profile = ""
         if file_size:
-            print(f"🔍 资源大小: {file_size}")
+            # print(f"🔍 资源大小: {file_size}")
             label_size = convert.byte_to_human_readable(file_size)
             ret_content += f"📄 {label_size}  "
             profile += f"📄 {label_size}  "
@@ -531,11 +635,9 @@ async def load_sora_content_by_id(content_id: int, search_key_index=None) -> str
             tag_length = len(ret_content)
     
 
-
-
-        if not file_id:
-            print(f"🔍 没有找到 file_id，尝试从 source_id {source_id} 获取")
-            await MySQLPool.fetch_file_by_file_id(source_id)
+        if not file_id and source_id:
+            # 不阻塞：丢到后台做补拉
+            spawn_once(f"src:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
 
         # 计算可用空间
         available_content_length = max_total_length - tag_length - 50  # 预留额外描述字符
@@ -557,7 +659,7 @@ async def load_sora_content_by_id(content_id: int, search_key_index=None) -> str
         
 
         # ✅ 返回三个值
-        return ret_content, [source_id, file_type, file_id, thumb_file_id], [None]
+        return ret_content, [source_id, file_type, file_id, thumb_file_id], [owner_user_id, fee]
         
     else:
         return f"⚠️ 没有找到 ID 为 {content_id} 的 Sora 内容记录"

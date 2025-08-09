@@ -170,7 +170,34 @@ class MySQLPool:
         return False
     
    
+    @classmethod
+    async def search_sora_content_by_id(cls, content_id: int):
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute('''
+                SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
+                    s.thumb_file_unique_id,
+                    m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition,
+                    g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id 
+                FROM sora_content s
+                LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
+                LEFT JOIN product p ON s.id = p.content_id
+                LEFT JOIN guild g ON p.guild_id = g.guild_id
+                WHERE s.id = %s
+                '''
+            , (lz_var.bot_username, content_id))
+            row = await cursor.fetchone()
+            return row
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+            row = None
+        finally:
+            await cls.release(conn, cursor)
 
+        if not row:
+            print("❌ 没有找到匹配记录 file_id")
+            return None
 
     @classmethod
     async def fetch_file_by_file_id(cls, source_id: str):

@@ -128,6 +128,50 @@ class AnanBOTPool(LYBase):
                 "UPDATE sora_media SET thumb_file_id = %s WHERE content_id = %s and source_bot_name = %s",
                 (thumb_file_id, content_id, bot_username)
             )
+
+            sql = "INSERT INTO bid_thumbnail (file_unique_id, thumb_file_unique_id, bot_name, file_id, ext_url, confirm_status, uploader_id, status, t_update) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE bot_name=VALUES(bot_name), file_id=VALUES(file_id), ext_url=VALUES(ext_url), confirm_status=VALUES(confirm_status), uploader_id=VALUES(uploader_id), status=VALUES(status), t_update=VALUES(t_update)"
+            await cur.execute(
+                sql,
+                (
+                    file_unique_id,
+                    thumb_file_unique_id,
+                    bot_name,
+                    file_id,
+                    ext_url,
+                    confirm_status,
+                    uploader_id,
+                    status,
+                    t_update
+                )
+            )
+           
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def update_bid_thumbnail(cls, file_unique_id: str, thumb_file_unique_id: str, thumb_file_id: str , bot_username: str):
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = (
+                "INSERT INTO bid_thumbnail "
+                "(file_unique_id, thumb_file_unique_id, bot_name, file_id, confirm_status) "
+                "VALUES (%s,%s,%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE "
+                "bot_name=VALUES(bot_name), "
+                "file_id=VALUES(file_id), "
+                "confirm_status=VALUES(confirm_status)"
+            )   
+            await cur.execute(
+                sql,
+                (
+                    file_unique_id,
+                    thumb_file_unique_id,
+                    bot_username,
+                    thumb_file_id,
+                    10
+                )
+            )
+           
         finally:
             await cls.release(conn, cur)
 
@@ -441,6 +485,10 @@ class AnanBOTPool(LYBase):
             async with conn.cursor() as cur:
                 await cur.execute(
                     "UPDATE product SET content = %s WHERE content_id = %s",
+                    (content, content_id)
+                )
+                await cur.execute(
+                    "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
                     (content, content_id)
                 )
 

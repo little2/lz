@@ -14,3 +14,4 @@ venv/*
 .lzbot_test.env
 .ananbot.env
 *.env
+*.session

@@ -772,7 +772,7 @@ async def handle_set_preview(callback_query: CallbackQuery, state: FSMContext):
 
     if not thumb_file_id:
         # 如果没有缩略图，传送 
-        thumb_file_id = "AgACAgEAAxkBAAPIaHHqdjJqYXWcWVoNoAJFGFBwBnUAAjGtMRuIOEBF8t8-OXqk4uwBAAMCAAN5AAM2BA"
+        thumb_file_id = DEFAULT_THUMB_FILE_ID
 
 
     # 更新原消息内容（图片不变，仅改文字+按钮）
@@ -876,6 +876,10 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
 
         # Step 3: 更新 sora_content 缩图字段
         await AnanBOTPool.update_product_thumb(content_id, thumb_file_unique_id,thumb_file_id, bot_username)
+
+        # Step 4: 更新 update_bid_thumbnail
+        await AnanBOTPool.update_bid_thumbnail(source_id, thumb_file_unique_id, thumb_file_id, bot_username)
+
        # 确保缓存存在
         if content_id in product_info_cache:
             product_info_cache[content_id]["thumb_unique_id"] = thumb_file_unique_id
@@ -935,8 +939,16 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
     await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
     await AnanBOTPool.update_product_thumb(content_id, file_unique_id,file_id, bot_username)
+    # Step 4: 更新 update_bid_thumbnail
+
+    row = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if row and row.get("source_id"):
+        source_id = row["source_id"]
+        await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
+
     product_info_cache[content_id]["thumb_unique_id"] = file_unique_id
     product_info_cache[content_id]["thumb_file_id"] = file_id
+
 
     # 编辑原消息，更新为商品卡片
     thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)

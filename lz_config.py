@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import json
 
-load_dotenv(dotenv_path='.lzbot.env')
+load_dotenv(dotenv_path='.lzbot_test.env')
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 
@@ -13,6 +13,7 @@ WEBAPP_HOST = os.getenv("WEBAPP_HOST")
 WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 10000))
 
 AES_KEY = os.getenv("AES_KEY", "")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "prd").lower()
 
 config = {}
 # 嘗試載入 JSON 並合併參數

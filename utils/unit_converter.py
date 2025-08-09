@@ -1,10 +1,13 @@
 class UnitConverter:
-    def __init__(self, use_si=False):
-        self.use_si = use_si
+    use_si = False  # 是否使用国际单位制（SI）
+    @classmethod
+    def __init__(cls, use_si=False):
+        cls.use_si = use_si
 
-    def byte_to_human_readable(self, num_bytes):
+    @classmethod
+    def byte_to_human_readable(cls, num_bytes):
         units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-        step = 1000.0 if self.use_si else 1024.0
+        step = 1000.0 if cls.use_si else 1024.0
 
         if num_bytes < 0:
             raise ValueError("字节数不能为负数")
@@ -17,8 +20,9 @@ class UnitConverter:
             index += 1
 
         return f"{num:.2f} {units[index]}"
-
-    def seconds_to_hms(self, seconds):
+    
+    @classmethod
+    def seconds_to_hms(cls, seconds):
         if seconds < 0:
             raise ValueError("秒数不能为负数")
 
@@ -28,7 +32,8 @@ class UnitConverter:
 
         return f"{h:02d}:{m:02d}:{s:02d}"
 
-    def meters_to_kilometers(self, meters):
+    @classmethod
+    def meters_to_kilometers(cls, meters):
         if meters < 0:
             raise ValueError("米不能为负数")
 

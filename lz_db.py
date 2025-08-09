@@ -1,21 +1,52 @@
 # lz_db.py
 import asyncpg
+import os
 from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 from datetime import datetime
 import lz_var
 
+DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
+DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
+ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
+COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
+
 class DB:
     def __init__(self):
         self.dsn = POSTGRES_DSN
-        self.pool = None
+        self.pool: asyncpg.Pool | None = None
         self.cache = MemoryCache()
 
     async def connect(self):
-        self.pool = await asyncpg.create_pool(dsn=self.dsn)
+        """幂等连接 + 小连接池，避免 TooManyConnections。"""
+        if self.pool is not None:
+            return
+        self.pool = await asyncpg.create_pool(
+            dsn=self.dsn,
+            min_size=DEFAULT_MIN,
+            max_size=DEFAULT_MAX,
+            max_inactive_connection_lifetime=300,
+            command_timeout=COMMAND_TIMEOUT,
+        )
+        # 可选：预热一次连接，设置时区/应用名
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+            await conn.execute("SET SESSION TIME ZONE 'UTC'")
+            await conn.execute("SET application_name = 'lz_app'")
+
+    async def disconnect(self):
+        """优雅断线，给主程序 shutdown/finally 调用。"""
+        pool, self.pool = self.pool, None
+        if pool is not None:
+            await pool.close()
 
     def _normalize_query(self, keyword_str: str) -> str:
         return " ".join(keyword_str.strip().lower().split())
+
+    async def _ensure_pool(self):
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL pool is not connected. Call db.connect() first.")
+
+
 
     async def search_keyword_page_highlighted(self, keyword_str: str, last_id: int = 0, limit: int = 10):
         query = self._normalize_query(keyword_str)
@@ -87,10 +118,6 @@ class DB:
 
             return result
 
-
-
-   
-
     async def upsert_file_extension(self,
         file_type: str,
         file_unique_id: str,
@@ -129,17 +156,13 @@ class DB:
         # print(f"Executing SQL:\n{sql.strip()}")
         # print(f"With params: {file_type}, {file_unique_id}, {file_id}, {bot}, {user_id}, {now}")
 
-        async with self.pool.acquire() as conn:
-            sora_content_row = await conn.fetchrow(sql2,file_unique_id,file_unique_id)
-            if sora_content_row:
-                content_id = sora_content_row["id"]
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+            row = await conn.fetchrow(sql2, file_unique_id, file_unique_id)
+            if row:
+                content_id = row["id"]
                 cache_key = f"sora_content_id:{content_id}"
-                db.cache.delete(cache_key)
-
-
-
-        
-
+                # 这里原本是 db.cache.delete(...)，应为 self.cache.delete(...)
+                self.cache.delete(cache_key)
 
     async def search_sora_content_by_id(self, content_id: int):
         cache_key = f"sora_content_id:{content_id}"
@@ -153,9 +176,11 @@ class DB:
                 '''
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
                     s.thumb_file_unique_id,
-                    m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id
+                    m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition
                 FROM sora_content s
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = $2
+                LEFT JOIN product p ON s.id = p.content_id
                 WHERE s.id = $1
                 ''',
                 content_id, lz_var.bot_username
@@ -224,8 +249,14 @@ class DB:
                 "tag": row["tag"],
                 "file_id": file_id,
                 "thumb_file_id": thumb_file_id,
-                "thumb_file_unique_id": row.get("thumb_file_unique_id")
+                "thumb_file_unique_id": row.get("thumb_file_unique_id"),
+                "fee": row.get("fee"),
+                "product_type": row.get("product_type"),
+                "owner_user_id": row.get("owner_user_id"),
+                "purchase_condition": row.get("purchase_condition")
             }
+
+           
 
             # self.cache.set(cache_key, result, ttl=3600)
             self.cache.set(cache_key, result, ttl=3600)
@@ -259,8 +290,6 @@ class DB:
                 return row["id"]
             return None
 
-
-
     async def get_file_id_by_file_unique_id(self, unique_ids: list[str]) -> list[str]:
         """
         根据多个 file_unique_id 取得对应的 file_id 列表。
@@ -278,7 +307,7 @@ class DB:
                 ''',
                 unique_ids, lz_var.bot_username
             )
-            print(f"Fetched {len(rows)} rows for unique_ids: {unique_ids} {rows}")
+            # print(f"Fetched {len(rows)} rows for unique_ids: {unique_ids} {rows}")
             return [r['file_id'] for r in rows if r['file_id']]
 
     async def insert_search_log(self, user_id: int, keyword: str):
@@ -309,15 +338,20 @@ class DB:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT id 
-                FROM search_keyword_stat
-                WHERE keyword = $1
+                WITH ins AS (
+                    INSERT INTO search_keyword_stat (keyword)
+                    VALUES ($1)
+                    ON CONFLICT (keyword) DO NOTHING
+                    RETURNING id
+                )
+                SELECT id FROM ins
+                UNION ALL
+                SELECT id FROM search_keyword_stat WHERE keyword = $1
+                LIMIT 1
                 """,
                 keyword
             )
-            if row:
-                return row["id"]
-            return None
+            return row["id"] if row else None
 
 
     async def get_keyword_by_id(self, keyword_id: int) -> str | None:

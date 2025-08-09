@@ -9,7 +9,9 @@ from aiogram.enums import ParseMode
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.filters import Command  # ✅ v3 filter 写法
 
-
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER
 from lz_db import db
@@ -26,22 +28,21 @@ lz_var.redis_manager = RedisManager()
 #
 from telethon.sessions import StringSession
 from telethon import TelegramClient, events
-from telethon.tl.types import InputDocument
-from telethon import events
 
 
 from telethon.tl.functions.photos import DeletePhotosRequest
 from telethon.tl.types import InputPhoto
 from telethon.tl.functions.account import UpdateProfileRequest
 from telethon.tl.functions.account import UpdateUsernameRequest
-from telethon.tl.functions.channels import InviteToChannelRequest, TogglePreHistoryHiddenRequest,LeaveChannelRequest
-from telethon.errors import ChannelPrivateError
-
-
 
 
 lz_var.start_time = time.time()
 lz_var.cold_start_flag = True
+
+class LzFSM(StatesGroup):
+    waiting_for_x_media = State(state="lz:waiting_for_x_media")
+
+
 
 if SESSION_STRING:
     # print("【Telethon】使用 StringSession 登录。",flush=True)
@@ -59,10 +60,11 @@ lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引�
 @user_client.on(events.NewMessage(incoming=True))
 async def handle_user_private_media(event):
     # print(f"【Telethon】收到私聊媒体：{event.message.media}，来自 {event.message.from_id}",flush=True)
-    print(f"【Telethon】收到私聊消息",flush=True)
+    
     msg = event.message
     if not msg.is_private:
         return
+    print(f"【Telethon】收到私聊消息 {event.message.text}",flush=True)
 
     media = None
     if msg.document:
@@ -152,13 +154,8 @@ async def update_username(client,username):
 
 
 async def main():
-
-   
-
-   
-    await user_client.start(PHONE_NUMBER)
-    
     # 10.2 并行运行 Telethon 与 Aiogram
+    await user_client.start(PHONE_NUMBER)
     task_telethon = asyncio.create_task(user_client.run_until_disconnected())
    
     # await delete_my_profile_photos(user_client)
@@ -194,6 +191,9 @@ async def main():
         print(f"✅ Bot {me.id} - {me.username} 已启动", flush=True)
     except Exception as e:
         print(f"❌ 无法获取 Bot 信息：{e}", flush=True)
+        # 记得把 Telethon 停掉
+        await user_client.disconnect()
+        await bot.session.close()
         return
 
     try:
@@ -203,37 +203,79 @@ async def main():
     except Exception as e:
         print(f"❌ 无法获取人类账号信息：{e}", flush=True)
 
-    dp = Dispatcher()
+    dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(lz_search_highlighted.router)
     dp.include_router(lz_media_parser.router)  # ✅ 注册你的新功能模块
     dp.include_router(lz_menu.router)
 
+    # ✅ 统一在这里连一次
     await db.connect()
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+
+    # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
+    @dp.shutdown()
+    async def _on_shutdown():
+        try:
+            await db.disconnect()
+        except Exception as e:
+            print(f"[shutdown] PG disconnect error: {e}")
+        try:
+            await MySQLPool.close_pool()
+        except Exception as e:
+            print(f"[shutdown] MySQL close error: {e}")
+        try:
+            await bot.session.close()
+        except Exception as e:
+            print(f"[shutdown] Bot session close error: {e}")
+        try:
+            await user_client.disconnect()
+        except Exception as e:
+            print(f"[shutdown] Telethon disconnect error: {e}")
+
 
     # ✅ Telegram /ping 指令（aiogram v3 正确写法）
     @dp.message(Command(commands=["ping", "status"]))
     async def check_status(message: types.Message):
         uptime = int(time.time() - lz_var.start_time)
         await message.reply(f"✅ Bot 已运行 {uptime} 秒，目前状态良好。")
+    try:
+        if BOT_MODE == "webhook":
+            dp.startup.register(on_startup)
+            print("🚀 啟動 Webhook 模式")
 
-    if BOT_MODE == "webhook":
-        dp.startup.register(on_startup)
-        print("🚀 啟動 Webhook 模式")
+            app = web.Application()
+            app.router.add_get("/", health)  # ✅ 健康检查路由
 
-        app = web.Application()
-        app.router.add_get("/", health)  # ✅ 健康检查路由
+            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+            setup_application(app, dp, bot=bot)
 
-        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
-        setup_application(app, dp, bot=bot)
-
-        # ✅ Render 环境用 PORT，否则本地用 8080
-        port = int(os.environ.get("PORT", 8080))
-        await web._run_app(app, host="0.0.0.0", port=port)
-    else:
-        print("🚀 啟動 Polling 模式")
-        await db.connect()
-        await dp.start_polling(bot, polling_timeout=10.0)
+            # ✅ Render 环境用 PORT，否则本地用 8080
+            port = int(os.environ.get("PORT", 8080))
+            await web._run_app(app, host="0.0.0.0", port=port)
+        else:
+            print("🚀 啟動 Polling 模式")
+            await dp.start_polling(bot, polling_timeout=10.0)
+    finally:
+         # 双保险：若没走到 @dp.shutdown（例如异常中断），也清理资源
+        try:
+            await db.disconnect()
+        except Exception:
+            pass
+        try:
+            await MySQLPool.close_pool()
+        except Exception:
+            pass
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+        try:
+            await user_client.disconnect()
+        except Exception:
+            pass
+        # 如果你还留着 task_telethon：
+        if not task_telethon.done():
+            task_telethon.cancel()       
 
 
     # 理论上 Aiogram 轮询不会退出，若退出则让 Telethon 同样停止

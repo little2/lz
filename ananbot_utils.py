@@ -129,21 +129,7 @@ class AnanBOTPool(LYBase):
                 (thumb_file_id, content_id, bot_username)
             )
 
-            sql = "INSERT INTO bid_thumbnail (file_unique_id, thumb_file_unique_id, bot_name, file_id, ext_url, confirm_status, uploader_id, status, t_update) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE bot_name=VALUES(bot_name), file_id=VALUES(file_id), ext_url=VALUES(ext_url), confirm_status=VALUES(confirm_status), uploader_id=VALUES(uploader_id), status=VALUES(status), t_update=VALUES(t_update)"
-            await cur.execute(
-                sql,
-                (
-                    file_unique_id,
-                    thumb_file_unique_id,
-                    bot_name,
-                    file_id,
-                    ext_url,
-                    confirm_status,
-                    uploader_id,
-                    status,
-                    t_update
-                )
-            )
+            
            
         finally:
             await cls.release(conn, cur)

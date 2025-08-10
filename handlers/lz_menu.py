@@ -531,6 +531,9 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         
          # 取出字段，并做基本安全处理
         fee = record.get('fee', 60)
+        if fee is None or fee < 0:
+            fee = 60
+            
         owner_user_id = record.get('owner_user_id', 0)
 
         record_id = record.get('id', '')

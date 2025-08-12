@@ -94,25 +94,35 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
-                """INSERT INTO sora_content 
-                   (source_id, file_type, file_size, duration, owner_user_id)
-                   VALUES (%s, %s, %s, %s, %s)
-                   ON DUPLICATE KEY UPDATE 
-                   file_type=VALUES(file_type), 
-                   file_size=VALUES(file_size), 
-                   duration=VALUES(duration), 
-                   owner_user_id=VALUES(owner_user_id)""",
+                """
+                INSERT INTO sora_content
+                    (source_id, file_type, file_size, duration, owner_user_id, stage)
+                VALUES
+                    (%s, %s, %s, %s, %s, 'pending')
+                ON DUPLICATE KEY UPDATE
+                    file_type     = VALUES(file_type),
+                    file_size     = VALUES(file_size),
+                    duration      = VALUES(duration),
+                    owner_user_id = VALUES(owner_user_id),
+                    stage         = 'pending'
+                """,
                 (file_unique_id, file_type, file_size, duration, user_id)
             )
-            await cur.execute("SELECT id FROM sora_content WHERE source_id=%s", (file_unique_id,))
-            content_id = (await cur.fetchone())["id"]
+            await cur.execute("SELECT * FROM sora_content WHERE source_id=%s LIMIT 1", (file_unique_id,))
+            row = (await cur.fetchone())
+            content_id = row["id"]
             await cur.execute(
-                """INSERT IGNORE INTO sora_media 
-                   (content_id, source_bot_name, file_id)
-                   VALUES (%s, %s, %s)""",
+                """
+                INSERT INTO sora_media
+                    (content_id, source_bot_name, file_id)
+                VALUES
+                    (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    file_id = VALUES(file_id)
+                """,
                 (content_id, bot_username, file_id)
             )
-            return content_id
+            return row
         finally:
             await cls.release(conn, cur)
 
@@ -198,10 +208,38 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+    @classmethod
+    async def search_sora_content_by_id(cls, content_id: int,bot_username: str):
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute('''
+                SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
+                    s.thumb_file_unique_id,
+                    m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition,
+                    g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id 
+                FROM sora_content s
+                LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
+                LEFT JOIN product p ON s.id = p.content_id
+                LEFT JOIN guild g ON p.guild_id = g.guild_id
+                WHERE s.id = %s
+                '''
+            , (bot_username, content_id))
+            row = await cursor.fetchone()
+            return row
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+            row = None
+        finally:
+            await cls.release(conn, cursor)
 
+        if not row:
+            print("❌ 没有找到匹配记录 file_id")
+            return None
 
     @classmethod
     async def get_preview_thumb_file_id(cls, bot_username: str, content_id: int):
+        print(f"▶️ 正在获取缩略图 file_id for content_id: {content_id} by bot: {bot_username}", flush=True)
         conn, cur = await cls.get_conn_cursor()
         try:
             # 1. 查 sora_media
@@ -214,7 +252,7 @@ class AnanBOTPool(LYBase):
                 return row["thumb_file_id"], None
 
             # 2. 查 sora_content
-            print(f"❌ sora_media 目前不存在  for content_id: {content_id}")
+            print(f"...❌ sora_media 目前不存在  for content_id: {content_id}")
             await cur.execute(
                 "SELECT thumb_file_unique_id FROM sora_content WHERE id = %s",
                 (content_id,)
@@ -241,10 +279,10 @@ class AnanBOTPool(LYBase):
                     """,
                     (content_id, bot_username, thumb_file_id)
                 )
-                print(f"✅ 有缩略图，正在更新: {thumb_file_id} for content_id: {content_id}")
+                print(f"...✅ 有缩略图，正在更新: {thumb_file_id} for content_id: {content_id}")
                 return thumb_file_id, thumb_uid
             else:
-                print(f" ❌ 其他机器人有缩略图，通知更新 file_id for thumb_uid: {thumb_uid}")
+                print(f"...❌ 其他机器人有缩略图，通知更新 file_id for thumb_uid: {thumb_uid}")
                 return None,thumb_uid
                 
 
@@ -339,7 +377,7 @@ class AnanBOTPool(LYBase):
 
         async with cls._pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute("SELECT type_code, type_cn FROM tag_type WHERE type_code NOT IN ('xiaoliu','system','serial','gallery','gallery_set') ORDER BY FIELD(type_code, 'age', 'eth', 'face', 'feedback','nudity','act','par','att','pro','fetish','position','hardcore')")
+                await cur.execute("SELECT type_code, type_cn FROM tag_type WHERE type_code NOT IN ('xiaoliu','system','serial','gallery','gallery_set') ORDER BY FIELD(type_code, 'age', 'eth', 'face', 'feedback','nudity','par','act','pro','fetish','att','position','hardcore')")
                 # return await cur.fetchall()
                 rows = await cur.fetchall()
         
@@ -462,6 +500,100 @@ class AnanBOTPool(LYBase):
         cls._all_tags_grouped_cache_ts = now
         
         return grouped
+
+    @classmethod
+    async def sync_file_tags(cls, file_unique_id: str, selected_tags: set[str], *, actor_user_id: int | None = None) -> dict:
+        """
+        将 FSM 里最终选中的标签一次性落库：
+        - 新增：INSERT ... ON DUPLICATE KEY UPDATE（count 默认为 1，可按需改成计数逻辑）
+        - 移除：DELETE ... WHERE tag IN (...)
+        返回 {added: n, removed: m, unchanged: k}
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 取当前库里的标签
+            await cur.execute(
+                "SELECT tag FROM file_tag WHERE file_unique_id=%s",
+                (file_unique_id,)
+            )
+            existing = {row["tag"] for row in await cur.fetchall()}
+
+            to_add = list(selected_tags - existing)
+            to_del = list(existing - selected_tags)
+            unchanged = len(existing & selected_tags)
+
+            # 批量新增
+            if to_add:
+                rows = [(file_unique_id, t, 1) for t in to_add]
+                await cur.executemany(
+                    """
+                    INSERT INTO file_tag (file_unique_id, tag, `count`)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE `count`=VALUES(`count`)
+                    """,
+                    rows
+                )
+
+            # 批量删除
+            if to_del:
+                # 动态 IN 列表
+                ph = ",".join(["%s"] * len(to_del))
+                await cur.execute(
+                    f"DELETE FROM file_tag WHERE file_unique_id=%s AND tag IN ({ph})",
+                    (file_unique_id, *to_del)
+                )
+
+            await conn.commit()
+            return {"added": len(to_add), "removed": len(to_del), "unchanged": unchanged}
+        except Exception:
+            await conn.rollback()
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def get_tag_cn_batch(cls, tags: list[str]) -> dict[str, str]:
+        """
+        批量取 tag -> tag_cn 的映射；若没有 tag_cn，则回退 tag 本身。
+        返回: {tag: tag_cn_or_tag}
+        """
+        if not tags:
+            return {}
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            ph = ",".join(["%s"] * len(tags))
+            await cur.execute(
+                f"SELECT tag, COALESCE(tag_cn, tag) AS tag_cn FROM tag WHERE tag IN ({ph})",
+                tuple(tags)
+            )
+            rows = await cur.fetchall()
+            mapping = {r["tag"]: r["tag_cn"] for r in rows}
+            # 没查到的，用自身回填
+            for t in tags:
+                mapping.setdefault(t, t)
+            return mapping
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def update_sora_content_tag_and_stage(cls, content_id: int, tag_str: str):
+        """
+        更新 sora_content.tag 与 stage='pending'
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            print(f"▶️ 正在更新 sora_content.tag={tag_str} for content_id: {content_id}", flush=True)
+            await cur.execute(
+                "UPDATE sora_content SET tag=%s, stage='pending' WHERE id=%s",
+                (tag_str, content_id)
+            )
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+        finally:
+            await cls.release(conn, cur)
 
 
 

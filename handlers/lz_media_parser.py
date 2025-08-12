@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from utils.media_utils import WaitingForXMedia  # ⬅️ 新增
+from utils.media_utils import ProductPreviewFSM  # ⬅️ 新增
 import json
 from lz_db import db
 import lz_var
@@ -16,7 +16,7 @@ def parse_caption_json(caption: str):
 
 
 from aiogram.fsm.context import FSMContext
-from utils.media_utils import WaitingForXMedia  # ⬅️ 新增
+from utils.media_utils import ProductPreviewFSM  # ⬅️ 新增
 import lz_var
 
 router = Router()
@@ -32,7 +32,7 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     """
     仅在等待态才处理；把 file_unique_id 写到 FSM。
     """
-    if await state.get_state() != WaitingForXMedia.waiting_for_x_media.state:
+    if await state.get_state() != ProductPreviewFSM.waiting_for_x_media.state:
         return  # 非等待态，跳过
 
 

@@ -273,13 +273,26 @@ async def handle_post(message: Message, state: FSMContext, command: Command = Co
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="👀 看看先", url=f"https://t.me/{lz_var.bot_username}?start=f_{keyword_id}_{content_id_str}")]
             ])
-            await message.bot.send_message(
-                chat_id=-1002040123861,            # 目标频道/群
-                text=content,                       # HTML 文本
-                parse_mode="HTML",
-                message_thread_id=14,               # 主题(Topic) ID
+            if 'guild_chat_id' in tpl_data and tpl_data['guild_chat_id']:
+                await message.bot.send_message(
+                    chat_id=tpl_data['guild_chat_id'],              # 目标频道/群
+                    message_thread_id=tpl_data['guild_thread_id'],  # 主题(Topic) ID
+                    text=content,                                   # HTML 文本
+                    parse_mode="HTML",
                 reply_markup=kb
             )
+
+            if 'guild_resource_chat_id' in tpl_data and tpl_data['guild_resource_chat_id']:
+                # 如果有资源频道，则发到资源频道
+                print(f"✅ 发送到资源频道 {tpl_data['guild_resource_chat_id']}，主题 {tpl_data['guild_resource_thread_id']}", flush=True)
+                await message.bot.send_message(
+                    chat_id=tpl_data['guild_resource_chat_id'],              # 目标频道/群
+                    message_thread_id=tpl_data['guild_resource_thread_id'],  # 主题(Topic) ID
+                    text=content,                                   # HTML 文本
+                    parse_mode="HTML",
+                    reply_markup=kb
+                )
+
         except Exception as e:
             print(f"❌ 发送到目标 thread 失败: {e}", flush=True)
 

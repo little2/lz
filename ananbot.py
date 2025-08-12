@@ -4,19 +4,23 @@ from datetime import datetime, timedelta
 import asyncio
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, PhotoSize
 from aiogram.enums import ContentType
 from aiomysql import create_pool
 from dotenv import load_dotenv
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-
+from aiogram.types import BufferedInputFile, PhotoSize
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
+from utils.media_utils import Media  
 from ananbot_config import BOT_TOKEN
+import lz_var
+
 
 bot = Bot(token=BOT_TOKEN)
+lz_var.bot = bot
 
 # 全局变量缓存 bot username
 media_upload_tasks: dict[tuple[int, int], asyncio.Task] = {}
@@ -49,6 +53,60 @@ class ProductPreviewFSM(StatesGroup):
     waiting_for_removetag_source = State(state="product_preview:waiting_for_removetag_source")  # ✅ 新增
     waiting_for_content_input = State(state="product_preview:waiting_for_content_input")  # ✅ 新增
     waiting_for_thumb_reply = State(state="product_preview:waiting_for_thumb_reply")  # ✅ 新增
+    waiting_for_x_media = State()
+
+@dp.message(
+    (F.photo | F.video | F.document)
+    & (F.from_user.id == lz_var.x_man_bot_id)
+    & F.reply_to_message.as_("reply_to")
+)
+async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply_to: Message):
+    """
+    仅在等待态才处理；把 file_unique_id 写到 FSM。
+    """
+    if await state.get_state() != ProductPreviewFSM.waiting_for_x_media.state:
+        print(f"【Telethon】收到非等待态的私聊媒体，跳过处理。当前状态：{await state.get_state()}", flush=True)
+        return  # 非等待态，跳过
+
+
+    file_unique_id = None
+
+    if message.photo:
+        largest_photo = message.photo[-1]
+        file_unique_id = largest_photo.file_unique_id
+        file_id = largest_photo.file_id
+        file_type = "photo"
+    elif message.video:
+        file_unique_id = message.video.file_unique_id
+        file_id = message.video.file_id
+        file_type = "video"
+    elif message.document:
+        file_unique_id = message.document.file_unique_id
+        file_id = message.document.file_id
+        file_type = "document"
+    else:
+        return
+
+    print(f"✅ [X-MEDIA] 收到 {file_type}，file_unique_id={file_unique_id} {file_id}，"
+          f"from={message.from_user.id}，reply_to_msg_id={reply_to.message_id}", flush=True)
+
+    user_id = str(message.from_user.id) if message.from_user else None
+    
+    lz_var.bot_username = await get_bot_username()
+
+    await AnanBOTPool.insert_file_extension(
+        file_type,
+        file_unique_id=file_unique_id,
+        file_id=file_id,
+        bot_username=lz_var.bot_username,
+        user_id=user_id
+    )
+
+
+    # 把结果写回 FSM
+    await state.update_data({"x_file_unique_id": file_unique_id})
+    await state.update_data({"x_file_id": file_id})
+
 
 
 def get_largest_photo(photo_sizes):
@@ -132,7 +190,7 @@ async def get_list(content_id):
 
 
 @dp.callback_query(F.data.startswith("make_product:"))
-async def make_product(callback_query: CallbackQuery):
+async def make_product(callback_query: CallbackQuery, state: FSMContext):
     parts = callback_query.data.split(":")
     content_id, file_type, file_unique_id, user_id = parts[1], parts[2], parts[3], parts[4]
 
@@ -145,12 +203,12 @@ async def make_product(callback_query: CallbackQuery):
         else:
             content = "请修改描述"
 
-        await AnanBOTPool.create_product(content_id, "默认商品", content, 100, file_type, user_id)
+        await AnanBOTPool.create_product(content_id, "默认商品", content, 68, file_type, user_id)
     
     thumb_file_id,preview_text,preview_keyboard = await get_product_info(content_id)
     await callback_query.message.delete()
-    await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard)
-    await update_product_preview(content_id, thumb_file_id)
+    await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+    await update_product_preview(content_id, thumb_file_id, state, callback_query.message)
 
 async def get_product_info(content_id: int) -> tuple[str, str, InlineKeyboardMarkup]:
     now = datetime.now().timestamp()
@@ -170,14 +228,15 @@ async def get_product_info(content_id: int) -> tuple[str, str, InlineKeyboardMar
 
 async def get_product_info_action(content_id):
     
-   
-    product_info = await AnanBOTPool.get_existing_product(content_id)
 
         # 查询是否已有同 source_id 的 product
         # 查找缩图 file_id
     
     bot_username = await get_bot_username()
-    thumb_file_id, thumb_unique_id = await AnanBOTPool.get_preview_thumb_file_id(bot_username, content_id)
+    product_info = await AnanBOTPool.search_sora_content_by_id(content_id, bot_username)
+    thumb_file_id = product_info.get("m_thumb_file_id")
+    thumb_unique_id = product_info.get("thumb_file_unique_id")
+
     if not thumb_file_id:
         #默认缩略图
         thumb_file_id = DEFAULT_THUMB_FILE_ID
@@ -186,6 +245,8 @@ async def get_product_info_action(content_id):
             # 等待 @p_14707422896 的回应，应回复媒体
             # 若有回覆媒体，则回传其 file_id
 
+    if product_info['fee'] is None:
+        product_info['fee'] = 68
 
 
     content_list = await get_list(content_id)
@@ -193,13 +254,12 @@ async def get_product_info_action(content_id):
     preview_text = f"""文件商品
 - 数据库ID:{content_id}
 
-- 商品价格:{product_info['price']} 积分
 - 商店链接:🈚️
 
 {shorten_content(product_info['content'],300)}
 
-- 密码: 🈚️
-- 标签:
+<i>{product_info['tag']}</i>
+
 - 状态:处理中
 
 😶‍🌫️是否匿名:是
@@ -224,7 +284,7 @@ async def get_product_info_action(content_id):
     buttons.extend([
         [
             InlineKeyboardButton(text="🏷️ 设置标签", callback_data=f"tag_full:{content_id}"),
-            InlineKeyboardButton(text="💎 设置积分", callback_data=f"set_price:{content_id}")
+            InlineKeyboardButton(text=f"💎 设置积分 ({product_info['fee']})", callback_data=f"set_price:{content_id}")
         ],
         [InlineKeyboardButton(text="🙈 取消匿名", callback_data=f"toggle_anonymous:{content_id}")],
         [InlineKeyboardButton(text="➕ 添加资源", callback_data=f"add_items:{content_id}")],
@@ -272,6 +332,7 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
 
     # 查询该资源的 file_unique_id
     file_unique_id = await AnanBOTPool.get_file_unique_id_by_content_id(content_id)
+
     # print(f"🔍 查询到 file_unique_id: {file_unique_id} for content_id: {content_id}")
     fsm_key = f"selected_tags:{file_unique_id}"
     data = await state.get_data()
@@ -280,7 +341,7 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
     # 如果 FSM 中没有缓存，就从数据库查一次
     if selected_tags is None or not selected_tags or selected_tags == []:
         selected_tags = await AnanBOTPool.get_tags_for_file(file_unique_id)
-        print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
+        print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id},并更新到FSM")
         await state.update_data({fsm_key: list(selected_tags)})
     else:
         print(f"🔍 从 FSM 缓存中获取选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
@@ -297,12 +358,30 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
         # 勾选统计
         selected_count = len(set(tag_codes) & set(selected_tags))
         total_count = len(tag_codes)
-        display_cn = f"{current_cn} ({selected_count}/{total_count})"
+        # display_cn = f"{current_cn} ({selected_count}/{total_count})"
+
+        # 需要显示已选标签名的 type_code
+        SPECIAL_DISPLAY_TYPES = {'age', 'eth', 'face', 'feedback', 'nudity','par'}
+
+        if current_code in SPECIAL_DISPLAY_TYPES:
+            # 获取该类型下已选标签名
+            selected_tag_names = [
+                (tag["tag_cn"] or tag["tag"])
+                for tag in tag_rows
+                if tag["tag"] in selected_tags
+            ]
+            if selected_tag_names:
+                display_cn = f"{current_cn} ( {'、'.join(selected_tag_names)} )"
+            else:
+                display_cn = f"{current_cn} (未选择)"
+        else:
+            display_cn = f"{current_cn} ( {selected_count}/{total_count} )"
+
 
         if current_code == type_code:
             # 当前展开的类型
             keyboard.append([
-                InlineKeyboardButton(text=f"------- ▶️ [{display_cn}] ------- ", callback_data="noop")
+                InlineKeyboardButton(text=f"━━━ ▶️ {display_cn} ━━━ ", callback_data="noop")
             ])
 
             row = []
@@ -324,7 +403,7 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
         else:
             keyboard.append([
                 InlineKeyboardButton(
-                    text=f"------- [{display_cn}] -------",
+                    text=f"――― {display_cn} ――― ",
                     callback_data=f"set_tag_type:{content_id}:{current_code}"
                 )
             ])
@@ -333,15 +412,13 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
     keyboard.append([
         InlineKeyboardButton(
             text="✅ 设置完成并返回",
-            callback_data=f"back_to_product:{content_id}"
+            callback_data=f"back_to_product_from_tag:{content_id}"
         )
     ])
 
     await callback_query.message.edit_reply_markup(
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )
-
-
 
 @dp.callback_query(F.data.startswith("add_tag:"))
 async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
@@ -396,14 +473,13 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     # 创建新的延迟刷新任务
     async def delayed_refresh():
         try:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.7)
             await refresh_tag_keyboard(callback_query, content_id, type_code, state)
             tag_refresh_tasks.pop(task_key, None)
         except asyncio.CancelledError:
             pass  # 被取消时忽略
 
     tag_refresh_tasks[task_key] = asyncio.create_task(delayed_refresh())
-
 
 @dp.callback_query(F.data.startswith("tag_full:"))
 async def handle_tag_full(callback_query: CallbackQuery, state: FSMContext):
@@ -439,9 +515,6 @@ async def handle_tag_full(callback_query: CallbackQuery, state: FSMContext):
     except Exception as e:
         print(f"⚠️ 编辑一页标签按钮失败: {e}", flush=True)
     
-
-
-
 @dp.callback_query(F.data.startswith("set_tag_type:"))
 async def handle_set_tag_type(callback_query: CallbackQuery, state: FSMContext):
     parts = callback_query.data.split(":")
@@ -450,20 +523,74 @@ async def handle_set_tag_type(callback_query: CallbackQuery, state: FSMContext):
     await refresh_tag_keyboard(callback_query, content_id, type_code, state)
 
 
+@dp.callback_query(F.data.startswith("back_to_product_from_tag:"))
+async def handle_back_to_product_from_tag(callback_query: CallbackQuery, state: FSMContext):
+    content_id = int(callback_query.data.split(":")[1])
+    user_id = callback_query.from_user.id
 
+    # 1) 取 file_unique_id 与 FSM 的最终选择
+    file_unique_id = await AnanBOTPool.get_file_unique_id_by_content_id(content_id)
+    fsm_key = f"selected_tags:{file_unique_id}"
+    data = await state.get_data()
+    selected_tags = set(data.get(fsm_key, []))
 
+    # 2) 一次性同步 file_tag（增删）
+    try:
+        summary = await AnanBOTPool.sync_file_tags(file_unique_id, selected_tags, actor_user_id=user_id)
+    except Exception as e:
+        logging.exception(f"落库标签失败: {e}")
+        summary = {"added": 0, "removed": 0, "unchanged": 0}
+        await callback_query.answer("⚠️ 标签保存失败，但已返回卡片", show_alert=False)
 
+    # 3) 生成 hashtag 串并写回 sora_content.tag + stage='pending'
+    try:
+        # 根据 code 批量取中文名（无中文则回退 code）
+        print(f"🔍 正在批量获取标签中文名: {selected_tags}", flush=True)
+        tag_map = await AnanBOTPool.get_tag_cn_batch(list(selected_tags))
+        print(f"🔍 获取标签中文名完成: {tag_map}", flush=True)
+        tag_names = [tag_map[t] for t in selected_tags]  # 无序集合；如需稳定可按中文名排序
+        print(f"🔍 生成 hashtag 串: {tag_names}", flush=True)
+        # 可选：按中文名排序，稳定显示（建议）
+        tag_names.sort()
+        
+        hashtag_str = Media.build_hashtag_string(tag_names, max_len=200)
+        await AnanBOTPool.update_sora_content_tag_and_stage(content_id, hashtag_str)
+    except Exception as e:
+        logging.exception(f"更新 sora_content.tag 失败: {e}")
 
+    # 4) 清理 FSM 里该资源的选择缓存 + 取消延时任务
+    try:
+        await state.update_data({fsm_key: []})
+    except Exception:
+        pass
+    task_key = (user_id, str(content_id))
+    old_task = tag_refresh_tasks.pop(task_key, None)
+    if old_task and not old_task.done():
+        old_task.cancel()
 
+    # ✅ 重置缓存（删除）
+    product_info_cache.pop(content_id, None)
+    product_info_cache_ts.pop(content_id, None)
 
-@dp.callback_query(F.data.startswith("back_to_product:"))
-async def handle_back_to_product(callback_query: CallbackQuery):
-    content_id = callback_query.data.split(":")[1]
+    # 5) 回到商品卡片
     thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
-    await callback_query.message.edit_media(
-        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
-        reply_markup=preview_keyboard
+    try:
+        await callback_query.message.edit_media(
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+            reply_markup=preview_keyboard
+            
+        )
+    except Exception as e:
+        logging.exception(f"返回商品卡片失败: {e}")
+
+    # 6) 轻提示
+    await callback_query.answer(
+        f"✅ 标签已保存 (+{summary.get('added',0)}/-{summary.get('removed',0)})，内容待处理",
+        show_alert=False
     )
+
+
+
 
 
 ############
@@ -541,9 +668,8 @@ async def receive_collection_media(message: Message, state: FSMContext):
     })
     bot_username = await get_bot_username()
     await AnanBOTPool.insert_file_extension(file_type, file_unique_id, file_id, bot_username, user_id)
-    member_content_id = await AnanBOTPool.insert_sora_content_media(file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username)
-
-
+    member_content_row = await AnanBOTPool.insert_sora_content_media(file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username)
+    member_content_id = member_content_row["id"]
 
     # 插入到 collection_items 表
     await AnanBOTPool.insert_collection_item(
@@ -638,7 +764,7 @@ async def done_add_items(callback_query: CallbackQuery, state: FSMContext):
 
     thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
     await callback_query.message.edit_media(
-        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
         reply_markup=preview_keyboard
     )
 
@@ -690,8 +816,9 @@ async def clear_price_request_after_timeout(state: FSMContext, content_id: str, 
             await bot.edit_message_media(
                 chat_id=chat_id,
                 message_id=message_id,
-                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
                 reply_markup=preview_keyboard
+                
             )
         except Exception as e:
             print(f"⚠️ 超时恢复菜单失败: {e}", flush=True)
@@ -715,12 +842,22 @@ async def receive_price_input(message: Message, state: FSMContext):
         else:
             state.clear()
             thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+
             await bot.edit_message_media(
                 chat_id=chat_id,
                 message_id=message_id,
-                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
                 reply_markup=preview_keyboard
+                
             )
+
+            # await bot.edit_message_media(
+            #     chat_id=chat_id,
+            #     message_id=message_id,
+            #     media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+            #     reply_markup=preview_keyboard,
+            #     parse_mode="HTML"
+            # )
         await message.delete()  
         return
 
@@ -737,11 +874,24 @@ async def receive_price_input(message: Message, state: FSMContext):
 
     await state.clear()
     await message.delete()
+
+    # ✅ 重置缓存（删除）
+    product_info_cache.pop(content_id, None)
+    product_info_cache_ts.pop(content_id, None)
+
+    # thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+    # await bot.edit_message_media(
+    #     chat_id=chat_id,
+    #     message_id=message_id,
+    #     media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+    #     reply_markup=preview_keyboard
+    # )
+
     thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
     await bot.edit_message_media(
         chat_id=chat_id,
         message_id=message_id,
-        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
         reply_markup=preview_keyboard
     )
 
@@ -752,8 +902,9 @@ async def cancel_set_price(callback_query: CallbackQuery, state: FSMContext):
     await state.clear()
     thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
     await callback_query.message.edit_media(
-        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
         reply_markup=preview_keyboard
+        
     )
 
 
@@ -818,8 +969,10 @@ async def clear_preview_request_after_timeout(state: FSMContext, user_id: str, m
                 reply_markup=preview_keyboard,
                 media=InputMediaPhoto(
                     media=thumb_file_id,
-                    caption=preview_text
+                    caption=preview_text,
+                    parse_mode="HTML"
                 )
+                
             )
         except Exception as e:
             print(f"⚠️ 超时编辑失败：{e}", flush=True)
@@ -844,7 +997,8 @@ async def cancel_set_preview(callback_query: CallbackQuery, state: FSMContext):
             reply_markup=preview_keyboard,
             media=InputMediaPhoto(
                 media=thumb_file_id,
-                caption=preview_text
+                caption=preview_text,
+                parse_mode="HTML"
             )
             
         )
@@ -855,15 +1009,15 @@ async def cancel_set_preview(callback_query: CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("auto_update_thumb:"))
 async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMContext):
     content_id = int(callback_query.data.split(":")[1])
-
+    print(f"▶️ 开始自动处理预览图", flush=True)
     try:
         # Step 1: 取得 sora_content.source_id
         row = await AnanBOTPool.get_sora_content_by_id(content_id)
         if not row or not row.get("source_id"):
-            return await callback_query.answer("⚠️ 无法取得 source_id", show_alert=True)
+            return await callback_query.answer("...⚠️ 无法取得 source_id", show_alert=True)
 
         source_id = row["source_id"]
-        print(f"🔍 取得 source_id: {source_id} for content_id: {content_id}", flush=True)
+        print(f"...🔍 取得 source_id: {source_id} for content_id: {content_id}", flush=True)
         bot_username = await get_bot_username()
         # Step 2: 取得 thumb_file_unique_id
         thumb_row = await AnanBOTPool.get_bid_thumbnail_by_source_id(source_id, bot_username)
@@ -872,7 +1026,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
 
         thumb_file_unique_id = thumb_row["thumb_file_unique_id"]
         thumb_file_id = thumb_row["thumb_file_id"]
-        print(f"🔍 取得 thumb_file_unique_id: {thumb_file_unique_id}, {thumb_file_id} for source_id: {source_id}", flush=True)
+        print(f"...🔍 取得分镜图信息: {thumb_file_unique_id}, {thumb_file_id} for source_id: {source_id}", flush=True)
 
         # Step 3: 更新 sora_content 缩图字段
         await AnanBOTPool.update_product_thumb(content_id, thumb_file_unique_id,thumb_file_id, bot_username)
@@ -887,12 +1041,12 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
         else:
             # 若没缓存，则重新生成一次缓存
             await get_product_info(content_id)
-        print(f"✅ 更新 content_id: {content_id} 的缩图为 {thumb_file_unique_id}", flush=True)
+        print(f"...✅ 更新 content_id: {content_id} 的缩图为 {thumb_file_unique_id}", flush=True)
 
         if thumb_file_id is None:
         # Step 4: 通知处理 bot 生成缩图（或触发缓存）
             await bot.send_message(chat_id=7793315433, text=f"{thumb_file_unique_id}")
-            await callback_query.answer("已通知其他机器人更新，请稍后自动刷新", show_alert=True)
+            await callback_query.answer("...已通知其他机器人更新，请稍后自动刷新", show_alert=True)
         else:
             
             try:
@@ -900,9 +1054,10 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                     media=InputMediaPhoto(media=thumb_file_id, caption=product_info_cache[content_id]["preview_text"]),
                     reply_markup=product_info_cache[content_id]["preview_keyboard"]
                 )
+                await callback_query.answer("✅ 已自动更新预览图", show_alert=True)
             except Exception as e:
-                print(f"⚠️ 更新预览图失败: {e}", flush=True)
-            await callback_query.answer("✅ 已自动更新预览图", show_alert=True)
+                print(f"...⚠️ 更新预览图失败: {e}", flush=True)
+            
 
     except Exception as e:
         logging.exception(f"⚠️ 自动更新预览图失败: {e}")
@@ -956,8 +1111,9 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         await bot.edit_message_media(
             chat_id=chat_id,
             message_id=message_id,
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
-            reply_markup=preview_keyboard
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
+            reply_markup=preview_keyboard,
+            
         )
     except Exception as e:
         print(f"⚠️ 更新预览图失败：{e}", flush=True)
@@ -1007,8 +1163,9 @@ async def clear_content_input_timeout(state: FSMContext, content_id: str, chat_i
             await bot.edit_message_media(
                 chat_id=chat_id,
                 message_id=message_id,
-                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
                 reply_markup=preview_keyboard
+                
             )
         except Exception as e:
             print(f"⚠️ 设置内容超时恢复失败: {e}", flush=True)
@@ -1037,7 +1194,7 @@ async def receive_content_input(message: Message, state: FSMContext):
         await bot.edit_message_media(
             chat_id=chat_id,
             message_id=message_id,
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
             reply_markup=preview_keyboard
         )
     except Exception as e:
@@ -1049,7 +1206,7 @@ async def cancel_set_content(callback_query: CallbackQuery, state: FSMContext):
     await state.clear()
     thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
     await callback_query.message.edit_media(
-        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text),
+        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
         reply_markup=preview_keyboard
     )
 
@@ -1140,7 +1297,7 @@ async def handle_text(message: Message):
 
 
 @dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO}))
-async def handle_media(message: Message):
+async def handle_media(message: Message, state: FSMContext):
     file_type = message.content_type
     user_id = str(message.from_user.id)
 
@@ -1182,6 +1339,15 @@ kc_id: {kc_id or '无'}""")
     else:
         await message.answer("此媒体未发布过")
 
+
+    # ids = await Media.extract_preview_photo_ids(message, prefer_cover=True, delete_sent=True)
+    # if not ids:
+    #     await message.answer("⚠️ 这个媒体没有可用的缩略图/封面")
+    #     return
+    # file_id, file_unique_id = ids
+    # # 这里你可以直接入库 / 复用
+    # await message.answer(f"✅ 已取得预览图\nfile_id = {file_id}\nfile_unique_id = {file_unique_id}")
+
     await AnanBOTPool.upsert_media(table, {
         "file_unique_id": file_unique_id,
         "file_size": file_size,
@@ -1191,16 +1357,16 @@ kc_id: {kc_id or '无'}""")
         "create_time": datetime.now()
     })
     bot_username = await get_bot_username()
+    
     await AnanBOTPool.insert_file_extension(table, file_unique_id, file_id, bot_username, user_id)
-    content_id = await AnanBOTPool.insert_sora_content_media(file_unique_id, table, file_size, duration, user_id, file_id,bot_username)
+    row = await AnanBOTPool.insert_sora_content_media(file_unique_id, table, file_size, duration, user_id, file_id,bot_username)
+    content_id = row["id"]
 
     product_info = await AnanBOTPool.get_existing_product(content_id)
     if product_info:
         thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
-        await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard)
-        await update_product_preview(content_id, thumb_file_id)
-       
-        
+        newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+        await update_product_preview(content_id, thumb_file_id, state , newsend)
 
     else:
         markup = InlineKeyboardMarkup(inline_keyboard=[
@@ -1209,23 +1375,84 @@ kc_id: {kc_id or '无'}""")
                 InlineKeyboardButton(text="取消", callback_data="cancel_product")
             ]
         ])
-        await message.answer("检测到文件，是否需要创建为投稿？", reply_markup=markup)
+        caption_text = "检测到文件，是否需要创建为投稿？"
+
+        if row['thumb_file_unique_id'] is None:
+            buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
+            sent = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
+
+            photo_obj = sent.photo[-1]
+            thumb_file_id = photo_obj.file_id
+            thumb_file_unique_id = photo_obj.file_unique_id
+            thumb_file_size = photo_obj.file_size
+            thumb_width = photo_obj.width
+            thumb_height = photo_obj.height
+
+            await AnanBOTPool.upsert_media( "photo", {
+                "file_unique_id": thumb_file_unique_id,
+                "file_size": thumb_file_size,
+                "duration": 0,
+                "width": thumb_width,
+                "height": thumb_height,
+                "create_time": datetime.now()
+            })
+
+            await AnanBOTPool.insert_file_extension("photo", thumb_file_unique_id, thumb_file_id, bot_username, user_id)
+
+            await AnanBOTPool.update_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
+
+            print(f"✅ 已取得预览图\nt_file_id = {file_id}\nt_file_unique_id = {file_unique_id}", flush=True)
 
 
-async def update_product_preview(content_id, thumb_file_id):
+        else:
+            await message.answer(caption_text, reply_markup=markup)
+
+
+
+
+
+    
+       
+
+async def update_product_preview(content_id, thumb_file_id, state, message):
     now = datetime.now().timestamp()
     cached = product_info_cache.get(content_id)
 
     if thumb_file_id ==  DEFAULT_THUMB_FILE_ID and cached['thumb_unique_id'] != "":
         async def update_preview_if_arrived():
             try:
+                thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, cached['thumb_unique_id'], 30)
+                if thumb_file_id is not None:
+                    print(f"[预览图更新] 已获取 thumb_file_id: {thumb_file_id}")
+                    print(f"{message.chat.id} {message.message_id} {content_id} {cached['thumb_unique_id']}")
+                    bot_username = lz_var.bot_username
+                    await AnanBOTPool.update_product_thumb(content_id, cached['thumb_unique_id'] ,thumb_file_id, bot_username)
+
+                    # ✅ 重置缓存（删除）
+                    product_info_cache.pop(content_id, None)
+                    product_info_cache_ts.pop(content_id, None)
+
+                    # 编辑原消息，更新为商品卡片
+                    thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+                    try:
+                        await lz_var.bot.edit_message_media(
+                            chat_id=message.chat.id,
+                            message_id=message.message_id,
+                            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
+                            reply_markup=preview_keyboard,
+                            
+                        )
+                    except Exception as e:
+                        print(f"⚠️ 更新预览图失败：{e}", flush=True)
+
+
                 #传送信息给用户p_14707422896
-                await bot.send_message(chat_id=7793315433, text=f"{cached['thumb_unique_id']}")
+                # await bot.send_message(chat_id=7793315433, text=f"{cached['thumb_unique_id']}")
                 # 等待 chat_id 的回应
 
-                print(f"[通知更新成功] {cached['thumb_unique_id']}")
+                # print(f"[通知更新成功] thumb_unique_id = {cached['thumb_unique_id']}")
             except Exception as e:
-                print(f"[预览图更新失败] {e}")
+                print(f"[预览图更新失败x] {e}")
 
         asyncio.create_task(update_preview_if_arrived())
  
@@ -1239,6 +1466,7 @@ async def main():
     global bot_username
     bot_info = await bot.get_me()
     bot_username = bot_info.username
+    lz_var.bot_username = bot_username
     print(f"🤖 当前 bot 用户名：@{bot_username}")
 
    # ✅ 初始化 MySQL 连接池

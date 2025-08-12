@@ -1347,7 +1347,7 @@ kc_id: {kc_id or '无'}""")
     # file_id, file_unique_id = ids
     # # 这里你可以直接入库 / 复用
     # await message.answer(f"✅ 已取得预览图\nfile_id = {file_id}\nfile_unique_id = {file_unique_id}")
-
+    print(f"接收到媒体：{file_type} {file_unique_id} {file_id}", flush=True)
     await AnanBOTPool.upsert_media(table, {
         "file_unique_id": file_unique_id,
         "file_size": file_size,
@@ -1358,15 +1358,49 @@ kc_id: {kc_id or '无'}""")
     })
     bot_username = await get_bot_username()
     
+    print(f"✅ 已入库媒体信息：{table} {file_unique_id} {file_id}", flush=True)
     await AnanBOTPool.insert_file_extension(table, file_unique_id, file_id, bot_username, user_id)
+
+    print(f"✅ 已入库文件扩展信息：{table} {file_unique_id} {file_id}", flush=True)
     row = await AnanBOTPool.insert_sora_content_media(file_unique_id, table, file_size, duration, user_id, file_id,bot_username)
     content_id = row["id"]
 
+    print(f"✅ 已入库Sora内容信息：{content_id}", flush=True)
     product_info = await AnanBOTPool.get_existing_product(content_id)
     if product_info:
+        print(f"✅ 已找到现有商品信息：{content_id}", flush=True)
         thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
-        newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
-        await update_product_preview(content_id, thumb_file_id, state , newsend)
+
+        if row['thumb_file_unique_id'] is None:
+            print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
+            buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
+            newsend = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+            
+            photo_obj = newsend.photo[-1]
+            thumb_file_id = photo_obj.file_id
+            thumb_file_unique_id = photo_obj.file_unique_id
+            thumb_file_size = photo_obj.file_size
+            thumb_width = photo_obj.width
+            thumb_height = photo_obj.height
+
+            await AnanBOTPool.upsert_media( "photo", {
+                "file_unique_id": thumb_file_unique_id,
+                "file_size": thumb_file_size,
+                "duration": 0,
+                "width": thumb_width,
+                "height": thumb_height,
+                "create_time": datetime.now()
+            })
+
+            await AnanBOTPool.insert_file_extension("photo", thumb_file_unique_id, thumb_file_id, bot_username, user_id)
+
+            await AnanBOTPool.update_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
+
+
+           
+        else:
+            newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+            await update_product_preview(content_id, thumb_file_id, state , newsend)
 
     else:
         markup = InlineKeyboardMarkup(inline_keyboard=[

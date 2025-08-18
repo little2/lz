@@ -497,10 +497,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         'receiver_fee': 6
     })
 
+    # print(f"🔍 交易记录结果: {result}", flush=True)
+
     user_info = result.get('user_info', {})
     user_point = int(user_info.get('point', 0))
+    
 
-    if result.get('status') == 'exist' or result.get('status') == 'insert':
+    if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
 
         if result.get('status') == 'exist':
             reply_text = f"✅ 你已经兑换过此资源，不需要扣除积分"
@@ -509,6 +512,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         elif result.get('status') == 'insert':
             
             reply_text = f"✅ 兑换成功，已扣除 {sender_fee} 积分"
+            if user_point > 0:
+                reply_text += f"，当前积分余额: {(user_point-sender_fee)}。"
+       
+        elif result.get('status') == 'reward_self':
+            
+            reply_text = f"✅ 这是你自己的资源"
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point-sender_fee)}。"
 
@@ -527,7 +536,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         return
     elif result.get('status') == 'insufficient_funds':
        
-        reply_text = f"❌ 你的积分不足 ({user_point}) ，无法兑换此资源 ({sender_fee})。"
+        reply_text = f"❌ 你的积分不足 ( {user_point} ) ，无法兑换此资源 ( {abs(sender_fee)} )。"
         await callback.answer(reply_text, show_alert=True)
         # await callback.message.reply(reply_text, parse_mode="HTML")
         return

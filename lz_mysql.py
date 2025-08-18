@@ -47,9 +47,11 @@ class MySQLPool:
             cls._pool = None
             print("🛑 MySQL 连接池已关闭")
 
+    #需要和 lyase_utils.py 整合
     @classmethod
     async def transaction_log(cls, transaction_data):
         conn, cur = await cls.get_conn_cursor()
+        print(f"🔍 处理交易记录: {transaction_data}")
 
         user_info_row = None
 
@@ -110,7 +112,7 @@ class MySQLPool:
                     print(f"⚠️ 数据库执行出错: {e}")
                     user_info_row = None
             
-                if user_info_row['point'] < transaction_data['sender_fee']:
+                if not user_info_row or user_info_row['point'] < abs(transaction_data['sender_fee']):
                     return {'ok': '', 'status': 'insufficient_funds', 'transaction_data': transaction_data, 'user_info': user_info_row}
                 else:
                     # 扣除 sender point

@@ -34,7 +34,7 @@ class Media:
 
         x_uid = lz_var.x_man_bot_id          # = 7793315433
         x_chat_id = x_uid                     # 私聊里 chat_id == user_id
-        key = StorageKey(bot_id=bot.id, chat_id=x_chat_id, user_id=x_uid)
+        key = StorageKey(bot_id=lz_var.bot.id, chat_id=x_chat_id, user_id=x_uid)
 
         await storage.set_state(key, ProductPreviewFSM.waiting_for_x_media.state)
         await storage.set_data(key, {})  # 清空

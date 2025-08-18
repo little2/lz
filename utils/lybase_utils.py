@@ -7,6 +7,8 @@ class LYBase:
         conn, cur = await cls.get_conn_cursor()
         user_info_row = None
 
+        print(f"🔍 处理交易记录: {transaction_data}")
+
         if transaction_data.get('transaction_description', '') == '':
             return {'ok': '', 'status': 'no_description', 'transaction_data': transaction_data}
 
@@ -52,13 +54,19 @@ class LYBase:
                     print(f"⚠️ 查询 sender 用户失败: {e}")
                     user_info_row = None
 
-                if not user_info_row or user_info_row['point'] < transaction_data['sender_fee']:
-                    return {'ok': '', 'status': 'insufficient_funds', 'transaction_data': transaction_data, 'user_info': user_info_row}
 
-                await cur.execute(
-                    "UPDATE user SET point = point - %s WHERE user_id = %s",
-                    (transaction_data['sender_fee'], transaction_data['sender_id'])
-                )
+
+                if not user_info_row or user_info_row['point'] < abs(transaction_data['sender_fee']):
+                    return {'ok': '', 'status': 'insufficient_funds', 'transaction_data': transaction_data, 'user_info': user_info_row}
+                else:
+                    # 扣除 sender point
+                    await cur.execute("""
+                        UPDATE user
+                        SET point = point + %s
+                        WHERE user_id = %s
+                    """, (transaction_data['sender_fee'], transaction_data['sender_id']))
+
+
 
             if transaction_data.get('receiver_id', '') != '':
                 if not await cls.in_block_list(transaction_data['receiver_id']):

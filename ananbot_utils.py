@@ -2,8 +2,8 @@ from datetime import datetime
 import time
 import aiomysql
 from ananbot_config import DB_CONFIG
-
 from utils.lybase_utils import LYBase
+from utils.string_utils import LZString
 
 class AnanBOTPool(LYBase):
     _pool = None
@@ -176,7 +176,7 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
-                "UPDATE product SET price=%s WHERE content_id=%s",
+                "UPDATE product SET price=%s, stage='pending' WHERE content_id=%s",
                 (price, content_id)
             )
         finally:
@@ -188,8 +188,8 @@ class AnanBOTPool(LYBase):
         try:
             await cur.execute(
                 """INSERT INTO product 
-                   (name, content, price, content_id, file_type, owner_user_id)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                   (name, content, price, content_id, file_type, owner_user_id,stage)
+                   VALUES (%s, %s, %s, %s, %s, %s, "pending")""",
                 (name, desc, price, content_id, file_type, user_id)
             )
         finally:
@@ -200,11 +200,11 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
-                "SELECT id,price,content,file_type FROM product WHERE content_id = %s LIMIT 1",
+                "SELECT id,price,content,file_type,bid_status,review_status,anonymous_mode FROM product WHERE content_id = %s LIMIT 1",
                 (content_id,)
             )
             row = await cur.fetchone()
-            return {"id": row["id"], "price": row["price"],"content": row['content'],"file_type":row['file_type']} if row else None
+            return {"id": row["id"], "price": row["price"],"content": row['content'],"file_type":row['file_type'],"anonymous_mode":row['anonymous_mode'],"review_status":row['review_status']} if row else None
         finally:
             await cls.release(conn, cur)
 
@@ -216,8 +216,8 @@ class AnanBOTPool(LYBase):
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
                     s.thumb_file_unique_id,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
-                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition,
-                    g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id 
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status, p.anonymous_mode,
+                    g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id
                 FROM sora_content s
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
                 LEFT JOIN product p ON s.id = p.content_id
@@ -602,20 +602,21 @@ class AnanBOTPool(LYBase):
         async with cls._pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE product SET content = %s WHERE content_id = %s",
+                    "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
                     (content, content_id)
                 )
                 await cur.execute(
                     "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
                     (content, content_id)
                 )
+            await conn.commit()  
 
     @classmethod
     async def update_product_file_type(cls, content_id: int, file_type: str):
         async with cls._pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    "UPDATE product SET file_type = %s WHERE content_id = %s",
+                    "UPDATE product SET file_type = %s, stage='pending' WHERE content_id = %s",
                     (file_type, content_id)
                 )
                 await conn.commit()
@@ -631,13 +632,194 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
     @classmethod
-    async def get_bid_thumbnail_by_source_id(cls, source_id: str, bot_username: str):
+    async def get_bid_thumbnail_by_source_id(cls, source_id: str):
         conn, cur = await cls.get_conn_cursor()
         try:
-            await cur.execute("SELECT b.thumb_file_unique_id, f.file_id as thumb_file_id FROM bid_thumbnail b LEFT JOIN file_extension f ON f.file_unique_id = b.thumb_file_unique_id and f.bot=%s  WHERE b.file_unique_id = %s and b.confirm_status >= 10;", (bot_username,source_id,))
+            await cur.execute("SELECT b.thumb_file_unique_id, f.file_id as thumb_file_id, b.bot_name FROM bid_thumbnail b LEFT JOIN file_extension f ON f.file_unique_id = b.thumb_file_unique_id WHERE b.file_unique_id = %s and b.confirm_status >= 10;", (source_id,))
             # await cur.execute("SELECT thumb_file_unique_id FROM bid_thumbnail LEFT JOIN file_extension f ON f.file_unique_id = bid_thumbnail.file_unique_id WHERE bid_thumbnail.file_unique_id = %s", (source_id,))
-            return await cur.fetchone()
+            return await cur.fetchall()
         finally:
             await cls.release(conn, cur)
 
-         
+    
+
+    @classmethod
+    async def get_product_review_status(cls, content_id: int) -> int | None:
+        """
+        读取当前 bid_status（可选的幂等检查用）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                "SELECT review_status FROM product WHERE content_id=%s",
+                (content_id,)
+            )
+            row = await cur.fetchone()
+            return row["review_status"] if row else None
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def set_product_review_status(cls, content_id: int, status: int = 1) -> int:
+        """
+        将 product.review_status 设为指定值（默认 1），返回受影响行数。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                UPDATE product
+                   SET review_status=%s,
+                       updated_at=NOW(), stage='pending'
+                 WHERE content_id=%s
+                """,
+                (status, content_id)
+            )
+            affected = cur.rowcount
+            await conn.commit()
+            return affected
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def refine_product_content(cls, content_id: int) -> bool:
+        """
+        精炼产品内容：合并 sora_content.content 与对应媒体表 caption，
+        去重/清洗后回写两边。
+        返回 True 表示成功（哪怕没有内容也算成功），False 表示未找到记录。
+        """
+        # 允许的表名白名单（标识符不能用占位符，只能先验证再拼接）
+        FT_MAP = {
+            "d": "document", "document": "document",
+            "v": "video",    "video": "video",
+            "p": "photo",    "photo": "photo",
+        }
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 1) 取 sora_content 基本信息
+            await cur.execute(
+                "SELECT content, source_id, file_type FROM sora_content WHERE id = %s LIMIT 1",
+                (content_id,)
+            )
+            row = await cur.fetchone()
+            if not row:
+                # 没有这条 content_id
+                return False
+
+            src_id = row["source_id"]
+            ft_norm = FT_MAP.get(row["file_type"])
+            if not ft_norm:
+                # 未知类型，保守不动
+                print(f"[refine_product_content] Unsupported file_type={row['file_type']!r} for id={content_id}")
+                return False
+
+            # 2) 取对应媒体表 caption（表名用白名单 + 反引号）
+            await cur.execute(
+                f"SELECT caption FROM `{ft_norm}` WHERE file_unique_id = %s LIMIT 1",
+                (src_id,)
+            )
+            row2 = await cur.fetchone()
+
+            # 3) 合并文本
+            content_parts = []
+            if row and row.get("content"):
+                content_parts.append(row["content"])
+            if row2 and row2.get("caption"):
+                content_parts.append(row2["caption"])
+
+            merged = "\n".join(p for p in content_parts if p)  # 避免 None
+            if not merged.strip():
+                # 没有可精炼的内容，也算流程成功
+                return True
+
+            # 4) 精炼：去重中文句子 + 清洗
+            cleaned = LZString.dedupe_cn_sentences(merged)
+            refined = LZString.clean_text(cleaned)
+
+            # 5) 回写 sora_content 与媒体表
+            await cur.execute(
+                "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
+                (refined, content_id)
+            )
+            if( ft_norm == 'video'):
+                await cur.execute(
+                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' WHERE file_unique_id = %s",
+                    (refined, content_id, src_id)
+                )
+            else:
+                await cur.execute(
+                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, kc_status = 'pending' WHERE file_unique_id = %s",
+                    (refined, content_id, src_id)
+                )
+
+            await conn.commit()
+            return True
+
+        except Exception as e:
+            await conn.rollback()
+            print(f"[refine_product_content] ERROR id={content_id}: {e}")
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def set_product_guild(cls, content_id: int) -> None:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 1) 取 sora_content 基本信息
+            await cur.execute(
+                "SELECT source_id FROM sora_content WHERE id = %s LIMIT 1",
+                (content_id,)
+            )
+            file_row = await cur.fetchone()
+            if not file_row:
+                # 没有这条 content_id
+                return False
+
+            # 2) 取归属的 guild_id
+            await cur.execute(
+                "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL ORDER BY tag_count limit 1;",
+                (file_row["source_id"],)
+            )
+            file_tag_row = await cur.fetchone()
+            if not file_tag_row:
+                return False
+
+            await cur.execute(
+                """
+                UPDATE product
+                   SET guild_id=%s,
+                       updated_at=NOW(), stage='pending'
+                 WHERE content_id=%s
+                """,
+                (file_tag_row["guild_id"], content_id)
+            )
+            affected = cur.rowcount
+            await conn.commit()
+            return affected
+        finally:
+            await cls.release(conn, cur)
+
+    # AnanBOTPool 内部
+    @classmethod
+    async def update_product_anonymous_mode(cls, content_id: int, mode: int) -> int:
+        """
+        将 product.anonymous_mode 设置为 1(匿名) 或 3(公开)
+        返回受影响行数
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                UPDATE product
+                SET anonymous_mode = %s
+                WHERE content_id = %s
+                """,
+                (mode, content_id)
+            )
+            await conn.commit()
+            return cur.rowcount or 0
+        finally:
+            await cls.release(conn, cur)

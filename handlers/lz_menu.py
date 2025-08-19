@@ -513,13 +513,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             
             reply_text = f"✅ 兑换成功，已扣除 {sender_fee} 积分"
             if user_point > 0:
-                reply_text += f"，当前积分余额: {(user_point-sender_fee)}。"
+                reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
        
         elif result.get('status') == 'reward_self':
             
             reply_text = f"✅ 这是你自己的资源"
             if user_point > 0:
-                reply_text += f"，当前积分余额: {(user_point-sender_fee)}。"
+                reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
 
         try:
             if file_type == "photo" or file_type == "p":

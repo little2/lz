@@ -6,6 +6,7 @@ import asyncio
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, PhotoSize
 from aiogram.enums import ContentType
+from aiogram.filters import Command
 from aiomysql import create_pool
 from dotenv import load_dotenv
 from aiogram.fsm.state import State, StatesGroup
@@ -18,7 +19,9 @@ from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media  
 from ananbot_config import BOT_TOKEN
 import lz_var
+from lz_config import AES_KEY, ENVIRONMENT
 
+from utils.aes_crypto import AESCrypto
 
 bot = Bot(token=BOT_TOKEN)
 lz_var.bot = bot
@@ -219,9 +222,12 @@ async def get_product_info(content_id: int) -> tuple[str, str, InlineKeyboardMar
     now = datetime.now().timestamp()
     cached = product_info_cache.get(content_id)
     cached_ts = product_info_cache_ts.get(content_id, 0)
-
-    if cached and (now - cached_ts) < PRODUCT_INFO_CACHE_TTL:
+    
+    
+    if cached is not None and cached and (now - cached_ts) < PRODUCT_INFO_CACHE_TTL:
         return cached["thumb_file_id"], cached["preview_text"], cached["preview_keyboard"]
+
+   
 
     # 没有缓存或过期，调用原函数重新生成
     thumb_file_id, preview_text, preview_keyboard = await get_product_info_action(content_id)
@@ -272,7 +278,7 @@ async def get_product_info_action(content_id):
 {content_list}
 """
 
- 
+    print(f"{review_status}")
     if review_status < 3:
     
         # 按钮列表构建
@@ -1599,6 +1605,54 @@ async def handle_cancel_anonymous_choice(callback_query: CallbackQuery, state: F
 
 
 
+# —— /review 指令 —— 
+@dp.message(F.chat.type == "private", F.text.startswith("/review"))
+async def handle_review_command(message: Message):
+    """
+    用法: /review [content_id]
+    行为: 回覆 content_id 本身
+    """
+    parts = message.text.strip().split(maxsplit=1)
+    if len(parts) != 2 or not parts[1].isdigit():
+        return await message.answer("❌ 使用格式: /review [content_id]")
+    
+    content_id = parts[1]
+    thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+    
+    newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+    # await message.answer(content_id)
+
+
+@dp.message(Command("start"))
+async def handle_search(message: Message):
+    # 获取 start 后面的参数（如果有）
+    args = message.text.split(maxsplit=1)
+    if len(args) > 1:
+        param = args[1].strip()
+        parts = param.split("_")    
+
+    if parts[0] == "r":
+        try:
+            aes = AESCrypto(AES_KEY)
+            kind_index = parts[1]
+            encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
+            content_id_str = aes.aes_decode(encoded)
+            decode_row = content_id_str.split("|")
+            
+            content_id = int(decode_row[1])
+            print(f"解码内容: {content_id}", flush=True)
+            thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
+            await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+            
+
+
+        except Exception as e:
+            print(f"⚠️ 解码失败: {e}", flush=True)
+            pass
+
+
+    
+
 
 #
 # 共用
@@ -1748,6 +1802,7 @@ async def handle_media(message: Message, state: FSMContext):
     # # 这里你可以直接入库 / 复用
     # await message.answer(f"✅ 已取得预览图\nfile_id = {file_id}\nfile_unique_id = {file_unique_id}")
     print(f"接收到媒体：{file_type} {file_unique_id} {file_id}", flush=True)
+
     await AnanBOTPool.upsert_media(table, {
         "file_unique_id": file_unique_id,
         "file_size": file_size,
@@ -1770,8 +1825,6 @@ async def handle_media(message: Message, state: FSMContext):
     product_info = await AnanBOTPool.get_existing_product(content_id)
     if product_info:
         print(f"✅ 已找到现有商品信息：{product_info}", flush=True)
-
-
         thumb_file_id, preview_text, preview_keyboard = await get_product_info(content_id)
 
         if row['thumb_file_unique_id'] is None and file_type == ContentType.VIDEO:

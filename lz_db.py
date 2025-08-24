@@ -164,6 +164,7 @@ class DB:
                 # 这里原本是 db.cache.delete(...)，应为 self.cache.delete(...)
                 self.cache.delete(cache_key)
 
+    #要和 ananbot_utils.py 作整合
     async def search_sora_content_by_id(self, content_id: int):
         cache_key = f"sora_content_id:{content_id}"
         cached = self.cache.get(cache_key)

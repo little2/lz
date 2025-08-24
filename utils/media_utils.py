@@ -60,16 +60,17 @@ class Media:
         for _ in range(max_loop):
             data = await storage.get_data(key)
             x_file_id = data.get("x_file_id")
+            x_file_unique_id = data.get("x_file_unique_id")
             if x_file_id:
                 # 清掉对方上下文的等待态
                 await storage.set_state(key, None)
                 await storage.set_data(key, {})
-                print(f"  ✅ [X-MEDIA] 收到 file_id={x_file_id}", flush=True)
+                print(f"  ✅ [X-MEDIA] 收到 file_id={x_file_id} | {ask_file_unique_id}", flush=True)
                 return x_file_id
             await asyncio.sleep(0.5)
 
         if not x_file_id:
-            print(f"❌ [X-MEDIA] 超时未收到 file_id，等待 {timeout_sec} 秒后清理状态", flush=True)
+            print(f"❌ [X-MEDIA] 超时未收到 x_file_unique_id {ask_file_unique_id} ，已等待 {timeout_sec} 秒后清理状态", flush=True)
 
         # 超时清理
         await storage.set_state(key, None)
@@ -126,7 +127,6 @@ class Media:
             length += len(piece)
         return "".join(out)
     
-
 
     @classmethod
     async def extract_preview_photo_buffer(

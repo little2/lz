@@ -126,23 +126,61 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
-    @classmethod
-    async def update_product_thumb(cls, content_id: int, thumb_file_unique_id: str, thumb_file_id: str , bot_username: str):
+    @classmethod    
+    async def upsert_product_thumb(cls, content_id: int, thumb_file_unique_id: str, thumb_file_id: str, bot_username: str):
+        """
+        更新縮圖資訊：
+        - sora_content: 更新 thumb_file_unique_id（僅當該 content 存在）
+        - sora_media: 依 content_id + source_bot_name 做 UPSERT，更新 thumb_file_id
+
+        回傳：dict，包含各步驟受影響筆數/狀態
+        """
         conn, cur = await cls.get_conn_cursor()
         try:
+            # 1) 嘗試更新 sora_content（若該 content_id 不存在則不會有影響）
             await cur.execute(
-                "UPDATE sora_content SET thumb_file_unique_id = %s WHERE id = %s",
+                """
+                UPDATE sora_content
+                SET thumb_file_unique_id = %s
+                WHERE id = %s
+                """,
                 (thumb_file_unique_id, content_id)
             )
-            await cur.execute(
-                "UPDATE sora_media SET thumb_file_id = %s WHERE content_id = %s and source_bot_name = %s",
-                (thumb_file_id, content_id, bot_username)
-            )
+            content_rows = cur.rowcount  # 受影響筆數（0 代表該 content_id 不存在）
 
-            
-           
+            # 2) 對 sora_media 做 UPSERT（不存在則插入，存在則更新 thumb_file_id）
+            # 依賴唯一鍵 uniq_content_bot (content_id, source_bot_name)
+            await cur.execute(
+                """
+                INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    thumb_file_id = VALUES(thumb_file_id)
+                """,
+                (content_id, bot_username, thumb_file_id)
+            )
+            # 在 MariaDB/MySQL 中，ON DUPLICATE 觸發更新時 rowcount 會是 2（1 插入、2 更新的慣例不完全一致，依版本而異）
+            media_rows = cur.rowcount
+
+            await conn.commit()
+
+            return {
+                "sora_content_updated_rows": content_rows,
+                "sora_media_upsert_rowcount": media_rows
+            }
+
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except:
+                pass
+            # 讓上層知道發生了什麼錯
+            raise
         finally:
             await cls.release(conn, cur)
+
+
+
 
     @classmethod
     async def update_bid_thumbnail(cls, file_unique_id: str, thumb_file_unique_id: str, thumb_file_id: str , bot_username: str):
@@ -208,6 +246,7 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+    #要和 lz_db.py 作整合
     @classmethod
     async def search_sora_content_by_id(cls, content_id: int,bot_username: str):
         conn, cursor = await cls.get_conn_cursor()
@@ -216,7 +255,7 @@ class AnanBOTPool(LYBase):
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
                     s.thumb_file_unique_id,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
-                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status, p.anonymous_mode,
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status, p.anonymous_mode, p.id as product_id,
                     g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id
                 FROM sora_content s
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
@@ -226,6 +265,68 @@ class AnanBOTPool(LYBase):
                 '''
             , (bot_username, content_id))
             row = await cursor.fetchone()
+
+            # 没查到就返回 None，交由上层处理默认值
+            if not row:
+                return None
+
+            # 2) 先拿 m 表的缓存
+            file_id = row.get("m_file_id")
+            thumb_file_id = row.get("m_thumb_file_id")
+
+            # 3) 需要补的话，再去 file_extension 查
+            need_lookup_keys = []
+            if not file_id and row.get("source_id"):
+                need_lookup_keys.append(row["source_id"])
+            if not thumb_file_id and row.get("thumb_file_unique_id"):
+                # 避免与 source_id 重复
+                if row["thumb_file_unique_id"] not in need_lookup_keys:
+                    need_lookup_keys.append(row["thumb_file_unique_id"])
+
+            if need_lookup_keys:
+                # 动态 IN 占位
+                placeholders = ",".join(["%s"] * len(need_lookup_keys))
+                params = [*need_lookup_keys, bot_username]
+
+                await cursor.execute(
+                    f'''
+                    SELECT file_unique_id, file_id
+                    FROM file_extension
+                    WHERE file_unique_id IN ({placeholders})
+                      AND bot = %s
+                    ''',
+                    params
+                )
+                extension_rows = await cursor.fetchall()
+                ext_map = {r["file_unique_id"]: r["file_id"] for r in extension_rows}
+
+                updated = False
+                if not file_id and row.get("source_id") in ext_map:
+                    file_id = ext_map[row["source_id"]]
+                    row["m_file_id"] = file_id
+                    updated = True
+
+                if not thumb_file_id and row.get("thumb_file_unique_id") in ext_map:
+                    thumb_file_id = ext_map[row["thumb_file_unique_id"]]
+                    row["m_thumb_file_id"] = thumb_file_id
+                    updated = True
+
+                # 4) 如果补到了，就回写 sora_media（UPSERT）
+                if updated:
+                    await cursor.execute(
+                        """
+                        INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id, file_id)
+                        VALUES (%s, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                          thumb_file_id = VALUES(thumb_file_id),
+                          file_id      = VALUES(file_id)
+                        """,
+                        (content_id, bot_username, thumb_file_id, file_id)
+                    )
+                    # 如果你这边用手动事务，可考虑在外层统一提交
+
+            
+
             return row
         except Exception as e:
             print(f"⚠️ 数据库执行出错: {e}")
@@ -404,15 +505,17 @@ class AnanBOTPool(LYBase):
                 """, (type_code,))
                 return await cur.fetchall()
 
+
+
     @classmethod
-    async def get_file_unique_id_by_content_id(cls, content_id: str) -> str:
+    async def get_content_id_by_file_unique_id(cls, file_unique_id: str) -> str:
         async with cls._pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    SELECT source_id as file_unique_id 
+                    SELECT id,source_id as file_unique_id 
                     FROM sora_content 
-                    WHERE id = %s
-                """, (content_id,))
+                    WHERE source_id = %s
+                """, (file_unique_id,))
                 row = await cur.fetchone()
                 return row[0] if row else ""
 
@@ -621,7 +724,7 @@ class AnanBOTPool(LYBase):
                 )
                 await conn.commit()
 
-
+    #search_sora_content_by_id
     @classmethod
     async def get_sora_content_by_id(cls, content_id: int):
         conn, cur = await cls.get_conn_cursor()
@@ -821,5 +924,126 @@ class AnanBOTPool(LYBase):
             )
             await conn.commit()
             return cur.rowcount or 0
+        finally:
+            await cls.release(conn, cur)
+
+    
+    @classmethod
+    async def get_trade_url(cls, file_unique_id: str) -> str:
+        """
+        生成交易/资源跳转链接。
+        这里给一个可运行的占位实现；你可按你的业务改成真实落地页。
+        """
+        # TODO: 若你有真实落地页，请改成你的域名规则
+        return f"https://trade/{file_unique_id}"
+
+    @classmethod
+    async def find_user_reportable_transaction(cls, user_id: int, file_unique_id: str) -> dict | None:
+        """
+        按 PHP 逻辑：优先查与该 file_unique_id 相关的 'view' 或 'confirm_buy' 记录（任一即算有交易记录）。
+        返回第一条命中记录；无则 None。
+        """
+        sql = """
+            (SELECT *
+             FROM `transaction`
+             WHERE sender_id = %s
+               AND transaction_type = %s
+               AND memo = %s)
+            UNION ALL
+            (SELECT *
+             FROM `transaction`
+             WHERE sender_id = %s
+               AND transaction_type = %s
+               AND transaction_description = %s)
+            LIMIT 1
+        """
+        params = (user_id, "view", file_unique_id, user_id, "confirm_buy", file_unique_id)
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(sql, params)
+            row = await cur.fetchone()
+            return row if row else None
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def find_existing_report(cls, file_unique_id: str) -> dict | None:
+        """
+        查询是否已有针对该 file_unique_id 的举报（状态在 editing/pending/published/failed）。
+        有则返回第一条；无则 None。
+        """
+        sql = """
+            SELECT r.*, t.receiver_id as owner_user_id, t.sender_id, t.sender_fee, t.receiver_fee 
+              FROM report r
+              LEFT JOIN transaction t ON r.transaction_id = t.transaction_id
+             WHERE r.process_status IN ('editing', 'pending', 'published', 'failed')
+               AND r.file_unique_id = %s
+             LIMIT 1
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(sql, (file_unique_id,))
+            row = await cur.fetchone()
+            return row if row else None
+        finally:
+           
+            await cls.release(conn, cur)
+
+    # ananbot_utils.py 内的 AnanBOTPool 类里新增
+    @classmethod
+    async def create_report(cls, file_unique_id: str, transaction_id: int, report_type: int, report_reason: str) -> int:
+        """
+        向 report 表插入一条记录，process_status='pending'
+        返回自增 report_id
+        """
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            ts = int(datetime.now().timestamp())
+            sql = """
+                INSERT INTO report
+                    (file_unique_id, transaction_id, create_timestamp, report_reason, report_type, process_status1, process_status)
+                VALUES
+                    (%s, %s, %s, %s, %s, 0, 'pending')
+            """
+            await cursor.execute(sql, (file_unique_id, transaction_id, ts, report_reason, report_type))
+            await conn.commit()
+            return cursor.lastrowid  # MyISAM/auto_increment 可用
+        finally:
+            await cls.release(conn, cursor)
+
+
+    @classmethod
+    async def update_bid_owner(cls, file_unique_id: str, new_owner_id: str | int) -> int:
+        """
+        将 bid.owner_user_id 更新为新的拥有者（如系统账号）
+        返回受影响行数
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                "UPDATE bid SET owner_user_id=%s WHERE file_unique_id=%s",
+                (str(new_owner_id), file_unique_id)
+            )
+            affected = cur.rowcount or 0
+            await conn.commit()
+            return affected
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def update_report_status(cls, report_id: int, status: str) -> int:
+        """
+        更新 report.process_status = 'approved' / 'rejected' / 'pending' ...
+        返回受影响行数
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                "UPDATE report SET process_status=%s WHERE report_id=%s",
+                (status, report_id)
+            )
+            affected = cur.rowcount or 0
+            await conn.commit()
+            return affected
         finally:
             await cls.release(conn, cur)

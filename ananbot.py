@@ -2444,13 +2444,22 @@ async def handle_media(message: Message, state: FSMContext):
 
     print(f"✅ 已入库Sora内容信息：{content_id}", flush=True)
     product_info = await AnanBOTPool.get_existing_product(content_id)
+    owner_user_id = str(product_info.get("owner_user_id")) if product_info else None
+
     if product_info:
+        if(owner_user_id!=user_id):
+            return await message.answer(f"⚠️ 这个资源已经有人投稿 {owner_user_id} {user_id}")
+
         print(f"✅ 已找到现有商品信息：{product_info}", flush=True)
         thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+
+
 
         if row['thumb_file_unique_id'] is None and file_type == ContentType.VIDEO:
             print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
             buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
+
+
             newsend = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
             
             photo_obj = newsend.photo[-1]

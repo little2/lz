@@ -238,11 +238,11 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
-                "SELECT id,price,content,file_type,bid_status,review_status,anonymous_mode FROM product WHERE content_id = %s LIMIT 1",
+                "SELECT id,price,content,file_type,bid_status,review_status,anonymous_mode,owner_user_id FROM product WHERE content_id = %s LIMIT 1",
                 (content_id,)
             )
             row = await cur.fetchone()
-            return {"id": row["id"], "price": row["price"],"content": row['content'],"file_type":row['file_type'],"anonymous_mode":row['anonymous_mode'],"review_status":row['review_status']} if row else None
+            return {"id": row["id"], "price": row["price"],"content": row['content'],"file_type":row['file_type'],"anonymous_mode":row['anonymous_mode'],"review_status":row['review_status'],"owner_user_id":row['owner_user_id']} if row else None
         finally:
             await cls.release(conn, cur)
 

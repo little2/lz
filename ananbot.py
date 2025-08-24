@@ -11,11 +11,13 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media  
-from ananbot_config import BOT_TOKEN
+from ananbot_config import BOT_TOKEN,BOT_MODE
 import lz_var
 from lz_config import AES_KEY
 
@@ -93,6 +95,10 @@ class ProductPreviewFSM(StatesGroup):
     waiting_for_anonymous_choice = State(state="product_preview:waiting_for_anonymous_choice")
     waiting_for_report_type = State(state="report:waiting_for_type")
     waiting_for_report_reason = State(state="report:waiting_for_reason")
+
+async def health(request):
+    return web.Response(text="✅ Bot 正常运行", status=200)
+
 
 @dp.message(
     (F.photo | F.video | F.document)
@@ -2619,7 +2625,18 @@ def invalidate_cached_product(content_id: int | str) -> None:
     product_info_cache_ts.pop(cid, None)
 
 
-
+async def keep_alive_ping():
+    WEBHOOK_PATH = "/"
+    WEBHOOK_HOST = "0.0.0.0"
+    url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if BOT_MODE == "webhook" else f"{WEBHOOK_HOST}/"
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    print(f"🌐 Keep-alive ping {url} status {resp.status}")
+        except Exception as e:
+            print(f"⚠️ Keep-alive ping failed: {e}")
+        await asyncio.sleep(300)  # 每 5 分鐘 ping 一次
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -2632,7 +2649,28 @@ async def main():
    # ✅ 初始化 MySQL 连接池
     await AnanBOTPool.init_pool()
 
-    await dp.start_polling(bot)
+
+    if BOT_MODE == "webhook":
+        # dp.startup.register(on_startup)
+        print("🚀 啟動 Webhook 模式")
+
+        app = web.Application()
+        app.router.add_get("/", health)  # ✅ 健康检查路由
+
+        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/")
+        setup_application(app, dp, bot=bot)
+
+        task_keep_alive = asyncio.create_task(keep_alive_ping())
+
+        # ✅ Render 环境用 PORT，否则本地用 8080
+        port = int(os.environ.get("PORT", 8080))
+        await web._run_app(app, host="0.0.0.0", port=port)
+    else:
+        print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
+        await dp.start_polling(bot)  # Aiogram 轮询
+
+
+   
 
 if __name__ == "__main__":
     import asyncio

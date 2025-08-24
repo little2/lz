@@ -2663,8 +2663,7 @@ async def main():
         task_keep_alive = asyncio.create_task(keep_alive_ping())
 
         # ✅ Render 环境用 PORT，否则本地用 8080
-        port = int(os.environ.get("PORT", 8080))
-        await web._run_app(app, host="0.0.0.0", port=port)
+        await web._run_app(app, host="0.0.0.0", port=8080)
     else:
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询

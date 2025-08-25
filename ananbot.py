@@ -1855,7 +1855,9 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
         await message.delete()
        
         product_row = await get_product_info(content_id)
-        
+
+     
+
         thumb_file_id = product_row.get("thumb_file_id") or ""
         preview_text = product_row.get("preview_text") or ""
         preview_keyboard = product_row.get("preview_keyboard") or ""
@@ -1865,9 +1867,9 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
         thumb_file_unqiue_id = product_info.get("thumb_file_unique_id") or ""
         source_id = product_info.get("source_id") or ""
         file_type = product_info.get("file_type") or ""
-        receive_status = product_info.get("receive_status") or 0
+        review_status = product_info.get("review_status") or 0
         
-        if(receive_status!=4):
+        if(review_status!=4):
             return await message.answer("🤠 该资源已纠错审核完成")
 
 

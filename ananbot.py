@@ -372,7 +372,7 @@ async def get_product_info(content_id: int):
     
     if review_status <= 3:
     
-        if review_status == 0 or review_status == 1:
+        if review_status <= 1:
             # 按钮列表构建
             buttons = [
                 [

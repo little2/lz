@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from aiogram.filters import Command
 from aiogram.enums import ContentType
 from aiogram.utils.text_decorations import markdown_decoration
@@ -176,9 +176,11 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 content_id_str = aes.aes_decode(encoded)
                 
                 content_id = int(content_id_str)  # ✅ 关键修正
+
+                shared_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+
                
-               
-               
+          
                 # ✅ 调用并解包返回的三个值
                 ret_content, [source_id, file_type,file_id, thumb_file_id], [owner_user_id,fee] = await load_sora_content_by_id(content_id, state, search_key_index)
                 # print(f"thumb_file_id:{thumb_file_id}")
@@ -196,12 +198,18 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         ],
                         [
                             InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                        ],
+                        [
+                            InlineKeyboardButton(text="🔗 复制", copy_text=CopyTextButton(text=shared_url))
                         ]
                     ])
                 else:
                     reply_markup = InlineKeyboardMarkup(inline_keyboard=[
                         [
                             InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
+                        ],
+                        [
+                            InlineKeyboardButton(text="🔗 复制", copy_text=CopyTextButton(text=shared_url))
                         ]
                     ])
 

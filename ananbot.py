@@ -343,6 +343,9 @@ async def get_product_info(content_id: int):
     if(content_list  and content_list.strip() != ''):
         preview_text += f"\n\n<i>{content_list}</i>"
 
+    # if review_status == 3 or review_status==4 or review_status==5:
+    #     await AnanBOTPool.check_guild_manager(content_id)
+
     if review_status == 4:
 
         report_info = await AnanBOTPool.find_existing_report(file_unique_id)  
@@ -369,13 +372,21 @@ async def get_product_info(content_id: int):
     
     if review_status <= 3:
     
-        # 按钮列表构建
-        buttons = [
-            [
-                InlineKeyboardButton(text="📝 内容", callback_data=f"set_content:{content_id}"),
-                InlineKeyboardButton(text="📷 预览", callback_data=f"set_preview:{content_id}")
+        if review_status == 0 or review_status == 1:
+            # 按钮列表构建
+            buttons = [
+                [
+                    InlineKeyboardButton(text="📝 内容", callback_data=f"set_content:{content_id}:0"),
+                    InlineKeyboardButton(text="📷 预览", callback_data=f"set_preview:{content_id}")
+                ]
             ]
-        ]
+        else:
+            buttons = [
+                [
+                    InlineKeyboardButton(text="📝 内容", callback_data=f"set_content:{content_id}:1"),
+                    InlineKeyboardButton(text="📷 预览", callback_data=f"set_preview:{content_id}")
+                ]
+            ]
 
         if product_info['file_type'] in ['document', 'collection']:
             buttons.append([
@@ -397,7 +408,7 @@ async def get_product_info(content_id: int):
             ])
 
         elif review_status == 2:
-            
+            # 初审
             buttons.extend([
                 [
                     InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}")
@@ -1314,6 +1325,8 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     except Exception:
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)
 
+    # 和原来的内容合并 
+    AnanBOTPool.refine_product_content(content_id) 
     
 
     # 1) 更新 bid_status=1
@@ -1413,6 +1426,18 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     except Exception:
         pass
 
+    '''
+    审核状态
+    0   编辑中(投稿者)
+    1   未通过审核(投稿者)
+    2   初审进行中 (审核员)
+    3   通过初审,复审进行中 (审椄员)
+    4   经检举,初审进行中 (审核员)
+    6   通过终核,上架进行中
+    7   上架失败
+    9   成功上架 
+    '''
+
     if review_status == 6:
         await callback_query.answer("✅ 已通过审核", show_alert=True)
         await AnanBOTPool.refine_product_content(content_id)    # 直接修改 caption ??
@@ -1421,7 +1446,6 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     elif review_status == 3:
         await callback_query.answer("✅ 已通过审核", show_alert=True)
-        await AnanBOTPool.refine_product_content(content_id)
         buttons = [[InlineKeyboardButton(text="✅ 已通过审核", callback_data=f"none")]]
        
     elif review_status == 1:
@@ -1522,6 +1546,10 @@ async def receive_preview_photo(message: Message, state: FSMContext):
 async def handle_set_content(callback_query: CallbackQuery, state: FSMContext):
     content_id = callback_query.data.split(":")[1]
 
+    overwrite = callback_query.data.split(":")[2] or 0
+
+    
+
     product_info = await AnanBOTPool.get_existing_product(content_id)
 
     caption = f"<code>{product_info['content']}</code>  (点选复制) \r\n\r\n📘 请输入完整的内容介绍（文本形式）"
@@ -1538,7 +1566,8 @@ async def handle_set_content(callback_query: CallbackQuery, state: FSMContext):
     await state.set_data({
         "content_id": content_id,
         "chat_id": callback_query.message.chat.id,
-        "message_id": callback_query.message.message_id
+        "message_id": callback_query.message.message_id,
+        "overwrite": overwrite
     })
 
     # 60秒超时处理
@@ -1567,8 +1596,12 @@ async def receive_content_input(message: Message, state: FSMContext):
     content_id = data["content_id"]
     chat_id = data["chat_id"]
     message_id = data["message_id"]
+    overwrite = data["overwrite"] or 0
+    user_id = message.from_user.id
 
-    await AnanBOTPool.update_product_content(content_id, content_text)
+    
+
+    await AnanBOTPool.update_product_content(content_id, content_text, user_id, overwrite)
     await message.delete()
     await state.clear()
 
@@ -1900,13 +1933,15 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
 
         #再发设置按钮
         try:
+            print(f"🔄 重新发送设置按钮")
             new_msg = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+            print(f"{new_msg}", flush=True)
             await update_product_preview(content_id, thumb_file_id, state, new_msg)
         except Exception as e:
             err_text = str(e)
 
             # 特殊处理：如果是 video 当作 photo 的错误，就删除 sora_media.thumb_file_id
-            if "can't use file of type Video as Photo" in err_text:
+            if "can't use file of type" in err_text:
                 try:
                     await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unqiue_id, None, await get_bot_username())
                     print(f"🗑 已删除错误的 thumb_file_id for content_id={content_id}", flush=True)
@@ -2451,6 +2486,16 @@ async def handle_media(message: Message, state: FSMContext):
     if product_info:
         if(owner_user_id!=user_id):
             return await message.answer(f"⚠️ 这个资源已经有人投稿 {owner_user_id} {user_id}")
+        
+        if product_info.get("review_status") == 2:
+            guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
+            if not guild_row:
+                return await message.answer(f"⚠️ 这个资源正在审核状态")
+        elif product_info.get("review_status") in (3, 4, 5):
+            guild_row = await AnanBOTPool.check_guild_role(user_id,'owner')
+            if not guild_row:
+                return await message.answer(f"⚠️ 这个资源正在上架中")
+
 
         print(f"✅ 已找到现有商品信息：{product_info}", flush=True)
         thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)

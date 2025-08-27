@@ -701,9 +701,68 @@ class AnanBOTPool(LYBase):
 
 
     @classmethod
-    async def update_product_content(cls, content_id: str, content: str):
+    async def update_product_content(cls, content_id: int, content: str, user_id: int = 0, overwrite: int = 0):
+        # 允许的表名白名单（标识符不能用占位符，只能先验证再拼接）
+        FT_MAP = {
+            "d": "document", "document": "document",
+            "v": "video",    "video": "video",
+            "p": "photo",    "photo": "photo",
+        }
         async with cls._pool.acquire() as conn:
             async with conn.cursor() as cur:
+                print(f"===>{overwrite}")
+                if (int(overwrite) == 1):
+                    print(f"2===>{overwrite}")
+                    # 1) 取 sora_content 基本信息
+                    await cur.execute(
+                        "SELECT source_id, file_type FROM sora_content WHERE id = %s LIMIT 1",
+                        (content_id,)
+                    )
+                    row_sora_content = await cur.fetchone()
+
+                    if row_sora_content:
+                        print(f"sora {overwrite}",flush=True)
+
+                        src_id = row_sora_content[0]
+                        file_type = row_sora_content[1]
+                        ft_norm = FT_MAP.get(file_type)
+                        if not ft_norm:
+                            print(f"sora {overwrite}",flush=True)
+                            # 未知类型，保守不动
+                            print(f"[refine_product_content] Unsupported file_type={file_type} for id={content_id}")
+                        else:
+                            print(f"sora {overwrite}",flush=True)
+                            # 2) 取对应媒体表 caption（表名用白名单 + 反引号）
+                            await cur.execute(
+                                f"SELECT caption FROM `{ft_norm}` WHERE file_unique_id = %s LIMIT 1",
+                                (src_id,)
+                            )
+                            origin_content_row = await cur.fetchone()
+                            origin_content = origin_content_row[0] if origin_content_row else ""
+
+                            await cur.execute(
+                                f"INSERT INTO `material_caption` (`file_unique_id`, `caption`, `user_id`) VALUES (%s, %s, %s);",
+                                (src_id, origin_content, user_id)
+                            )
+
+                            await cur.execute(
+                                f"INSERT INTO `material_caption` (`file_unique_id`, `caption`, `user_id`) VALUES (%s, %s, %s);",
+                                (src_id, origin_content, user_id)
+                            )
+
+                            print(f"ft_norm {ft_norm}",flush=True)
+                            if( ft_norm == 'video' or ft_norm == 'document'):
+                                await cur.execute(
+                                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' WHERE file_unique_id = %s",
+                                    (content, content_id, src_id)
+                                )
+                            else:
+                                await cur.execute(
+                                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, kc_status = 'pending' WHERE file_unique_id = %s",
+                                    (content, content_id, src_id)
+                                )
+
+
                 await cur.execute(
                     "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
                     (content, content_id)
@@ -845,7 +904,7 @@ class AnanBOTPool(LYBase):
                 "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
                 (refined, content_id)
             )
-            if( ft_norm == 'video'):
+            if( ft_norm == 'video' or ft_norm == 'document'):
                 await cur.execute(
                     f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' WHERE file_unique_id = %s",
                     (refined, content_id, src_id)
@@ -856,6 +915,12 @@ class AnanBOTPool(LYBase):
                     (refined, content_id, src_id)
                 )
 
+            await cur.execute(
+                "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
+                (refined, content_id)
+            )
+
+
             await conn.commit()
             return True
 
@@ -865,6 +930,71 @@ class AnanBOTPool(LYBase):
             raise
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def update_material_caption(cls, content_id: int, content) -> bool:
+        """
+        更新所有的产品内容：合并 sora_content.content 与对应媒体表 caption，
+        去重/清洗后回写两边。
+        返回 True 表示成功（哪怕没有内容也算成功），False 表示未找到记录。
+        """
+        # 允许的表名白名单（标识符不能用占位符，只能先验证再拼接）
+        FT_MAP = {
+            "d": "document", "document": "document",
+            "v": "video",    "video": "video",
+            "p": "photo",    "photo": "photo",
+        }
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 1) 取 sora_content 基本信息
+            await cur.execute(
+                "SELECT content, source_id, file_type FROM sora_content WHERE id = %s LIMIT 1",
+                (content_id,)
+            )
+            row = await cur.fetchone()
+            if not row:
+                # 没有这条 content_id
+                return False
+
+            src_id = row["source_id"]
+            ft_norm = FT_MAP.get(row["file_type"])
+            if not ft_norm:
+                # 未知类型，保守不动
+                print(f"[refine_product_content] Unsupported file_type={row['file_type']!r} for id={content_id}")
+                return False
+
+            # 5) 回写 sora_content 与媒体表
+            await cur.execute(
+                "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
+                (refined, content_id)
+            )
+            if( ft_norm == 'video' or ft_norm == 'document'):
+                await cur.execute(
+                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' WHERE file_unique_id = %s",
+                    (refined, content_id, src_id)
+                )
+            else:
+                await cur.execute(
+                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, kc_status = 'pending' WHERE file_unique_id = %s",
+                    (refined, content_id, src_id)
+                )
+
+            await cur.execute(
+                "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
+                (refined, content_id)
+            )
+
+
+            await conn.commit()
+            return True
+
+        except Exception as e:
+            await conn.rollback()
+            print(f"[refine_product_content] ERROR id={content_id}: {e}")
+            raise
+        finally:
+            await cls.release(conn, cur)    
 
 
     @classmethod
@@ -904,6 +1034,36 @@ class AnanBOTPool(LYBase):
             return affected
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def check_guild_role(cls, user_id: int, role: str) -> dict | None:
+        """
+        检查 user_id 是否在 guild_manager 串中 (以 ; 分隔并结尾)。
+        返回 guild 记录 (dict)，不存在则返回 None。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            if role == "owner":
+                # 管理员直接返回任意一条 guild 记录
+                await cur.execute(
+                    "SELECT * FROM guild WHERE guild_owner LIKE %s LIMIT 1;",
+                    (f"%{user_id};",)
+                )
+
+            # 普通用户检查 guild_manager 字段
+            elif role == "manager":
+                await cur.execute(
+                    "SELECT * FROM guild WHERE guild_manager LIKE %s LIMIT 1;",
+                    (f"%{user_id};",)
+                )
+            
+            row = await cur.fetchone()
+            return row if row else None
+        finally:
+            await cls.release(conn, cur)
+
+
+
 
     # AnanBOTPool 内部
     @classmethod

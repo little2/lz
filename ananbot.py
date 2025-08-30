@@ -17,7 +17,7 @@ import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media  
-from ananbot_config import BOT_TOKEN,BOT_MODE
+from ananbot_config import BOT_TOKEN,BOT_MODE,WEBHOOK_HOST,WEBHOOK_PATH,WEBAPP_HOST,WEBAPP_PORT
 import lz_var
 from lz_config import AES_KEY
 
@@ -2682,8 +2682,6 @@ def invalidate_cached_product(content_id: int | str) -> None:
 
 
 async def keep_alive_ping():
-    WEBHOOK_PATH = "/"
-    WEBHOOK_HOST = "0.0.0.0"
     url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if BOT_MODE == "webhook" else f"{WEBHOOK_HOST}/"
     while True:
         try:

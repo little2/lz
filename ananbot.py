@@ -21,6 +21,8 @@ from ananbot_config import BOT_TOKEN,BOT_MODE,WEBHOOK_HOST,WEBHOOK_PATH,WEBAPP_H
 import lz_var
 from lz_config import AES_KEY
 
+from utils.prof import SegTimer
+
 from utils.aes_crypto import AESCrypto
 
 bot = Bot(token=BOT_TOKEN)
@@ -418,7 +420,7 @@ async def get_product_info(content_id: int):
                     InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}")
                 ],
                 [
-                    InlineKeyboardButton(text="✅ 通过审核", callback_data=f"approve_product:{content_id}:3"),
+                    InlineKeyboardButton(text="✅ 通过审核并写入", callback_data=f"approve_product:{content_id}:6"),
                     InlineKeyboardButton(text="❌ 拒绝投稿", callback_data=f"approve_product:{content_id}:1")
                 ]
             ])
@@ -1476,6 +1478,19 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     reviewer = callback_query.from_user.username or callback_query.from_user.full_name
 
 
+    # === 先尝试从当前卡片上找到『🔙 返回审核』的 URL，并解析出 chat/thread/message ===
+    ret_chat = ret_thread = ret_msg = None
+    try:
+        ret_url = find_return_review_url(callback_query.message.reply_markup)
+        print(f"🔍 返回审核 URL: {ret_url}", flush=True)
+        if ret_url:
+            parsed = parse_tme_c_url(ret_url)
+            if parsed:
+                ret_chat, ret_thread, ret_msg = parsed
+    except Exception as e:
+        logging.exception(f"解析返回审核 URL 失败: {e}")
+    print(f"🔍 返回审核定位: chat={ret_chat} thread={ret_thread} msg={ret_msg}", flush=True)
+
 
     # 1) 更新 bid_status=1
     try:
@@ -1512,10 +1527,14 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     if review_status == 6:
         await callback_query.answer("✅ 已通过审核", show_alert=True)
-        await AnanBOTPool.refine_product_content(content_id)    # 直接修改 caption ??
+        
         button_str = f"✅ {reviewer} 已通过审核"
         buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
-        await AnanBOTPool.set_product_guild(content_id)
+        
+        # ⬇️ 改为后台执行，不阻塞当前回调
+        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+        spawn_once(f"setguild:{content_id}", AnanBOTPool.set_product_guild(content_id))
+      
 
     elif review_status == 3:
         await callback_query.answer("✅ 已通过审核", show_alert=True)
@@ -1533,24 +1552,16 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
 
     try:
+
+
+
         print(f"{'✅' if review_status in (3,6) else '❌'} 审核结果: {button_str}", flush=True)
         await callback_query.message.edit_media(
             media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
             reply_markup=preview_keyboard  # 👈 关键：隐藏所有按钮
         )
 
-         # === 先尝试从当前卡片上找到『🔙 返回审核』的 URL，并解析出 chat/thread/message ===
-        ret_chat = ret_thread = ret_msg = None
-        try:
-            ret_url = find_return_review_url(callback_query.message.reply_markup)
-            print(f"🔍 返回审核 URL: {ret_url}", flush=True)
-            if ret_url:
-                parsed = parse_tme_c_url(ret_url)
-                if parsed:
-                    ret_chat, ret_thread, ret_msg = parsed
-        except Exception as e:
-            logging.exception(f"解析返回审核 URL 失败: {e}")
-        print(f"🔍 返回审核定位: chat={ret_chat} thread={ret_thread} msg={ret_msg}", flush=True)
+         
         # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
         try:
             result_kb = InlineKeyboardMarkup(
@@ -1700,32 +1711,59 @@ async def clear_content_input_timeout(state: FSMContext, content_id: str, chat_i
         except Exception as e:
             print(f"⚠️ 设置内容超时恢复失败: {e}", flush=True)
 
+
+
 @dp.message(F.chat.type == "private", ProductPreviewFSM.waiting_for_content_input, F.text)
 async def receive_content_input(message: Message, state: FSMContext):
-    content_text = message.text.strip()
-    data = await state.get_data()
-    content_id = data["content_id"]
-    chat_id = data["chat_id"]
-    message_id = data["message_id"]
-    overwrite = int(data.get("overwrite", 0))
-    user_id = message.from_user.id
-
-    await AnanBOTPool.update_product_content(content_id, content_text, user_id, overwrite)
-    await message.delete()
-    await state.clear()
-
-    invalidate_cached_product(content_id)
-
-    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    timer = SegTimer("receive_content_input", content_id="unknown")
     try:
-        await bot.edit_message_media(
-            chat_id=chat_id,
-            message_id=message_id,
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
-            reply_markup=preview_keyboard
-        )
-    except Exception as e:
-        print(f"⚠️ 更新内容失败：{e}", flush=True)
+        content_text = message.text.strip()
+        data = await state.get_data()
+        content_id = data["content_id"]
+        chat_id = data["chat_id"]
+        message_id = data["message_id"]
+        overwrite = int(data.get("overwrite", 0))
+        user_id = message.from_user.id
+        timer.ctx["content_id"] = content_id
+
+        timer.lap("state.get_data")
+
+        # 1) DB 更新（高概率慢点）
+        await AnanBOTPool.update_product_content(content_id, content_text, user_id, overwrite)
+        timer.lap("update_product_content")
+
+        # 2) 清理消息（网络调用）
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        timer.lap("message.delete")
+
+        # 3) 清状态（一般很快）
+        await state.clear()
+        timer.lap("state.clear")
+
+        # 4) 缓存失效（看实现，可能快）
+        invalidate_cached_product(content_id)
+        timer.lap("invalidate_cached_product")
+
+        # 5) 取模板（通常含 DB/IO）
+        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+        timer.lap("get_product_tpl")
+
+        # 6) 编辑媒体（网络调用，常见瓶颈）
+        try:
+            await bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+                reply_markup=preview_keyboard
+            )
+        except Exception as e:
+            print(f"⚠️ 更新内容失败：{e}", flush=True)
+        timer.lap("edit_message_media")
+    finally:
+        timer.end()
 
 
 @dp.callback_query(F.data.startswith("cancel_set_content:"))
@@ -1994,7 +2032,7 @@ REVIEW_GROUP_CHAT_ID = -1002989536306
 REVIEW_GROUP_THREAD_ID = 2  # 题主指定
 
 @dp.message(F.chat.type == "private", Command("post"))
-async def cmd_post(message: Message, command: CommandObject):
+async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
     """
     用法: /post [content_id]
     行为: 去到指定群组(含话题ID)贴一则“请审核”文字并附带按钮
@@ -2009,6 +2047,12 @@ async def cmd_post(message: Message, command: CommandObject):
     product_row = await get_product_info(content_id)
     preview_text = product_row.get("preview_text") or ""
     bot_url = f"https://t.me/{(await get_bot_username())}"
+    product_info = product_row.get("product_info") or {}
+    file_id = product_info.get("m_file_id") or ""
+    thumb_file_id = product_info.get("m_thumb_file_id") or ""
+    source_id = product_info.get("source_id") or ""
+    thumb_file_unqiue_id = product_info.get("thumb_file_unique_id") or ""
+
 
     # 发送到指定群组/话题
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -2027,6 +2071,16 @@ async def cmd_post(message: Message, command: CommandObject):
     except Exception as e:
         await message.answer(f"⚠️ 发送失败：{e}")
 
+    if not file_id and source_id and thumb_file_id:
+        print(f"背景搬运 {source_id} for content_id: {content_id}", flush=True)
+        # 不阻塞：丢到后台做补拉
+        spawn_once(f"src:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
+
+        print(f"创建或更新sora_media {thumb_file_unqiue_id} for content_id: {content_id}", flush=True)
+        await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unqiue_id, thumb_file_id, bot_username)
+
+
+
 @dp.callback_query(F.data.startswith("review:"))
 async def handle_review_button(callback_query: CallbackQuery, state: FSMContext):
     """
@@ -2039,6 +2093,8 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         return await callback_query.answer("⚠️ 参数错误", show_alert=True)
 
     user_id = callback_query.from_user.id
+    bot_username = await get_bot_username()
+
 
     # 取得预览卡片（沿用你现成的函数）
     product_row = await get_product_info(content_id)
@@ -2076,7 +2132,11 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
             message_id=callback_query.message.message_id,
             reply_markup=result_kb
         )
-        return await callback_query.answer(f"⚠️ 这个资源已经不是审核的状态 {product_info.get("review_status")}", show_alert=True)
+        return await callback_query.answer(
+            f"⚠️ 这个资源已经不是审核的状态 {product_info.get('review_status')}",
+            show_alert=True
+        )
+
         
         
        
@@ -2088,10 +2148,14 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     # 群/话题定位：沿用当前消息所在的 chat & thread（若存在）
 
 
-
+    
     thumb_file_id = product_row.get("thumb_file_id") or ""
     preview_text = product_row.get("preview_text") or ""
     
+
+    file_id = product_info.get("m_file_id") or ""
+    file_type = product_info.get("file_type") or ""
+
     buttons = product_info.get("buttons") or [] 
 
     # ===== 构造“返回审核”的链接（指向当前这条群消息）=====
@@ -2119,6 +2183,20 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
+    # #先发资源
+    if file_id :
+        try:
+            if file_type == "photo" or file_type == "p":
+                await bot.send_photo(chat_id=user_id, photo=file_id)
+            elif file_type == "video" or file_type == "v":
+                await bot.send_video(chat_id=user_id, video=file_id)
+            elif file_type == "document" or file_type == "d":
+                await bot.send_document(chat_id=user_id, document=file_id)
+        except Exception as e:
+            print(f"❌ 目标 chat 不存在或无法访问: {e}")
+
+
     try:
         # 发送图文卡片（带同样的操作按钮）
         newsend = await bot.send_photo(
@@ -2131,7 +2209,10 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
         await update_product_preview(content_id, thumb_file_id, state , newsend)
         
-        await callback_query.answer(f"👉 机器人(@{bot_username})已将审核内容传送给你", show_alert=True)
+
+
+
+        await callback_query.answer(f"👉 机器人(@{bot_username})已将审核内容传送给你", show_alert=False)
     except Exception as e:
         await callback_query.answer(f"⚠️ 请先启用机器人 (@{bot_username}) 私信 (私信机器人按 /start )", show_alert=True)
         print(f"⚠️ 发送审核卡片失败: {e}", flush=True)  
@@ -2872,15 +2953,21 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
                     # 失效缓存
                     invalidate_cached_product(content_id)
 
+
+
                     # 重新渲染并编辑“同一条消息”
                     fresh_thumb, fresh_text, fresh_kb = await get_product_tpl(content_id)
                     fresh_text = fresh_text + "\n\n（预览图已更新）"
+
+                    orig_kb = getattr(message, "reply_markup", None) if message else None
+                    use_kb = orig_kb or fresh_kb
+
                     try:
                         await lz_var.bot.edit_message_media(
                             chat_id=chat_id,
                             message_id=message_id,
-                            media=InputMediaPhoto(media=fresh_thumb, caption=fresh_text, parse_mode="HTML")
-                            
+                            media=InputMediaPhoto(media=fresh_thumb, caption=fresh_text, parse_mode="HTML"),
+                            reply_markup=use_kb
                         )
                     except Exception as e:
                         print(f"⚠️ 更新预览图失败：{e}", flush=True)

@@ -4,6 +4,7 @@ import aiomysql
 from ananbot_config import DB_CONFIG
 from utils.lybase_utils import LYBase
 from utils.string_utils import LZString
+from utils.prof import SegTimer
 
 class AnanBOTPool(LYBase):
     _pool = None
@@ -717,76 +718,97 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def update_product_content(cls, content_id: int, content: str, user_id: int = 0, overwrite: int = 0):
+        # ✅ 用更准确的名称
+        timer = SegTimer("update_product_content", content_id=content_id, overwrite=int(overwrite))
         # 允许的表名白名单（标识符不能用占位符，只能先验证再拼接）
         FT_MAP = {
             "d": "document", "document": "document",
             "v": "video",    "video": "video",
             "p": "photo",    "photo": "photo",
         }
-        async with cls._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                print(f"===>{overwrite}")
-                if (int(overwrite) == 1):
-                    print(f"2===>{overwrite}")
-                    # 1) 取 sora_content 基本信息
-                    await cur.execute(
-                        "SELECT source_id, file_type FROM sora_content WHERE id = %s LIMIT 1",
-                        (content_id,)
-                    )
-                    row_sora_content = await cur.fetchone()
 
-                    if row_sora_content:
-                        print(f"sora {overwrite}",flush=True)
+        try:
+            async with cls._pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    timer.lap("acquire_conn_and_cursor")
 
-                        src_id = row_sora_content[0]
-                        file_type = row_sora_content[1]
-                        ft_norm = FT_MAP.get(file_type)
-                        if not ft_norm:
-                            print(f"sora {overwrite}",flush=True)
-                            # 未知类型，保守不动
-                            print(f"[refine_product_content] Unsupported file_type={file_type} for id={content_id}")
-                        else:
-                            print(f"sora {overwrite}",flush=True)
-                            # 2) 取对应媒体表 caption（表名用白名单 + 反引号）
-                            await cur.execute(
-                                f"SELECT caption FROM `{ft_norm}` WHERE file_unique_id = %s LIMIT 1",
-                                (src_id,)
-                            )
-                            origin_content_row = await cur.fetchone()
-                            origin_content = origin_content_row[0] if origin_content_row else ""
+                    # --- 覆写模式：需要先从 sora_content 反查源表与原始 caption ---
+                    if int(overwrite) == 1:
+                        # 1) 取 sora_content 基本信息
+                        await cur.execute(
+                            "SELECT source_id, file_type FROM sora_content WHERE id = %s LIMIT 1",
+                            (content_id,)
+                        )
+                        row_sora_content = await cur.fetchone()
+                        timer.lap("fetch_sora_content")
 
-                            await cur.execute(
-                                f"INSERT INTO `material_caption` (`file_unique_id`, `caption`, `user_id`) VALUES (%s, %s, %s);",
-                                (src_id, origin_content, user_id)
-                            )
+                        if row_sora_content:
+                            src_id = row_sora_content[0]
+                            file_type = row_sora_content[1]
+                            ft_norm = FT_MAP.get(file_type)
 
-                            await cur.execute(
-                                f"INSERT INTO `material_caption` (`file_unique_id`, `caption`, `user_id`) VALUES (%s, %s, %s);",
-                                (src_id, origin_content, user_id)
-                            )
-
-                            print(f"ft_norm {ft_norm}",flush=True)
-                            if( ft_norm == 'video' or ft_norm == 'document'):
-                                await cur.execute(
-                                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' WHERE file_unique_id = %s",
-                                    (content, content_id, src_id)
-                                )
+                            if not ft_norm:
+                                print(f"[update_product_content] Unsupported file_type={file_type} for id={content_id}", flush=True)
                             else:
+                                # 2) 取对应媒体表 caption（表名用白名单 + 反引号）
                                 await cur.execute(
-                                    f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, kc_status = 'pending' WHERE file_unique_id = %s",
-                                    (content, content_id, src_id)
+                                    f"SELECT caption FROM `{ft_norm}` WHERE file_unique_id = %s LIMIT 1",
+                                    (src_id,)
                                 )
+                                origin_content_row = await cur.fetchone()
+                                origin_content = origin_content_row[0] if origin_content_row else ""
+                                timer.lap("fetch_origin_caption")
 
+                                # 3) 备份一份到 material_caption（只插入一次）
+                                await cur.execute(
+                                    "INSERT INTO `material_caption` (`file_unique_id`, `caption`, `user_id`) VALUES (%s, %s, %s)",
+                                    (src_id, origin_content, user_id)
+                                )
+                                timer.lap("insert_material_caption")
 
-                await cur.execute(
-                    "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
-                    (content, content_id)
-                )
-                await cur.execute(
-                    "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
-                    (content, content_id)
-                )
-            await conn.commit()  
+                                # 4) 更新媒体表 caption 与 kc_id / kc_status
+                                if ft_norm in ("video", "document"):
+                                    await cur.execute(
+                                        f"UPDATE `{ft_norm}` "
+                                        f"SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' "
+                                        f"WHERE file_unique_id = %s",
+                                        (content, content_id, src_id)
+                                    )
+                                else:
+                                    await cur.execute(
+                                        f"UPDATE `{ft_norm}` "
+                                        f"SET caption = %s, kc_id = %s, kc_status = 'pending' "
+                                        f"WHERE file_unique_id = %s",
+                                        (content, content_id, src_id)
+                                    )
+                                timer.lap("update_media_table")
+
+                    # --- 不论是否 overwrite，都需要同步 product / sora_content ---
+                    await cur.execute(
+                        "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
+                        (content, content_id)
+                    )
+                    timer.lap("update_product")
+
+                    await cur.execute(
+                        "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
+                        (content, content_id)
+                    )
+                    timer.lap("update_sora_content")
+
+                await conn.commit()
+                timer.lap("commit")
+        except Exception as e:
+            # 失败时尝试回滚
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            print(f"[update_product_content] ERROR: {e}", flush=True)
+            raise
+        finally:
+            timer.end()
+
 
     @classmethod
     async def update_product_file_type(cls, content_id: int, file_type: str):

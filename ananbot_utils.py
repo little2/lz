@@ -274,6 +274,21 @@ class AnanBOTPool(LYBase):
             file_id = row.get("m_file_id")
             thumb_file_id = row.get("m_thumb_file_id")
 
+        
+
+            if(file_id == None and thumb_file_id == None):
+                await cursor.execute(
+                    """
+                    INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id, file_id)
+                    VALUES (%s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        thumb_file_id = VALUES(thumb_file_id),
+                        file_id      = VALUES(file_id)
+                    """,
+                    (content_id, bot_username, '', '')
+                )
+
+
             # 3) 需要补的话，再去 file_extension 查
             need_lookup_keys = []
             if not file_id and row.get("source_id"):

@@ -767,7 +767,7 @@ class AnanBOTPool(LYBase):
                                 timer.lap("insert_material_caption")
 
                                 # 4) 更新媒体表 caption 与 kc_id / kc_status
-                                if ft_norm in ("video", "document"):
+                                if ft_norm in ("video"):
                                     await cur.execute(
                                         f"UPDATE `{ft_norm}` "
                                         f"SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' "

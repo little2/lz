@@ -135,7 +135,7 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     print(f"✅ [X-MEDIA] 收到 {file_type}，file_unique_id={file_unique_id} {file_id}，"
           f"from={message.from_user.id}，reply_to_msg_id={reply_to.message_id}", flush=True)
 
-    user_id = str(message.from_user.id) if message.from_user else None
+    user_id = int(message.from_user.id) if message.from_user else None
     
     lz_var.bot_username = await get_bot_username()
 
@@ -174,6 +174,10 @@ async def get_bot_username():
     if not bot_username:
         bot_info = await bot.get_me()
         bot_username = bot_info.username
+
+    if not lz_var.bot_username:
+        lz_var.bot_username = bot_username
+    
     return bot_username
 
 
@@ -959,9 +963,14 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
         return await callback_query.answer("⚠️ 找不到内容 ID", show_alert=True)
 
 
-    product_info = await AnanBOTPool.get_existing_product(content_id)
+    product_info = await AnanBOTPool.get_existing_product(content_id)       
+    cur_price = product_info.get('price')
+    try:
+        cur_price = int(cur_price) if cur_price is not None else 68
+    except Exception:
+        cur_price = 68
 
-    caption = f"当前价格为 {product_info['price']}\n\n请在 1 分钟内输入商品价格(1-99)"
+    caption = f"当前价格为 {cur_price}\n\n请在 1 分钟内输入商品价格(1-99)"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消", callback_data=f"cancel_set_price:{content_id}")]
     ])
@@ -1542,17 +1551,20 @@ async def receive_preview_photo(message: Message, state: FSMContext):
 ############
 #  content     
 ############
+
 @dp.callback_query(F.data.startswith("set_content:"))
 async def handle_set_content(callback_query: CallbackQuery, state: FSMContext):
-    content_id = callback_query.data.split(":")[1]
-
-    overwrite = callback_query.data.split(":")[2] or 0
-
-    
+    parts = callback_query.data.split(":")
+    # 兼容两种格式：set_content:{content_id}  /  set_content:{content_id}:{overwrite}
+    try:
+        content_id = parts[1]
+        overwrite = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    except Exception:
+        return await callback_query.answer("⚠️ 参数错误", show_alert=True)
 
     product_info = await AnanBOTPool.get_existing_product(content_id)
-
-    caption = f"<code>{product_info['content']}</code>  (点选复制) \r\n\r\n📘 请输入完整的内容介绍（文本形式）"
+    print(f"🔍 取商品信息: {product_info}", flush=True)
+    caption = f"<code>{product_info.get('content','')}</code>  (点选复制) \r\n\r\n📘 请输入完整的内容介绍（文本形式）"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消，不修改", callback_data=f"cancel_set_content:{content_id}")]
     ])
@@ -1567,11 +1579,11 @@ async def handle_set_content(callback_query: CallbackQuery, state: FSMContext):
         "content_id": content_id,
         "chat_id": callback_query.message.chat.id,
         "message_id": callback_query.message.message_id,
-        "overwrite": overwrite
+        "overwrite": overwrite,  # 存为 int
     })
 
-    # 60秒超时处理
     asyncio.create_task(clear_content_input_timeout(state, content_id, callback_query.message.chat.id, callback_query.message.message_id))
+
 
 async def clear_content_input_timeout(state: FSMContext, content_id: str, chat_id: int, message_id: int):
     await asyncio.sleep(60)
@@ -1596,21 +1608,15 @@ async def receive_content_input(message: Message, state: FSMContext):
     content_id = data["content_id"]
     chat_id = data["chat_id"]
     message_id = data["message_id"]
-    overwrite = data["overwrite"] or 0
+    overwrite = int(data.get("overwrite", 0))
     user_id = message.from_user.id
-
-    
 
     await AnanBOTPool.update_product_content(content_id, content_text, user_id, overwrite)
     await message.delete()
     await state.clear()
 
-    
     invalidate_cached_product(content_id)
-        
 
-
-    print(f"✅ 已更新内容为: {content_text}", flush=True)
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
     try:
         await bot.edit_message_media(
@@ -1621,6 +1627,7 @@ async def receive_content_input(message: Message, state: FSMContext):
         )
     except Exception as e:
         print(f"⚠️ 更新内容失败：{e}", flush=True)
+
 
 @dp.callback_query(F.data.startswith("cancel_set_content:"))
 async def cancel_set_content(callback_query: CallbackQuery, state: FSMContext):
@@ -2593,11 +2600,10 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
         chat_id = message.chat.id
         message_id = message.message_id
     if chat_id is None or message_id is None:
-        # 没有可编辑的目标就直接返回
         print("⚠️ update_product_preview 缺少 chat_id/message_id，跳过")
         return
 
-    cached = get_cached_product(content_id)
+    cached = get_cached_product(content_id) or {}
     cached_thumb_unique = cached.get('thumb_unique_id', "")
 
     # 只有在用默认图且我们已知 thumb_unique_id 时，才尝试异步更新真实图
@@ -2607,8 +2613,8 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
                 new_file_id = await Media.fetch_file_by_file_id_from_x(state, cached_thumb_unique, 30)
                 if new_file_id:
                     print(f"[预览图更新] 已获取 thumb_file_id: {new_file_id} - {cached_thumb_unique}")
-                    bot_username = lz_var.bot_username
-                    await AnanBOTPool.upsert_product_thumb(content_id, cached_thumb_unique, new_file_id, bot_username)
+                    bot_uname = await get_bot_username()
+                    await AnanBOTPool.upsert_product_thumb(int(content_id), cached_thumb_unique, new_file_id, bot_uname)
 
                     # 失效缓存
                     invalidate_cached_product(content_id)
@@ -2624,12 +2630,13 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
                             reply_markup=fresh_kb,
                         )
                     except Exception as e:
-                        print(f"⚠️ 更新预览图失败C：{e}", flush=True)
+                        print(f"⚠️ 更新预览图失败：{e}", flush=True)
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
-                print(f"[预览图更新失败x] {e}")
+                print(f"⚠️ 异步更新预览图异常：{e}", flush=True)
+
         asyncio.create_task(update_preview_if_arrived())
-    else:
-        print(f"[预览图更新] 直接使用 thumb_file_id: {thumb_file_id} - {cached_thumb_unique}")
 
  
 def get_cached_product(content_id: int) -> dict | None:

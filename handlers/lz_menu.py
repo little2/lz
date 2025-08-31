@@ -491,9 +491,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             message_id=callback.message.message_id
         )
         return
-    # 若有,则回覆消息
-
     
+    # 若有,则回覆消息
     from_user_id = callback.from_user.id
     sender_fee = int(fee) * (-1)  # ✅ 发送者手续费
     result = await MySQLPool.transaction_log({
@@ -507,9 +506,19 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
     # print(f"🔍 交易记录结果: {result}", flush=True)
 
-    user_info = result.get('user_info', {})
-    user_point = int(user_info.get('point', 0))
     
+    # ✅ 兜底：确保 result & user_info 可用
+    if not isinstance(result, dict):
+        await callback.answer("⚠️ 交易服务暂不可用，请稍后再试。", show_alert=True)
+        return
+
+    user_info = result.get('user_info') or {}
+    try:
+        user_point = int(user_info.get('point') or 0)
+    except (TypeError, ValueError):
+        user_point = 0
+
+
 
     if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
 

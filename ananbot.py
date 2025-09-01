@@ -1187,6 +1187,78 @@ async def cancel_set_preview(callback_query: CallbackQuery, state: FSMContext):
         print(f"⚠️ 超时编辑失败：{e}", flush=True)
         
 
+@dp.message(F.chat.type == "private", F.content_type == ContentType.PHOTO, ProductPreviewFSM.waiting_for_preview_photo)
+async def receive_preview_photo(message: Message, state: FSMContext):
+    data = await state.get_data()
+    content_id = data["content_id"]
+    chat_id = data["chat_id"]
+    message_id = data["message_id"]
+
+    photo = get_largest_photo(message.photo)
+    file_unique_id = photo.file_unique_id
+    file_id = photo.file_id
+    width = photo.width
+    height = photo.height
+    file_size = photo.file_size or 0
+    user_id = int(message.from_user.id)
+
+    print(f"📸 收到预览图：{file_unique_id}", flush=True)
+    await lz_var.bot.copy_message(
+        chat_id=lz_var.x_man_bot_id,
+        from_chat_id=message.chat.id,
+        message_id=message.message_id
+    )
+
+    print(f"📸 预览图已成功设置：{file_unique_id}", flush=True)
+    await AnanBOTPool.upsert_media( "photo", {
+        "file_unique_id": file_unique_id,
+        "file_size": file_size,
+        "duration": 0,
+        "width": width,
+        "height": height,
+        "create_time": datetime.now()
+    })
+    bot_username = await get_bot_username()
+    await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
+    await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
+    await AnanBOTPool.upsert_product_thumb(content_id, file_unique_id,file_id, bot_username)
+    # Step 4: 更新 update_bid_thumbnail
+
+    print(f"📸 更新预览图数据库记录：{file_unique_id}", flush=True)
+    row = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if row and row.get("source_id"):
+        source_id = row["source_id"]
+        await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
+
+    print(f"📸 更新预览图缓存：{file_unique_id}", flush=True)
+    cache = get_cached_product(content_id) or {}
+    cache["thumb_unique_id"] = file_unique_id
+    cache["thumb_file_id"] = file_id
+    set_cached_product(content_id, cache)
+
+    print(f"📸 预览图更新完成，正在返回菜单：{file_unique_id}",flush=True)
+    # 编辑原消息，更新为商品卡片
+    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    try:
+        await bot.edit_message_media(
+            chat_id=chat_id,
+            message_id=message_id,
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
+            reply_markup=preview_keyboard,
+            
+        )
+    except Exception as e:
+        print(f"⚠️ 更新预览图失败B：{e}", flush=True)
+
+    # await message.answer("✅ 预览图已成功设置！")
+    await message.delete()
+    try:
+        await state.clear()
+    except Exception as e:
+        print(f"⚠️ 清除状态失败：{e}", flush=True)
+    print(f"📸 预览图更新完成，正在返回菜单：{file_unique_id}", flush=True)
+
+
 @dp.callback_query(F.data.startswith("auto_update_thumb:"))
 async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMContext):
     bot_username = await get_bot_username()
@@ -1595,72 +1667,6 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         except Exception:
             pass
 
-@dp.message(F.chat.type == "private", F.content_type == ContentType.PHOTO, ProductPreviewFSM.waiting_for_preview_photo)
-async def receive_preview_photo(message: Message, state: FSMContext):
-    data = await state.get_data()
-    content_id = data["content_id"]
-    chat_id = data["chat_id"]
-    message_id = data["message_id"]
-
-    photo = get_largest_photo(message.photo)
-    file_unique_id = photo.file_unique_id
-    file_id = photo.file_id
-    width = photo.width
-    height = photo.height
-    file_size = photo.file_size or 0
-    user_id = int(message.from_user.id)
-
-    await lz_var.bot.copy_message(
-        chat_id=lz_var.x_man_bot_id,
-        from_chat_id=message.chat.id,
-        message_id=message.message_id
-    )
-    
-    await AnanBOTPool.upsert_media( "photo", {
-        "file_unique_id": file_unique_id,
-        "file_size": file_size,
-        "duration": 0,
-        "width": width,
-        "height": height,
-        "create_time": datetime.now()
-    })
-    bot_username = await get_bot_username()
-    await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
-    await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
-    await AnanBOTPool.upsert_product_thumb(content_id, file_unique_id,file_id, bot_username)
-    # Step 4: 更新 update_bid_thumbnail
-
-    row = await AnanBOTPool.get_sora_content_by_id(content_id)
-    if row and row.get("source_id"):
-        source_id = row["source_id"]
-        await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
-
-
-    cache = get_cached_product(content_id) or {}
-    cache["thumb_unique_id"] = file_unique_id
-    cache["thumb_file_id"] = file_id
-    set_cached_product(content_id, cache)
-
-
-    # 编辑原消息，更新为商品卡片
-    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
-    try:
-        await bot.edit_message_media(
-            chat_id=chat_id,
-            message_id=message_id,
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
-            reply_markup=preview_keyboard,
-            
-        )
-    except Exception as e:
-        print(f"⚠️ 更新预览图失败B：{e}", flush=True)
-
-    # await message.answer("✅ 预览图已成功设置！")
-    await message.delete()
-    try:
-        await state.clear()
-    except Exception as e:
-        print(f"⚠️ 清除状态失败：{e}", flush=True)
 
 ############
 #  content     

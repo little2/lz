@@ -6,8 +6,13 @@ from utils.lybase_utils import LYBase
 from utils.string_utils import LZString
 from utils.prof import SegTimer
 
+import asyncio
+import pymysql
+from typing import Optional
+
 class AnanBOTPool(LYBase):
     _pool = None
+    _pool_lock = asyncio.Lock()  # 新增：并发安全
     _all_tags_grouped_cache = None
     _all_tags_grouped_cache_ts = 0
     _cache_ttl = 30  # 缓存有效时间（秒）
@@ -18,16 +23,52 @@ class AnanBOTPool(LYBase):
     @classmethod
     async def init_pool(cls):
         if cls._pool is None:
-            cls._pool = await aiomysql.create_pool(**DB_CONFIG)
-            print("✅ MySQL 连接池初始化完成")
+            async with cls._pool_lock:
+                if cls._pool is None:
+                    # ✅ 建议：在 DB_CONFIG 里也可直接配这些键；这里做兜底
+                    kwargs = dict(DB_CONFIG)
+                    kwargs.setdefault("autocommit", True)
+                    kwargs.setdefault("minsize", 1)
+                    kwargs.setdefault("maxsize", 10)
+                    kwargs.setdefault("connect_timeout", 10)
+                    kwargs.setdefault("pool_recycle", 120)  # 关键：120 秒回收陈旧连接
+                    kwargs.setdefault("charset", "utf8mb4")
+                    cls._pool = await aiomysql.create_pool(**kwargs)
+                    print("✅ MySQL 连接池初始化完成（autocommit, recycle=120）")
+
+
+    @classmethod
+    async def _reset_pool(cls):
+        if cls._pool:
+            cls._pool.close()
+            await cls._pool.wait_closed()
+            cls._pool = None
 
     @classmethod
     async def get_conn_cursor(cls):
         if cls._pool is None:
             raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
-        conn = await cls._pool.acquire()
-        cursor = await conn.cursor(aiomysql.DictCursor)
-        return conn, cursor
+        try:
+            conn = await cls._pool.acquire()
+            try:
+                await conn.ping()  # ✅ 轻量自检，触发底层重连
+            except Exception:
+                # 连接已坏：重建连接池再取
+                await cls._reset_pool()
+                await cls.init_pool()
+                conn = await cls._pool.acquire()
+                await conn.ping()
+            cursor = await conn.cursor(aiomysql.DictCursor)
+            return conn, cursor
+        except Exception as e:
+            # 最后兜底：彻底重置再试一次
+            await cls._reset_pool()
+            await cls.init_pool()
+            conn = await cls._pool.acquire()
+            cursor = await conn.cursor(aiomysql.DictCursor)
+            return conn, cursor
+
+
 
     @classmethod
     async def release(cls, conn, cursor):
@@ -55,6 +96,19 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+
+    @classmethod
+    def _is_transient_mysql_error(cls, e: BaseException) -> bool:
+        # 2006: MySQL server has gone away
+        # 2013: Lost connection to MySQL server during query
+        # 104 : Connection reset by peer（部分封装在 args[0]）
+        codes = {2006, 2013, 104}
+        try:
+            code = getattr(e, "args", [None])[0]
+            return code in codes
+        except Exception:
+            return False
+
     @classmethod
     async def upsert_media(cls, file_type, data: dict):
         if file_type != "video":
@@ -62,20 +116,37 @@ class AnanBOTPool(LYBase):
         if file_type == "document":
             data.pop("width", None)
             data.pop("height", None)
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            keys = list(data.keys())
-            placeholders = ', '.join(['%s'] * len(keys))
-            columns = ', '.join(f"`{k}`" for k in keys)
-            updates = ', '.join(f"`{k}`=VALUES(`{k}`)" for k in keys if k != "create_time")
-            sql = f"""
-                INSERT INTO `{file_type}` ({columns})
-                VALUES ({placeholders})
-                ON DUPLICATE KEY UPDATE {updates}
-            """
-            await cur.execute(sql, [data[k] for k in keys])
-        finally:
-            await cls.release(conn, cur)
+
+        keys = list(data.keys())
+        placeholders = ', '.join(['%s'] * len(keys))
+        columns = ', '.join(f"`{k}`" for k in keys)
+        updates = ', '.join(f"`{k}`=VALUES(`{k}`)" for k in keys if k != "create_time")
+        sql = f"""
+            INSERT INTO `{file_type}` ({columns})
+            VALUES ({placeholders})
+            ON DUPLICATE KEY UPDATE {updates}
+        """
+        params = [data[k] for k in keys]
+
+        # ✅ 带重试（指数退避：0.2, 0.4）
+        delay = 0.2
+        attempts = 3
+        for i in range(attempts):
+            conn, cur = await cls.get_conn_cursor()
+            try:
+                await cur.execute(sql, params)
+                return
+            except (pymysql.err.OperationalError, aiomysql.OperationalError, ConnectionResetError) as e:
+                if not cls._is_transient_mysql_error(e) or i == attempts - 1:
+                    raise
+                # 连接可能已坏，重置连接池 + 退避后重试
+                await cls._reset_pool()
+                await asyncio.sleep(delay)
+                delay *= 2
+            finally:
+                await cls.release(conn, cur)
+
+
 
     @classmethod
     async def insert_file_extension(cls, file_type, file_unique_id, file_id, bot_username, user_id):
@@ -1004,22 +1075,22 @@ class AnanBOTPool(LYBase):
             # 5) 回写 sora_content 与媒体表
             await cur.execute(
                 "UPDATE sora_content SET content = %s, stage='pending' WHERE id = %s",
-                (refined, content_id)
+                (content, content_id)
             )
             if( ft_norm == 'video' or ft_norm == 'document'):
                 await cur.execute(
                     f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, update_time = NOW(), kc_status = 'pending' WHERE file_unique_id = %s",
-                    (refined, content_id, src_id)
+                    (content, content_id, src_id)
                 )
             else:
                 await cur.execute(
                     f"UPDATE `{ft_norm}` SET caption = %s, kc_id = %s, kc_status = 'pending' WHERE file_unique_id = %s",
-                    (refined, content_id, src_id)
+                    (content, content_id, src_id)
                 )
 
             await cur.execute(
                 "UPDATE product SET content = %s, stage='pending' WHERE content_id = %s",
-                (refined, content_id)
+                (content, content_id)
             )
 
 

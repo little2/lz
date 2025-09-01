@@ -14,7 +14,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 import aiohttp
-
+from typing import Coroutine, Optional, Tuple
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media  
 from ananbot_config import BOT_TOKEN,BOT_MODE,WEBHOOK_HOST,WEBHOOK_PATH,WEBAPP_HOST,WEBAPP_PORT
@@ -1189,6 +1189,7 @@ async def cancel_set_preview(callback_query: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("auto_update_thumb:"))
 async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMContext):
+    bot_username = await get_bot_username()
     content_id = int(callback_query.data.split(":")[1])
     print(f"▶️ 开始自动处理预览图", flush=True)
     try:
@@ -1258,7 +1259,9 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
 
             x_uid = lz_var.x_man_bot_id          # = 7793315433
             x_chat_id = x_uid                     # 私聊里 chat_id == user_id
-            key = StorageKey(bot_id=lz_var.bot.id, chat_id=x_chat_id, user_id=x_uid)
+            me = await bot.get_me()
+            key = StorageKey(bot_id=me.id, chat_id=x_chat_id, user_id=x_uid)
+
 
             await storage.set_state(key, ProductPreviewFSM.waiting_for_x_media.state)
             await storage.set_data(key, {})  # 清空
@@ -1336,8 +1339,9 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     except Exception:
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)
 
-    # 和原来的内容合并 
-    AnanBOTPool.refine_product_content(content_id) 
+    # 和原来的内容合并
+    spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+
     
 
     # 1) 更新 bid_status=1
@@ -1576,7 +1580,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
                     message_id=ret_msg,
                     reply_markup=result_kb
                 )
-                print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={result_text}", flush=True)
+              
+                print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
+
         except Exception as e:
             logging.exception(f"更新原审核消息按钮失败: {e}")
 
@@ -1602,7 +1608,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     width = photo.width
     height = photo.height
     file_size = photo.file_size or 0
-    user_id = str(message.from_user.id)
+    user_id = int(message.from_user.id)
 
     await lz_var.bot.copy_message(
         chat_id=lz_var.x_man_bot_id,
@@ -2038,6 +2044,7 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
     行为: 去到指定群组(含话题ID)贴一则“请审核”文字并附带按钮
     """
     # 解析参数
+    bot_username = await get_bot_username()  # 👈 增加这一行
     args = (command.args or "").strip().split()
     if len(args) != 1 or not args[0].isdigit():
         return await message.answer("❌ 使用格式: /post [content_id]")
@@ -2226,6 +2233,7 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
     修复建议内容（新版）：
     """
     try:
+        bot_username = await get_bot_username()
         await message.delete()
        
         product_row = await get_product_info(content_id)

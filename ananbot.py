@@ -1,7 +1,8 @@
 import logging
 from datetime import datetime
 import asyncio
-
+import time
+from typing import Optional
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto
 from aiogram.types import BufferedInputFile
@@ -62,6 +63,13 @@ REPORT_TYPES: dict[int, str] = {
     90: "其他",
 }
 
+INPUT_TIMEOUT = 60
+
+COLLECTION_PROMPT_DELAY = 2
+TAG_REFRESH_DELAY = 0.7
+BG_TASK_TIMEOUT = 15
+
+
 
 _background_tasks: dict[str, asyncio.Task] = {}
 
@@ -74,7 +82,7 @@ def spawn_once(key: str, coro: "Coroutine"):
     async def _runner():
         try:
             # 可按需加超时
-            await asyncio.wait_for(coro, timeout=15)
+            await asyncio.wait_for(coro, timeout=BG_TASK_TIMEOUT)
         except Exception:
             print(f"🔥 background task failed for key={key}", flush=True)
 
@@ -209,13 +217,9 @@ async def get_list(content_id):
     collect_cont_list_text = ''
     list_text = ''
     bot_username = await get_bot_username()
-    results = []
-
     results = await AnanBOTPool.get_collect_list(content_id, bot_username)
-    video_count = 0
-    document_count = 0
-    photo_count = 0
-    
+
+    video_count = document_count = photo_count = 0
 
     for row in results:
         file_type = row["file_type"]
@@ -230,25 +234,21 @@ async def get_list(content_id):
             collect_list_text += f"　📄 {format_bytes(file_size)}\n"
         elif file_type == "p":
             photo_count += 1
+            collect_list_text += f"　🖼️ {format_bytes(file_size)}\n"
 
-    
-
-
-    if video_count > 0:
+    if video_count:
         collect_cont_list_text += f"🎬 x{video_count} 　"
-    if document_count > 0:
+    if document_count:
         collect_cont_list_text += f"📄 x{document_count} 　"
-    if photo_count > 0:
-        collect_cont_list_text += f"🖼️ x{photo_count} \n"
+    if photo_count:
+        collect_cont_list_text += f"🖼️ x{photo_count}"
 
     if collect_list_text:
-        list_text += "\n📦 文件列表：\n" + collect_list_text
-        list_text += "\n📊 本合集包含：" + collect_cont_list_text
-
+        list_text += "\n📦 文件列表：\n" + collect_list_text.rstrip()
+    if collect_cont_list_text:
+        list_text += "\n\n📊 本合集包含：" + collect_cont_list_text
 
     return list_text
-
-    
 
 
 @dp.callback_query(F.data.startswith("make_product:"))
@@ -638,7 +638,7 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     type_code = tag_info["tag_type"]
 
     # 生成刷新任务 key
-    task_key = (user_id, content_id)
+    task_key = (int(user_id), int(content_id))
 
     # 如果已有延迟任务，取消旧的
     old_task = tag_refresh_tasks.get(task_key)
@@ -648,7 +648,7 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     # 创建新的延迟刷新任务
     async def delayed_refresh():
         try:
-            await asyncio.sleep(0.7)
+            await asyncio.sleep(TAG_REFRESH_DELAY)
             await refresh_tag_keyboard(callback_query, content_id, type_code, state)
             tag_refresh_tasks.pop(task_key, None)
         except asyncio.CancelledError:
@@ -740,7 +740,7 @@ async def handle_back_to_product_from_tag(callback_query: CallbackQuery, state: 
         await state.update_data({fsm_key: []})
     except Exception:
         pass
-    task_key = (user_id, str(content_id))
+    task_key = (int(user_id), int(content_id))
     old_task = tag_refresh_tasks.pop(task_key, None)
     if old_task and not old_task.done():
         old_task.cancel()
@@ -827,7 +827,10 @@ async def receive_collection_media(message: Message, state: FSMContext):
 
     file_unique_id = file.file_unique_id
     file_id = file.file_id
-    user_id = str(message.from_user.id)
+    user_id = int(message.from_user.id)
+    
+
+
     file_size = getattr(file, "file_size", 0)
     duration = getattr(file, "duration", 0)
     width = getattr(file, "width", 0)
@@ -867,7 +870,7 @@ async def receive_collection_media(message: Message, state: FSMContext):
     print(f"添加资源：{file_type} {file_unique_id} {file_id}", flush=True)
 
     # --- 管理提示任务 ---
-    key = (user_id, content_id)
+    key = (user_id, int(content_id))
     has_prompt_sent[key] = False
 
     # 若已有旧任务，取消
@@ -880,7 +883,7 @@ async def receive_collection_media(message: Message, state: FSMContext):
     # 创建新任务（3秒内无动作才触发）
     async def delayed_finish_prompt():
         try:
-            await asyncio.sleep(3)
+            await asyncio.sleep(COLLECTION_PROMPT_DELAY)
             current_state = await state.get_state()
             if current_state == ProductPreviewFSM.waiting_for_collection_media and not has_prompt_sent.get(key, False):
                 has_prompt_sent[key] = True  # ✅ 设置为已发送，防止重复
@@ -922,7 +925,8 @@ async def receive_collection_media(message: Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("done_add_items:"))
 async def done_add_items(callback_query: CallbackQuery, state: FSMContext):
     content_id = callback_query.data.split(":")[1]
-    user_id = callback_query.from_user.id
+    
+    user_id = int(callback_query.from_user.id)
 
     data = await state.get_data()
     chat_id = data["chat_id"]
@@ -936,7 +940,8 @@ async def done_add_items(callback_query: CallbackQuery, state: FSMContext):
 
 
     # 清除任务
-    key = (user_id, content_id)
+   
+    key = (user_id, int(content_id))
     task = media_upload_tasks.pop(key, None)
     if task and not task.done():
         task.cancel()
@@ -994,7 +999,7 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
     asyncio.create_task(clear_price_request_after_timeout(state, content_id, callback_query.message.chat.id, callback_query.message.message_id))
 
 async def clear_price_request_after_timeout(state: FSMContext, content_id: str, chat_id: int, message_id: int):
-    await asyncio.sleep(60)
+    await asyncio.sleep(INPUT_TIMEOUT)
     current_state = await state.get_state()
     if current_state == ProductPreviewFSM.waiting_for_price_input:
         await state.clear()
@@ -1134,7 +1139,7 @@ async def handle_set_preview(callback_query: CallbackQuery, state: FSMContext):
     asyncio.create_task(clear_preview_request_after_timeout(state, user_id, callback_query.message.message_id, callback_query.message.chat.id, content_id))
 
 async def clear_preview_request_after_timeout(state: FSMContext, user_id: str, message_id: int, chat_id: int, content_id):
-    await asyncio.sleep(60)
+    await asyncio.sleep(INPUT_TIMEOUT)
     current_state = await state.get_state()
     if current_state == ProductPreviewFSM.waiting_for_preview_photo:
         try:
@@ -1293,6 +1298,11 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
             # print(f"{row.get("file_type")} {row.get("m_file_id")}", flush=True)
             if (row.get("file_type") == 'video' or row.get("file_type") == 'v') and row.get("m_file_id"):
                 send_video_result = await lz_var.bot.send_video(chat_id=callback_query.message.chat.id, video=row.get("m_file_id"))
+                
+                # 记录临时消息 id，便于无论成功/失败都删除
+                _tmp_chat_id = send_video_result.chat.id
+                _tmp_msg_id = send_video_result.message_id
+                
                 print(f"{send_video_result}")
                 buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
                 
@@ -1314,12 +1324,22 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                         await AnanBOTPool.upsert_product_thumb(
                             content_id, thumb_file_unique_id, thumb_file_id, await get_bot_username()
                         )
+
                         return
                     except Exception as e:
                         print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
                 else:
                     print(f"...⚠️ 提取缩图失败 for source_id: {source_id}", flush=True)
                     return await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，也没预设的预览图，需要手动上传或是机器人排程生成", show_alert=True)
+                
+                # 3) 不论成败，尽力删除临时视频（如果之前已删，会静默忽略异常）
+                try:
+                    await lz_var.bot.delete_message(chat_id=_tmp_chat_id, message_id=_tmp_msg_id)
+                    
+                except Exception as _e_del:
+                    print(f"ℹ️ 临时视频可能已被删除: {_e_del}", flush=True)
+                
+                
                 return
             else:
                 print(f"...⚠️ 找不到对应的分镜缩图 for source_id: {source_id}", flush=True)
@@ -1410,6 +1430,51 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
         content_id = int(callback_query.data.split(":")[1])
     except Exception:
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)
+
+    # 取当前商品信息（含预览图、内容等）
+    product_row = await get_product_info(content_id)
+    product_info = product_row.get("product_info", {}) or {}
+    thumb_file_id = product_row.get("thumb_file_id") or ""
+    content_text = (product_info.get("content") or "").strip()
+
+
+    # 预览图校验：必须不是默认图
+    has_custom_thumb = bool(thumb_file_id and thumb_file_id != DEFAULT_THUMB_FILE_ID)
+
+    # 标签数量校验：基于 file_unique_id 去取绑定的标签
+    try:
+        sora_row = await AnanBOTPool.get_sora_content_by_id(content_id)
+        source_id = sora_row.get("source_id") if sora_row else None
+        tag_set = await AnanBOTPool.get_tags_for_file(source_id) if source_id else set()
+        tag_count = len(tag_set or [])
+    except Exception:
+        tag_set = set()
+        tag_count = 0
+
+    # 内容长度校验（“超过30字”→ 严格 > 30）
+    content_ok = len(content_text) > 30
+    tags_ok = tag_count >= 5
+    thumb_ok = has_custom_thumb
+
+    # 如果有缺项，给出可操作的引导并阻止送审
+    if not (content_ok and tags_ok and thumb_ok):
+        missing_parts = []
+        if not content_ok:
+            missing_parts.append("📝 内容需 > 30 字")
+        if not tags_ok:
+            missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+        if not thumb_ok:
+            missing_parts.append("📷 需要设置预览图（不是默认图）")
+
+        tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
+
+        return await callback_query.answer(tips, show_alert=True)
+
+    # tips = f"tag_count={tag_count}, len = {len(content_text)},has_custom_thumb={has_custom_thumb}"
+
+    # return await callback_query.answer(tips, show_alert=True)
+
+    # return
 
     # 和原来的内容合并
     spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
@@ -1708,7 +1773,7 @@ async def handle_set_content(callback_query: CallbackQuery, state: FSMContext):
 
 
 async def clear_content_input_timeout(state: FSMContext, content_id: str, chat_id: int, message_id: int):
-    await asyncio.sleep(60)
+    await asyncio.sleep(INPUT_TIMEOUT)
     if await state.get_state() == ProductPreviewFSM.waiting_for_content_input:
         await state.clear()
         thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -1856,7 +1921,7 @@ async def handle_toggle_anonymous(callback_query: CallbackQuery, state: FSMConte
     # 启动 60 秒超时任务
     async def timeout_back():
         try:
-            await asyncio.sleep(60)
+            await asyncio.sleep(INPUT_TIMEOUT)
             if await state.get_state() == ProductPreviewFSM.waiting_for_anonymous_choice:
                 await state.clear()
                 # 返回商品页
@@ -2056,7 +2121,17 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
         return await message.answer("❌ 使用格式: /post [content_id]")
 
     content_id = int(args[0])
+    result , error = await send_to_review_group(content_id, state)
+    if result:
+        await message.answer("✅ 已发送到审核群组")
+    else:
+        if error:
+            await message.answer(f"⚠️ 发送失败：{error}")
+        else:
+            await message.answer("⚠️ 发送失败：未知错误")
 
+
+async def send_to_review_group(content_id: int, state: FSMContext):
     product_row = await get_product_info(content_id)
     preview_text = product_row.get("preview_text") or ""
     bot_url = f"https://t.me/{(await get_bot_username())}"
@@ -2066,6 +2141,14 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
     source_id = product_info.get("source_id") or ""
     thumb_file_unqiue_id = product_info.get("thumb_file_unique_id") or ""
 
+
+    if not file_id and source_id and thumb_file_id:
+        print(f"背景搬运 {source_id} for content_id: {content_id}", flush=True)
+        # 不阻塞：丢到后台做补拉
+        spawn_once(f"src:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
+
+        print(f"创建或更新sora_media {thumb_file_unqiue_id} for content_id: {content_id}", flush=True)
+        await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unqiue_id, thumb_file_id, bot_username)
 
     # 发送到指定群组/话题
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -2080,17 +2163,12 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
             message_thread_id=REVIEW_GROUP_THREAD_ID,  # 指定话题
             parse_mode="HTML"
         )
-        await message.answer("✅ 已发送到审核群组")
+        return True, None
+        
     except Exception as e:
-        await message.answer(f"⚠️ 发送失败：{e}")
+        return False,e
+        
 
-    if not file_id and source_id and thumb_file_id:
-        print(f"背景搬运 {source_id} for content_id: {content_id}", flush=True)
-        # 不阻塞：丢到后台做补拉
-        spawn_once(f"src:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
-
-        print(f"创建或更新sora_media {thumb_file_unqiue_id} for content_id: {content_id}", flush=True)
-        await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unqiue_id, thumb_file_id, bot_username)
 
 
 
@@ -2163,9 +2241,14 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     
     thumb_file_id = product_row.get("thumb_file_id") or ""
+    thumb_file_unique_id = product_row.get("thumb_file_unique_id") or ""
+
     preview_text = product_row.get("preview_text") or ""
+
+   
     
 
+    source_id = product_info.get("source_id") or ""
     file_id = product_info.get("m_file_id") or ""
     file_type = product_info.get("file_type") or ""
 
@@ -2198,6 +2281,14 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
 
     # #先发资源
+    if not file_id:
+        invalidate_cached_product(content_id)
+        await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
+        await Media.fetch_file_by_file_id_from_x(state, source_id, 10)
+        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试", show_alert=True)
+
+
+
     if file_id :
         try:
             if file_type == "photo" or file_type == "p":
@@ -2840,7 +2931,7 @@ async def handle_media(message: Message, state: FSMContext):
 
     if product_info:
         if(owner_user_id!=user_id):
-            return await message.answer(f"⚠️ 这个资源已经有人投稿 {owner_user_id} {user_id}")
+            return await message.answer(f"⚠️ 这个资源已经有人投稿 ")
         
         if product_info.get("review_status") == 2:
             guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
@@ -2992,54 +3083,71 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
 
         asyncio.create_task(update_preview_if_arrived())
 
- 
-def get_cached_product(content_id: int) -> dict | None:
-    """带 TTL 的读取；过期或不存在返回 None。"""
+import time
+from typing import Optional
+
+def _now() -> float:
+    return time.time()
+
+def _prune_expired() -> None:
+    """Remove expired items (cheap O(n)); safe to call opportunistically."""
+    now = _now()
+    expired = [cid for cid, ts in product_info_cache_ts.items()
+               if now - ts > PRODUCT_INFO_CACHE_TTL]
+    if not expired:
+        return
+    for cid in expired:
+        product_info_cache.pop(cid, None)
+        product_info_cache_ts.pop(cid, None)
+
+def get_cached_product(content_id: int | str) -> Optional[dict]:
+    """Read with TTL; return None if missing/expired."""
     try:
-        content_id = int(content_id)
+        cid = int(content_id)
     except Exception:
         return None
-
-    ts = product_info_cache_ts.get(content_id)
+    _prune_expired()
+    ts = product_info_cache_ts.get(cid)
     if ts is None:
         return None
-    if (datetime.now().timestamp() - ts) >= PRODUCT_INFO_CACHE_TTL:
-        # 过期，顺带清理
-        invalidate_cached_product(content_id)
+    # (If prune wasn’t called, double-check TTL here)
+    if _now() - ts > PRODUCT_INFO_CACHE_TTL:
+        product_info_cache.pop(cid, None)
+        product_info_cache_ts.pop(cid, None)
         return None
-    return product_info_cache.get(content_id)
+    return product_info_cache.get(cid)
 
-def set_cached_product(content_id: int, payload: dict) -> None:
-    """写入缓存并保持大小上限；payload 需包含渲染所需字段。"""
+def set_cached_product(content_id: int | str, payload: dict) -> None:
+    """Write & enforce size limit; payload must contain render fields."""
     try:
-        content_id = int(content_id)
+        cid = int(content_id)
     except Exception:
         return
+    if not isinstance(payload, dict):
+        return
 
-    # 容量控制：超过上限则按最旧 ts 驱逐
-    if len(product_info_cache) >= PRODUCT_INFO_CACHE_MAX:
-        # 找到最早的 ts
-        oldest_id = None
-        oldest_ts = None
-        for cid, ts in product_info_cache_ts.items():
-            if oldest_ts is None or ts < oldest_ts:
-                oldest_ts = ts
-                oldest_id = cid
-        if oldest_id is not None:
-            product_info_cache.pop(oldest_id, None)
-            product_info_cache_ts.pop(oldest_id, None)
+    # Opportunistically prune expired first to free space
+    _prune_expired()
 
-    product_info_cache[content_id] = payload
-    product_info_cache_ts[content_id] = datetime.now().timestamp()
+    # Enforce MAX size (loop in case MAX shrank at runtime)
+    while len(product_info_cache) >= PRODUCT_INFO_CACHE_MAX and product_info_cache_ts:
+        # Evict the oldest by timestamp
+        oldest_cid = min(product_info_cache_ts, key=product_info_cache_ts.get)
+        product_info_cache.pop(oldest_cid, None)
+        product_info_cache_ts.pop(oldest_cid, None)
+
+    product_info_cache[cid] = payload
+    product_info_cache_ts[cid] = _now()
 
 def invalidate_cached_product(content_id: int | str) -> None:
-    """统一失效缓存（安全转换类型 + 双表一起删）。"""
+    """Invalidate entry (safe conversion + dual-map delete)."""
     try:
         cid = int(content_id)
     except Exception:
         return
     product_info_cache.pop(cid, None)
     product_info_cache_ts.pop(cid, None)
+
 
 
 async def keep_alive_ping():

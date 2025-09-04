@@ -1199,6 +1199,9 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     chat_id = data["chat_id"]
     message_id = data["message_id"]
 
+    print(f"📸 开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
+    
+
     photo = get_largest_photo(message.photo)
     file_unique_id = photo.file_unique_id
     file_id = photo.file_id
@@ -1242,17 +1245,17 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     set_cached_product(content_id, cache)
 
     await message.delete()
-    print(f"📸 预览图更新完成，正在返回菜单：{file_unique_id}",flush=True)
+    print(f"📸 预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
     # 编辑原消息，更新为商品卡片
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
     try:
-        await bot.edit_message_media(
+        edit_result=await bot.edit_message_media(
             chat_id=chat_id,
             message_id=message_id,
             media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
-            reply_markup=preview_keyboard,
-            
+            reply_markup=preview_keyboard,     
         )
+        print(f"📸 预览图更新完成，返回菜单中：{file_unique_id} {edit_result}", flush=True)
     except Exception as e:
         print(f"⚠️ 更新预览图失败B：{e}", flush=True)
 

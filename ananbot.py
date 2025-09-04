@@ -1241,6 +1241,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     cache["thumb_file_id"] = file_id
     set_cached_product(content_id, cache)
 
+    await message.delete()
     print(f"📸 预览图更新完成，正在返回菜单：{file_unique_id}",flush=True)
     # 编辑原消息，更新为商品卡片
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -1256,12 +1257,12 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         print(f"⚠️ 更新预览图失败B：{e}", flush=True)
 
     # await message.answer("✅ 预览图已成功设置！")
-    await message.delete()
+    
     try:
         await state.clear()
     except Exception as e:
         print(f"⚠️ 清除状态失败：{e}", flush=True)
-    print(f"📸 预览图更新完成，正在返回菜单：{file_unique_id}", flush=True)
+    print(f"📸 预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
 
 
 @dp.callback_query(F.data.startswith("auto_update_thumb:"))

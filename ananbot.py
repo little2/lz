@@ -1513,7 +1513,16 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
         except Exception:
             pass
 
-    await callback_query.answer("✅ 已提交审核", show_alert=False)
+    result , error = await send_to_review_group(content_id, state)
+    if result:
+        await callback_query.answer("✅ 已提交审核", show_alert=False)
+    else:
+        if error:
+            await callback_query.answer(f"⚠️ 发送失败：{error}", show_alert=True)
+        else:
+            await callback_query.answer("⚠️ 发送失败：未知错误", show_alert=True)
+
+
 
 @dp.callback_query(F.data.startswith("cancel_publish:"))
 async def handle_cancel_publish(callback_query: CallbackQuery, state: FSMContext):
@@ -2228,26 +2237,11 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
             show_alert=True
         )
 
-        
-        
-       
-
-   
-
-
-
-    # 群/话题定位：沿用当前消息所在的 chat & thread（若存在）
-
-
     
+    # 群/话题定位：沿用当前消息所在的 chat & thread（若存在）
     thumb_file_id = product_row.get("thumb_file_id") or ""
     thumb_file_unique_id = product_row.get("thumb_file_unique_id") or ""
-
     preview_text = product_row.get("preview_text") or ""
-
-   
-    
-
     source_id = product_info.get("source_id") or ""
     file_id = product_info.get("m_file_id") or ""
     file_type = product_info.get("file_type") or ""
@@ -3043,7 +3037,10 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
         return
 
     cached = get_cached_product(content_id) or {}
+    print(f"缓存检查 content_id={content_id}: {cached}", flush=True)
     cached_thumb_unique = cached.get('thumb_unique_id', "")
+
+    print(f"thumb_file_id={thumb_file_id}, cached_thumb_unique={cached_thumb_unique}", flush=True)
 
     # 只有在用默认图且我们已知 thumb_unique_id 时，才尝试异步更新真实图
     if thumb_file_id == DEFAULT_THUMB_FILE_ID and cached_thumb_unique:

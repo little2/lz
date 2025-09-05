@@ -593,19 +593,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         # ✅ 若 thumb_file_id 为空，则给默认值
         if not thumb_file_id and thumb_file_unique_id != None:
             print(f"🔍 没有找到 thumb_file_id，尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
-            # retSend = await MySQLPool.fetch_file_by_file_id(thumb_file_unique_id)
-            # if retSend !=None and retSend.photo:
-            #     largest_photo = max(retSend.photo, key=lambda p: p.file_size or 0)
-            #     thumb_file_id = largest_photo.file_id
-            #     thumb_file_unique_id = largest_photo.file_unique_id
-            #     print("✅ file_id:", thumb_file_id)
-            #     try:
-            #         await lz_var.bot.send_message(
-            #             chat_id=lz_var.sungfeng,
-            #             text=f"|_ask_|{record_id}@{lz_var.bot_username}"
-            #         )
-            #     except Exception as e:
-            #         pass
+
 
             thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
            

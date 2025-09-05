@@ -1118,7 +1118,7 @@ class AnanBOTPool(LYBase):
             if not file_row:
                 # 没有这条 content_id
                 return False
-
+ 
             # 2) 取归属的 guild_id
             await cur.execute(
                 "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL ORDER BY tag_count limit 1;",

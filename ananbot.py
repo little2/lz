@@ -2,29 +2,37 @@ import logging
 from datetime import datetime
 import asyncio
 import time
-from typing import Optional
+from typing import Optional, Coroutine, Tuple
+
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto
-from aiogram.types import BufferedInputFile
+from aiogram.types import (
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
+    InputMediaPhoto,
+    BufferedInputFile,
+)
 from aiogram.enums import ContentType
 from aiogram.filters import Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 import aiohttp
-from typing import Coroutine, Optional, Tuple
+
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
-from utils.media_utils import Media  
-from ananbot_config import BOT_TOKEN,BOT_MODE,WEBHOOK_HOST,WEBHOOK_PATH,WEBAPP_HOST,WEBAPP_PORT
+from utils.media_utils import Media
+from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, WEBAPP_HOST, WEBAPP_PORT
 import lz_var
 from lz_config import AES_KEY
 
 from utils.prof import SegTimer
-
 from utils.aes_crypto import AESCrypto
+
 
 bot = Bot(token=BOT_TOKEN)
 lz_var.bot = bot
@@ -403,8 +411,9 @@ async def get_product_info(content_id: int):
             buttons.extend([
                 [
                     InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}"),
-                    InlineKeyboardButton(text=f"💎 积分 ({product_info['fee']})", callback_data=f"set_price:{content_id}")
+                    InlineKeyboardButton(text="🧩 系列", callback_data=f"series:{content_id}")
                 ],
+                [InlineKeyboardButton(text=f"💎 积分 ({product_info['fee']})", callback_data=f"set_price:{content_id}")],
                 [InlineKeyboardButton(text=f"{anonymous_button_text}", callback_data=f"toggle_anonymous:{content_id}")],
                 [InlineKeyboardButton(text="➕ 添加资源", callback_data=f"add_items:{content_id}")],
                 [
@@ -417,12 +426,17 @@ async def get_product_info(content_id: int):
             # 初审
             buttons.extend([
                 [
-                    InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}")
+                    InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}"),
+                    InlineKeyboardButton(text="🧩 系列", callback_data=f"series:{content_id}")
                 ],
                 [
                     InlineKeyboardButton(text="✅ 通过审核并写入", callback_data=f"approve_product:{content_id}:6"),
                     InlineKeyboardButton(text="❌ 拒绝投稿", callback_data=f"approve_product:{content_id}:1")
                 ]
+
+
+
+
             ])
             # 待审核
         elif review_status == 3:
@@ -448,7 +462,8 @@ async def get_product_info(content_id: int):
 
         buttons.extend([
             [
-                InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}")
+                InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}"),
+                InlineKeyboardButton(text="🧩 系列", callback_data=f"series:{content_id}")
             ],
             [
                 InlineKeyboardButton(text="✅ 认可举报", callback_data=f"judge_suggest:{content_id}:'Y'"),
@@ -1287,7 +1302,9 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
         thumb_file_id = None
 
         # Step 2: 取得 thumb_file_unique_id
+        print(f"...🔍 查询缩图信息 for source_id: {source_id}", flush=True)
         thumb_row = await AnanBOTPool.get_bid_thumbnail_by_source_id(source_id)
+        print(f"...🔍 取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
         
         # 遍寻 thumb_row
         if thumb_row:
@@ -1307,7 +1324,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                 _tmp_chat_id = send_video_result.chat.id
                 _tmp_msg_id = send_video_result.message_id
                 
-                print(f"{send_video_result}")
+                print(f"送出的视频信息{send_video_result}")
                 buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
                 
                 if buf and pic:
@@ -2118,6 +2135,44 @@ from aiogram.filters import CommandObject
 #  审核功能  
 ############
 
+
+
+
+# ====== ③ 指令处理器：/postreview 依序发送，每个间隔 15 秒 ======
+@dp.message(Command("postreview"))
+async def cmd_postreview(message: Message, state: FSMContext):
+    ids = await AnanBOTPool.fetch_review_status_content_ids(2)
+    if not ids:
+        await message.answer("目前没有待复审的商品（review_status = 2）。")
+        return
+
+    success, failed = 0, 0
+    await message.answer(f"开始批量发送到审核群组，共 {len(ids)} 个内容。每个间隔 15 秒。")
+
+    for content_id in ids:
+        try:
+            result, error = await send_to_review_group(content_id, state)
+        except Exception as e:
+            result, error = False, str(e)
+
+        if result:
+            success += 1
+            await message.answer("✅ 已发送到审核群组")
+        else:
+            failed += 1
+            if error:
+                await message.answer(f"⚠️ 发送失败：{error}")
+            else:
+                await message.answer("⚠️ 发送失败：未知错误")
+
+        # 间隔 15 秒
+        await asyncio.sleep(15)
+
+    await message.answer(f"完成：成功 {success}，失败 {failed}，总计 {len(ids)}。")
+
+
+
+
 REVIEW_GROUP_CHAT_ID = -1002989536306
 REVIEW_GROUP_THREAD_ID = 2  # 题主指定
 
@@ -2316,8 +2371,13 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
         await callback_query.answer(f"👉 机器人(@{bot_username})已将审核内容传送给你", show_alert=False)
     except Exception as e:
-        await callback_query.answer(f"⚠️ 请先启用机器人 (@{bot_username}) 私信 (私信机器人按 /start )", show_alert=True)
-        print(f"⚠️ 发送审核卡片失败: {e}", flush=True)  
+        if str(e) == "Telegram server says - Bad Request: wrong file identifier/HTTP URL specified":
+            invalidate_cached_product(content_id)
+            await AnanBOTPool.upsert_product_thumb(int(content_id), thumb_file_unique_id, '', bot_username)
+            await callback_query.answer(f"⚠️ 发送的文件无效，正在自动修复中，请稍候再试", show_alert=True)
+        else:
+            await callback_query.answer(f"⚠️ 请先启用机器人 (@{bot_username}) 私信 (私信机器人按 /start )", show_alert=True)
+        print(f"⚠️ 发送审核卡片失败: {e}", flush=True)
 
 
 ############
@@ -2752,7 +2812,229 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         await callback_query.answer("⚠️ 裁定失败，请稍后重试", show_alert=True)
 
 
+############
+#  系列
+############
+SERIES_CTX = "series_ctx"  # 保存“原始 caption/按钮”的上下文
 
+
+
+def build_series_keyboard(all_series: list[dict], selected_ids: set[int], content_id: int, per_row: int = 2) -> InlineKeyboardMarkup:
+    btns = []
+    for s in all_series:
+        sid = int(s["id"] if isinstance(s, dict) else s[0])
+        name = s["name"] if isinstance(s, dict) else s[1]
+        checked = sid in selected_ids
+        text = f"{'✅' if checked else '⬜'} {name}"
+        btns.append(InlineKeyboardButton(text=text, callback_data=f"series_toggle:{content_id}:{sid}"))
+    rows = [btns[i:i+per_row] for i in range(0, len(btns), per_row)]
+    rows.append([InlineKeyboardButton(text="✅ 设置完成并返回", callback_data=f"series_close:{content_id}")])
+    rows.append([InlineKeyboardButton(text="取消", callback_data=f"series_cancel:{content_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@dp.callback_query(F.data.startswith("series:"))
+async def open_series_panel(cb: CallbackQuery, state: FSMContext):
+    try:
+        _, cid = cb.data.split(":")
+        content_id = int(cid)
+    except Exception:
+        return await cb.answer("⚠️ 参数错误", show_alert=True)
+
+    row = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if not row or not row.get("source_id"):
+        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
+    file_unique_id = row["source_id"]
+
+    # 读全量系列与已选
+    all_series = await AnanBOTPool.get_all_series()
+    selected_ids_db = await AnanBOTPool.get_series_ids_for_file(file_unique_id)
+
+    # FSM：缓存“原始 caption + 按钮”与“当前选择”
+    data = await state.get_data()
+    ctx = data.get(SERIES_CTX, {})
+    key = f"{cb.message.chat.id}:{cb.message.message_id}"
+    if key not in ctx:
+        ctx[key] = {
+            "orig_caption": cb.message.caption or "",
+            "orig_markup": cb.message.reply_markup  # 直接存对象，关闭时重用
+        }
+        await state.update_data(**{SERIES_CTX: ctx})
+    await state.update_data({f"selected_series:{file_unique_id}": list(selected_ids_db)})
+
+    # 生成面板 caption（附统计）
+    selected_names = [s["name"] for s in all_series if s["id"] in selected_ids_db]
+    unselected_names = [s["name"] for s in all_series if s["id"] not in selected_ids_db]
+    panel = (
+        "\n\n📚 系列（点击切换）\n"
+        f"已选（{len(selected_names)}）：{', '.join(selected_names) if selected_names else '无'}\n"
+        f"未选（{len(unselected_names)}）：{', '.join(unselected_names) if unselected_names else '无'}"
+    )
+    new_caption = (ctx[key]["orig_caption"] or "").rstrip() + panel
+
+    kb = build_series_keyboard(all_series, selected_ids_db, content_id)
+    try:
+        await cb.message.edit_caption(caption=new_caption, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await cb.message.edit_text(text=new_caption, reply_markup=kb, parse_mode="HTML")
+    finally:
+        await cb.answer()
+
+@dp.callback_query(F.data.startswith("series_toggle:"))
+async def toggle_series_item(cb: CallbackQuery, state: FSMContext):
+    try:
+        _, cid, sid = cb.data.split(":")
+        content_id = int(cid)
+        series_id = int(sid)
+    except Exception:
+        return await cb.answer("⚠️ 参数错误", show_alert=True)
+
+    row = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if not row or not row.get("source_id"):
+        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
+    file_unique_id = row["source_id"]
+
+    # FSM 中读取并更新“当前选择”
+    data = await state.get_data()
+    fsm_key = f"selected_series:{file_unique_id}"
+    selected_ids = set(data.get(fsm_key, []))
+    if series_id in selected_ids:
+        selected_ids.remove(series_id)
+        tip = "❎ 已取消"
+    else:
+        selected_ids.add(series_id)
+        tip = "✅ 已选中"
+    await state.update_data({fsm_key: list(selected_ids)})
+
+    # 重渲染 caption + 键盘
+    all_series = await AnanBOTPool.get_all_series()
+    selected_names = [s["name"] for s in all_series if s["id"] in selected_ids]
+    unselected_names = [s["name"] for s in all_series if s["id"] not in selected_ids]
+
+    # 取原 caption
+    ctx = data.get(SERIES_CTX, {})
+    key = f"{cb.message.chat.id}:{cb.message.message_id}"
+    base_caption = (ctx.get(key) or {}).get("orig_caption", cb.message.caption or "")
+    panel = (
+        "\n\n📚 系列（点击切换）\n"
+        f"已选（{len(selected_names)}）：{', '.join(selected_names) if selected_names else '无'}\n"
+        f"未选（{len(unselected_names)}）：{', '.join(unselected_names) if unselected_names else '无'}\n"
+        f"{tip}"
+    )
+    new_caption = (base_caption or "").rstrip() + panel
+    kb = build_series_keyboard(all_series, selected_ids, content_id)
+
+    try:
+        await cb.message.edit_caption(caption=new_caption, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await cb.message.edit_text(text=new_caption, reply_markup=kb, parse_mode="HTML")
+    finally:
+        await cb.answer()
+
+
+@dp.callback_query(F.data.startswith("series_close:"))
+async def close_series_panel(cb: CallbackQuery, state: FSMContext):
+    try:
+        _, cid = cb.data.split(":")
+        content_id = int(cid)
+    except Exception:
+        return await cb.answer("⚠️ 参数错误", show_alert=True)
+
+    # 定位 file_unique_id
+    sora = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if not sora or not sora.get("source_id"):
+        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
+    file_unique_id = sora["source_id"]
+
+    # 取 FSM 最终选择并落库
+    data = await state.get_data()
+    fsm_key = f"selected_series:{file_unique_id}"
+    selected_ids = set(map(int, data.get(fsm_key, [])))
+    try:
+        summary = await AnanBOTPool.sync_file_series(file_unique_id, selected_ids)
+    except Exception as e:
+        logging.exception(f"落库系列失败: {e}")
+        summary = {"added": 0, "removed": 0, "unchanged": 0}
+
+    # 清理 FSM
+    try:
+        await state.update_data({fsm_key: []})
+    except Exception:
+        pass
+    ctx = data.get(SERIES_CTX, {})
+    key = f"{cb.message.chat.id}:{cb.message.message_id}"
+    if key in ctx:
+        del ctx[key]
+        await state.update_data(**{SERIES_CTX: ctx})
+
+    # 失效缓存并重绘商品卡片
+    try:
+        invalidate_cached_product(content_id)
+    except Exception:
+        pass
+
+    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    try:
+        await cb.message.edit_media(
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+            reply_markup=preview_keyboard
+        )
+    except Exception as e:
+        logging.exception(f"返回商品卡片失败: {e}")
+        # 兜底：至少把按钮恢复
+        try:
+            await cb.message.edit_reply_markup(reply_markup=preview_keyboard)
+        except Exception:
+            pass
+
+    await cb.answer(f"✅ 系列已保存 (+{summary.get('added',0)}/-{summary.get('removed',0)})", show_alert=False)
+
+
+@dp.callback_query(F.data.startswith("series_cancel:"))
+async def cancel_series_panel(cb: CallbackQuery, state: FSMContext):
+    try:
+        _, cid = cb.data.split(":")
+        content_id = int(cid)
+    except Exception:
+        return await cb.answer("⚠️ 参数错误", show_alert=True)
+
+    # 清理和系列相关的 FSM 缓存（不落库）
+    try:
+        # 取得当前资源的 file_unique_id，清除选择缓存
+        sora = await AnanBOTPool.get_sora_content_by_id(content_id)
+        if sora and sora.get("source_id"):
+            fsm_key = f"selected_series:{sora['source_id']}"
+            data = await state.get_data()
+            if fsm_key in data:
+                await state.update_data({fsm_key: []})
+
+        # 清掉保存的原始 caption/markup（如果存过）
+        data = await state.get_data()
+        ctx = data.get("series_ctx", {})
+        key = f"{cb.message.chat.id}:{cb.message.message_id}"
+        if key in ctx:
+            del ctx[key]
+            await state.update_data(**{"series_ctx": ctx})
+    except Exception:
+        pass
+
+    # 直接回到商品卡片（不保存任何变更）
+    try:
+        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+        await cb.message.edit_media(
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+            reply_markup=preview_keyboard
+        )
+    except Exception:
+        # 兜底：至少恢复按钮
+        try:
+            _, preview_text, preview_keyboard = await get_product_tpl(content_id)
+            await cb.message.edit_caption(caption=preview_text, parse_mode="HTML")
+            await cb.message.edit_reply_markup(reply_markup=preview_keyboard)
+        except Exception:
+            pass
+
+    await cb.answer("已取消，不做修改")
 
 
 ############
@@ -3041,7 +3323,7 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
         return
 
     cached = get_cached_product(content_id) or {}
-    print(f"缓存检查 content_id={content_id}: {cached}", flush=True)
+    
     cached_thumb_unique = cached.get('thumb_unique_id', "")
 
     print(f"thumb_file_id={thumb_file_id}, cached_thumb_unique={cached_thumb_unique}", flush=True)

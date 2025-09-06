@@ -209,16 +209,18 @@ class AnanBOTPool(LYBase):
         """
         conn, cur = await cls.get_conn_cursor()
         try:
-            # 1) 嘗試更新 sora_content（若該 content_id 不存在則不會有影響）
-            await cur.execute(
-                """
-                UPDATE sora_content
-                SET thumb_file_unique_id = %s
-                WHERE id = %s
-                """,
-                (thumb_file_unique_id, content_id)
-            )
-            content_rows = cur.rowcount  # 受影響筆數（0 代表該 content_id 不存在）
+            content_rows = 0
+            if thumb_file_unique_id!="":
+                # 1) 嘗試更新 sora_content（若該 content_id 不存在則不會有影響）
+                await cur.execute(
+                    """
+                    UPDATE sora_content
+                    SET thumb_file_unique_id = %s
+                    WHERE id = %s 
+                    """,
+                    (thumb_file_unique_id, content_id)
+                )
+                content_rows = cur.rowcount  # 受影響筆數（0 代表該 content_id 不存在）
 
             # 2) 對 sora_media 做 UPSERT（不存在則插入，存在則更新 thumb_file_id）
             # 依賴唯一鍵 uniq_content_bot (content_id, source_bot_name)
@@ -1315,3 +1317,90 @@ class AnanBOTPool(LYBase):
             return affected
         finally:
             await cls.release(conn, cur)
+
+    # ====== ② DB 辅助函数：取出所有 review_status = 2 的 content_id ======
+    @classmethod
+    async def fetch_review_status_content_ids(cls, review_status_id:int) -> list[int]:
+        """
+        返回需要发送到审核群组的 content_id 列表（product.review_status = 2）
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 这里假设 product 表字段为 content_id、review_status
+            # 若你表结构不同，把列名改为实际名称即可
+            await cur.execute(
+                "SELECT content_id FROM product WHERE review_status = %s ORDER BY content_id ASC LIMIT 10",
+                (review_status_id,)
+            )
+            rows = await cur.fetchall()
+            # aiomysql.DictCursor 时：row 是 dict；普通 Cursor 时：row 是 tuple
+            ids = []
+            for row in rows:
+                if isinstance(row, dict):
+                    ids.append(int(row.get("content_id")))
+                else:
+                    ids.append(int(row[0]))
+            return ids
+        finally:
+            await cls.release(conn, cur)
+
+
+    # =======================
+    # Series 相关
+    # =======================
+    @classmethod
+    async def get_all_series(cls) -> list[dict]:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute("SELECT id, name, description, tag FROM series ORDER BY name ASC")
+            return await cur.fetchall()
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_series_ids_for_file(cls, file_unique_id: str) -> set[int]:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute("SELECT series_id FROM file_series WHERE file_unique_id=%s", (file_unique_id,))
+            rows = await cur.fetchall()
+            ids = set()
+            for r in rows:
+                ids.add(int(r["series_id"] if isinstance(r, dict) else r[0]))
+            return ids
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def sync_file_series(cls, file_unique_id: str, selected_ids: set[int]) -> dict:
+        """
+        与 file_series 表做一次性同步（类似 sync_file_tags 风格）：
+        - 新增：selected_ids - db_ids
+        - 删除：db_ids - selected_ids
+        返回 {added, removed, unchanged}
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 现有
+            await cur.execute("SELECT series_id FROM file_series WHERE file_unique_id=%s", (file_unique_id,))
+            rows = await cur.fetchall()
+            db_ids = {int(r["series_id"] if isinstance(r, dict) else r[0]) for r in rows}
+
+            to_add = list(selected_ids - db_ids)
+            to_del = list(db_ids - selected_ids)
+
+            if to_add:
+                await cur.executemany(
+                    "INSERT INTO file_series (file_unique_id, series_id) VALUES (%s, %s)",
+                    [(file_unique_id, sid) for sid in to_add]
+                )
+            if to_del:
+                await cur.executemany(
+                    "DELETE FROM file_series WHERE file_unique_id=%s AND series_id=%s",
+                    [(file_unique_id, sid) for sid in to_del]
+                )
+            await conn.commit()
+
+            return {"added": len(to_add), "removed": len(to_del), "unchanged": len(selected_ids & db_ids)}
+        finally:
+            await cls.release(conn, cur)
+

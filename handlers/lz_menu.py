@@ -478,7 +478,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
 
     owner_user_id = user_info[0] if user_info[0] else None
-    fee = user_info[1] if user_info[1] else None
+    fee = user_info[1] if user_info[1] else 0
 
     
 
@@ -495,13 +495,14 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     # 若有,则回覆消息
     from_user_id = callback.from_user.id
     sender_fee = int(fee) * (-1)  # ✅ 发送者手续费
+    receiver_fee = int(fee) * (0.4)
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': owner_user_id or 0,
         'transaction_type': 'confirm_buy',
         'transaction_description': source_id,
         'sender_fee': sender_fee,
-        'receiver_fee': 6
+        'receiver_fee': receiver_fee
     })
 
     # print(f"🔍 交易记录结果: {result}", flush=True)

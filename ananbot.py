@@ -2943,7 +2943,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         if next_file_unique_id:
             next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
             result , error = await send_to_review_group(next_content_id, state)
-            await AnanBOTPool.update_report_status(report_id, "approved")
+            await AnanBOTPool.update_report_status(report_id, "published")
 
 
     except Exception as e:

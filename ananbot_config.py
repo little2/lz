@@ -38,3 +38,8 @@ DB_CONFIG = {
     "db": MYSQL_DB,
     "autocommit": True
 }
+
+REVIEW_CHAT_ID = config.get('review_chat_id', os.getenv('REVIEW_CHAT_ID', ''))
+
+REVIEW_THREAD_ID = config.get('review_thread_id', os.getenv('REVIEW_THREAD_ID', ''))
+

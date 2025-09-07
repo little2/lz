@@ -26,7 +26,7 @@ import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media
-from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, WEBAPP_HOST, WEBAPP_PORT
+from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT
 import lz_var
 from lz_config import AES_KEY
 
@@ -55,7 +55,7 @@ product_info_cache: dict[int, dict] = {}
 product_info_cache_ts: dict[int, float] = {}
 PRODUCT_INFO_CACHE_TTL = 60  # 秒
 PRODUCT_INFO_CACHE_MAX = 100  # 新增：最多缓存条数
-
+product_review_url_cache: dict[int, str] = {}
 
 DEFAULT_THUMB_FILE_ID = "AgACAgEAAxkBAAPIaHHqdjJqYXWcWVoNoAJFGFBwBnUAAjGtMRuIOEBF8t8-OXqk4uwBAAMCAAN5AAM2BA"
 
@@ -71,7 +71,7 @@ REPORT_TYPES: dict[int, str] = {
     90: "其他",
 }
 
-INPUT_TIMEOUT = 60
+INPUT_TIMEOUT = 180
 
 COLLECTION_PROMPT_DELAY = 2
 TAG_REFRESH_DELAY = 0.7
@@ -476,6 +476,15 @@ async def get_product_info(content_id: int):
         buttons = [[InlineKeyboardButton(text="通过审核,但上架失败", callback_data=f"none")]]
     elif review_status == 9:
         buttons = [[InlineKeyboardButton(text="通过审核,已上架", callback_data=f"none")]]
+
+
+    return_url = product_review_url_cache.get(content_id)
+    if return_url:
+        buttons.extend([
+            [
+                InlineKeyboardButton(text="🔙 返回审核", url=f"{return_url}")
+            ]
+        ])
 
 
     product_info['buttons'] = buttons
@@ -1224,12 +1233,13 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     height = photo.height
     file_size = photo.file_size or 0
     user_id = int(message.from_user.id)
+    photo_message = message
 
     print(f"📸 2收到预览图：{file_unique_id}", flush=True)
     await lz_var.bot.copy_message(
         chat_id=lz_var.x_man_bot_id,
         from_chat_id=message.chat.id,
-        message_id=message.message_id
+        message_id=photo_message.message_id
     )
 
     print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
@@ -1259,7 +1269,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     cache["thumb_file_id"] = file_id
     set_cached_product(content_id, cache)
 
-    await message.delete()
+    await photo_message.delete()
     print(f"📸 6预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
     # 编辑原消息，更新为商品卡片
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -1346,12 +1356,17 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                             content_id, thumb_file_unique_id, thumb_file_id, await get_bot_username()
                         )
 
-                        return
+                        await callback_query.answer("预览图更新中", show_alert=False)
                     except Exception as e:
-                        print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
+                        if(str(e).find("message is not modified")>=0):
+                            await callback_query.answer("⚠️ 这就是这个资源的默认预览图（无修改）", show_alert=True)
+                        else:
+                            print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
+                            await callback_query.answer("⚠️ 用缓冲图更新封面失败，需要手动上传或是机器人排程生成", show_alert=True)
+                
                 else:
                     print(f"...⚠️ 提取缩图失败 for source_id: {source_id}", flush=True)
-                    return await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，也没预设的预览图，需要手动上传或是机器人排程生成", show_alert=True)
+                    await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，也没预设的预览图，需要手动上传或是机器人排程生成", show_alert=True)
                 
                 # 3) 不论成败，尽力删除临时视频（如果之前已删，会静默忽略异常）
                 try:
@@ -1364,7 +1379,8 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                 return
             else:
                 print(f"...⚠️ 找不到对应的分镜缩图 for source_id: {source_id}", flush=True)
-                return await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，需要手动上传或是机器人排程生成", show_alert=True)
+                await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，需要手动上传或是机器人排程生成", show_alert=True)
+                return
 
         elif thumb_file_unique_id and thumb_file_id is None:
         # Step 4: 通知处理 bot 生成缩图（或触发缓存）
@@ -1457,7 +1473,10 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     product_info = product_row.get("product_info", {}) or {}
     thumb_file_id = product_row.get("thumb_file_id") or ""
     content_text = (product_info.get("content") or "").strip()
+    tag_string = product_info.get("tag", "")
 
+
+    has_tag_string = bool(tag_string and tag_string.strip())
 
     # 预览图校验：必须不是默认图
     has_custom_thumb = bool(thumb_file_id and thumb_file_id != DEFAULT_THUMB_FILE_ID)
@@ -1476,16 +1495,21 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     content_ok = len(content_text) > 30
     tags_ok = tag_count >= 5
     thumb_ok = has_custom_thumb
+    has_tag_ok = has_tag_string
 
     # 如果有缺项，给出可操作的引导并阻止送审
-    if not (content_ok and tags_ok and thumb_ok):
+    if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
         missing_parts = []
         if not content_ok:
             missing_parts.append("📝 内容需 > 30 字")
-        if not tags_ok:
+        if not tags_ok :
             missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+        elif not has_tag_ok:
+            missing_parts.append(f"🏷️ 请检查标签）")
+           
         if not thumb_ok:
             missing_parts.append("📷 需要设置预览图（不是默认图）")
+       
 
         tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
 
@@ -1638,10 +1662,18 @@ def parse_tme_c_url(url: str) -> Optional[Tuple[int, Optional[int], int]]:
 
 @dp.callback_query(F.data.startswith("approve_product:"))
 async def handle_approve_product(callback_query: CallbackQuery, state: FSMContext):
+    judge_string = ''
     try:
+        print(f"callback_query={callback_query.data=}", flush=True)
         content_id = int(callback_query.data.split(":")[1])
-        review_status = int(callback_query.data.split(":")[2])
-    except Exception:
+        print(f"content_id={content_id=}", flush=True)
+        if callback_query.data.split(":")[2] in ("'Y'", "'N'"):
+            judge_string = callback_query.data.split(":")[2]
+            review_status = 6 
+        else:
+            review_status = int(callback_query.data.split(":")[2])
+    except Exception as e:
+        logging.exception(f"解析回调数据失败: {e}")
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)
 
    
@@ -1697,9 +1729,17 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     button_str = ""
 
     if review_status == 6:
-        await callback_query.answer("✅ 已通过审核", show_alert=True)
+        await callback_query.answer(f"✅ 已审核{judge_string}", show_alert=True)
         
-        button_str = f"✅ {reviewer} 已通过审核"
+
+        if judge_string == "'N'":
+            button_str = f"❌ {reviewer} 不认可举报"
+        elif judge_string == "'Y'":
+            button_str = f"✅ {reviewer} 认可举报"
+        else:
+            button_str = f"✅ {reviewer} 已审核{judge_string}"
+   
+
         buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
         
         # ⬇️ 改为后台执行，不阻塞当前回调
@@ -2096,7 +2136,7 @@ async def handle_search(message: Message, state: FSMContext):
             pass
     elif parts[0] == "s" or parts[0] == "suggest":
         try:
-            await report_content(message.from_user.id, parts[1])
+            await report_content(message.from_user.id, parts[1], state)
           
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)
@@ -2173,8 +2213,7 @@ async def cmd_postreview(message: Message, state: FSMContext):
 
 
 
-REVIEW_GROUP_CHAT_ID = -1002989536306
-REVIEW_GROUP_THREAD_ID = 2  # 题主指定
+
 
 @dp.message(F.chat.type == "private", Command("post"))
 async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
@@ -2225,12 +2264,14 @@ async def send_to_review_group(content_id: int, state: FSMContext):
     ])
     try:
         await bot.send_message(
-            chat_id=REVIEW_GROUP_CHAT_ID,
+            chat_id=REVIEW_CHAT_ID,
             text=preview_text,
             reply_markup=kb,
-            message_thread_id=REVIEW_GROUP_THREAD_ID,  # 指定话题
+            message_thread_id=REVIEW_THREAD_ID,  # 指定话题
             parse_mode="HTML"
         )
+        invalidate_cached_product(content_id)
+        await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
         return True, None
         
     except Exception as e:
@@ -2257,6 +2298,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     # 取得预览卡片（沿用你现成的函数）
     product_row = await get_product_info(content_id)
+
     product_info = product_row.get("product_info") or {}
     print(f"{content_id} -> {product_info['review_status']}", flush=True)
     # thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -2324,11 +2366,17 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     else:
         return_url = f"https://t.me/c/{chat_for_link}/{src_msg_id}"
 
+
+    product_review_url_cache[content_id] = return_url
+    
     buttons.extend([
         [
             InlineKeyboardButton(text="🔙 返回审核", url=f"{return_url}")
         ]
     ])
+
+
+
 
     preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -2471,7 +2519,7 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
         return False
 
 
-async def report_content(user_id: int, file_unique_id: str) -> bool:
+async def report_content(user_id: int, file_unique_id: str, state: FSMContext) -> bool:
     """
     举报流程（新版）：
     1) 校验用户是否对该资源有可举报的交易
@@ -2490,7 +2538,7 @@ async def report_content(user_id: int, file_unique_id: str) -> bool:
                 text=f"<a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报",
                 parse_mode="HTML"
             )
-            return False
+            # return False #TODO
 
         # Step 2: 是否已有举报在处理中
         existing = await AnanBOTPool.find_existing_report(file_unique_id)
@@ -2500,6 +2548,11 @@ async def report_content(user_id: int, file_unique_id: str) -> bool:
                 text=f"<a href='{trade_url}'>{file_unique_id}</a> 已有人先行举报",
                 parse_mode="HTML"
             )
+
+            #送出审核 TODO
+            content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+            result , error = await send_to_review_group(content_id, state)
+
             return False
 
        
@@ -2509,19 +2562,24 @@ async def report_content(user_id: int, file_unique_id: str) -> bool:
 
         
         content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
-        thumb_file_id, preview_text, _ = await get_product_tpl(content_id)
 
+        product_row = await get_product_info(content_id)
+
+        thumb_file_id = product_row.get("thumb_file_id") or ""
+        preview_text = product_row.get("preview_text") or ""
+       
         prompt = f"{preview_text}\r\n\r\n请选择对 <a href='{trade_url}'>{file_unique_id}</a> 的举报类型："
 
         if thumb_file_id:
             # 用图片 + caption
-            await bot.send_photo(
+            new_msg=await bot.send_photo(
                 chat_id=user_id,
                 photo=thumb_file_id,
                 caption=prompt,
                 parse_mode="HTML",
                 reply_markup=kb
             )
+            await update_product_preview(content_id, thumb_file_id, state, new_msg)
         else:
             # 纯文本
             await bot.send_message(
@@ -2613,7 +2671,18 @@ async def handle_report_reason_text(message: Message, state: FSMContext):
             report_type=report_type,
             report_reason=reason
         )
-        await message.answer(f"✅ 举报已提交（编号：{report_id}）。我们会尽快处理。")
+        
+        content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+        result , error = await send_to_review_group(content_id, state)
+        if result:
+            await message.answer(f"✅ 举报已提交（编号：{report_id}）。我们会尽快处理。")
+            
+        else:
+            if error:
+                await message.answer(f"⚠️ 发送失败：{error}")
+            else:
+                await message.answer("⚠️ 发送失败：未知错误")
+
     except Exception as e:
         logging.exception(f"create_report 失败: {e}")
         await message.answer("⚠️ 提交失败，请稍后重试。")
@@ -2694,11 +2763,56 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
 
     try:
         # 从 DB 查举报详情 (交易 + 举报 + bid)
-        sora_content = await AnanBOTPool.search_sora_content_by_id(content_id,lz_var.bot_username)  # 确保 content_id 存在
-        print(f"{sora_content}",flush=True)
-        file_unique_id =  sora_content.get("source_id") if sora_content else None
+        product_row = await get_product_info(content_id)
+        product_info = product_row.get("product_info") or {}
+        thumb_file_id = product_row.get("thumb_file_id") or ""
+        content_text = (product_info.get("content") or "").strip()
+        tag_string = product_info.get("tag", "")
+
+
+        has_tag_string = bool(tag_string and tag_string.strip())
+
+
+        has_custom_thumb = bool(thumb_file_id and thumb_file_id != DEFAULT_THUMB_FILE_ID)
+
+        try:
+            sora_content = await AnanBOTPool.search_sora_content_by_id(content_id,lz_var.bot_username)  # 确保 content_id 存在
+            file_unique_id = source_id = sora_content.get("source_id") if sora_content else None
+            tag_set = await AnanBOTPool.get_tags_for_file(source_id) if source_id else set()
+            tag_count = len(tag_set or [])
+        except Exception:
+            tag_set = set()
+            tag_count = 0
+
+
+        # 内容长度校验（“超过30字”→ 严格 > 30）
+        content_ok = len(content_text) > 30
+        tags_ok = tag_count >= 5
+        thumb_ok = has_custom_thumb
+        has_tag_ok = has_tag_string
+
+
+        # 如果有缺项，给出可操作的引导并阻止送审
+        if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
+            missing_parts = []
+            if not content_ok:
+                missing_parts.append("📝 内容需 > 30 字")
+            if not tags_ok :
+                missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+            elif not has_tag_ok:
+                missing_parts.append(f"🏷️ 请检查标签）")
+            if not thumb_ok:
+                missing_parts.append("📷 需要设置预览图（不是默认图）")
+
+            tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
+
+            return await callback_query.answer(tips, show_alert=True)
+
+        
         report_info = await AnanBOTPool.find_existing_report(file_unique_id)
         if not report_info:
+            await AnanBOTPool.set_product_review_status(content_id, 6) #进入复审阶段
+            invalidate_cached_product(content_id)
             return await callback_query.answer("⚠️ 找不到举报信息", show_alert=True)
 
         # 期望字段（见 get_report_detail_by_content 的 SELECT）
@@ -2759,14 +2873,15 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
 
             # 5) 更新 report 状态
             await AnanBOTPool.update_report_status(report_id, "approved")
-            await AnanBOTPool.set_product_review_status(content_id, 3) #进入复审阶段
+            await handle_approve_product(callback_query, state)
+            # await AnanBOTPool.set_product_review_status(content_id, 3) #进入复审阶段
 
-            option_buttons.append([
-                InlineKeyboardButton(
-                    text=f"✅ 确认举报属实 ({sender_id})",
-                    callback_data="a=nothing"
-                )
-            ])
+            # option_buttons.append([
+            #     InlineKeyboardButton(
+            #         text=f"✅ 确认举报属实 ({sender_id})",
+            #         callback_data="a=nothing"
+            #     )
+            # ])
 
         elif decision == "N":  # 不认可举报
             reply_msg += (
@@ -2788,24 +2903,25 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
 
             # 更新 report 状态
             await AnanBOTPool.update_report_status(report_id, "rejected")
-            await AnanBOTPool.set_product_review_status(content_id, 3) #进入复审阶段
-
-            option_buttons.append([
-                InlineKeyboardButton(
-                    text=f"❌ 不认可举报 ({sender_id})",
-                    callback_data="a=nothing"
-                )
-            ])
+            # await AnanBOTPool.set_product_review_status(content_id, 3) #进入复审阶段
+            await handle_approve_product(callback_query, state)
+            # option_buttons.append([
+            #     InlineKeyboardButton(
+            #         text=f"❌ 不认可举报 ({sender_id})",
+            #         callback_data="a=nothing"
+            #     )
+            # ])
 
         # 编辑原消息按钮，替换为结果
-        try:
-            await callback_query.message.edit_reply_markup(
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
-            )
-        except Exception as e:
-            logging.exception(f"编辑举报裁定按钮失败: {e}")
+        # try:
+        #     await callback_query.message.edit_reply_markup(
+        #         reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+        #     )
+        # except Exception as e:
+        #     logging.exception(f"编辑举报裁定按钮失败: {e}")
 
         await callback_query.answer("✅ 已处理举报", show_alert=False)
+        invalidate_cached_product(content_id)
 
     except Exception as e:
         logging.exception(f"[judge_suggest] 裁定失败 content_id={content_id}: {e}")

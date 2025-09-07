@@ -285,6 +285,8 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
     content_id = int(content_id)  # 兜底：/review 等场景传的是字符串
     product_row = await get_product_info(content_id)
 
+    print(f"🔍 get_product_tpl for content_id={content_id}: {product_row}", flush=True)
+
     thumb_file_id = product_row.get("thumb_file_id") or ""
     preview_text = product_row.get("preview_text") or ""
     preview_keyboard = product_row.get("preview_keyboard")
@@ -1223,7 +1225,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     chat_id = data["chat_id"]
     message_id = data["message_id"]
 
-    print(f"📸 1开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
+    # print(f"📸 1开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
     
 
     photo = get_largest_photo(message.photo)
@@ -1235,14 +1237,21 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     user_id = int(message.from_user.id)
     photo_message = message
 
-    print(f"📸 2收到预览图：{file_unique_id}", flush=True)
-    await lz_var.bot.copy_message(
+    # print(f"📸 2收到预览图：{file_unique_id}", flush=True)
+
+    spawn_once(f"copy:{photo_message.message_id}", lz_var.bot.copy_message(
         chat_id=lz_var.x_man_bot_id,
         from_chat_id=message.chat.id,
         message_id=photo_message.message_id
-    )
+    ))
 
-    print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
+    # await lz_var.bot.copy_message(
+    #     chat_id=lz_var.x_man_bot_id,
+    #     from_chat_id=message.chat.id,
+    #     message_id=photo_message.message_id
+    # )
+
+    # print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
     await AnanBOTPool.upsert_media( "photo", {
         "file_unique_id": file_unique_id,
         "file_size": file_size,
@@ -1257,30 +1266,53 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     await AnanBOTPool.upsert_product_thumb(content_id, file_unique_id,file_id, bot_username)
     # Step 4: 更新 update_bid_thumbnail
 
-    print(f"📸 4更新预览图数据库记录：{file_unique_id}", flush=True)
+    # print(f"📸 4更新预览图数据库记录：{file_unique_id}", flush=True)
     row = await AnanBOTPool.get_sora_content_by_id(content_id)
     if row and row.get("source_id"):
         source_id = row["source_id"]
         await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
 
-    print(f"📸 5更新预览图缓存：{file_unique_id}", flush=True)
+    # print(f"📸 5更新预览图缓存：{file_unique_id}", flush=True)
     cache = get_cached_product(content_id) or {}
     cache["thumb_unique_id"] = file_unique_id
     cache["thumb_file_id"] = file_id
     set_cached_product(content_id, cache)
-
-    await photo_message.delete()
-    print(f"📸 6预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
+    #TODO 搞不定上传预览图，但菜单会不见
+    # await photo_message.delete()
+    # print(f"📸 6预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
     # 编辑原消息，更新为商品卡片
-    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+
+   
+    
+
+
+    # thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
     try:
-        edit_result=await bot.edit_message_media(
+        # print(f"TPL: thumb={thumb_file_id[:10]}..., caption_len={len(preview_text)}, kb_type={type(preview_keyboard)}", flush=True)
+        orig_caption = message.caption or ""
+        orig_entities = message.caption_entities
+        orig_keyboard = message.reply_markup
+
+        # 执行编辑，只换 media，保留文字和按钮
+        edit_result = await bot.edit_message_media(
             chat_id=chat_id,
             message_id=message_id,
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
-            reply_markup=preview_keyboard,     
+            media=InputMediaPhoto(
+                media=cache["thumb_file_id"],
+                caption=orig_caption,
+                caption_entities=orig_entities
+            ),
+            reply_markup=orig_keyboard,
         )
-        print(f"📸 7预览图更新完成，返回菜单中：{file_unique_id} {edit_result}", flush=True)
+        
+
+        # edit_result=await bot.edit_message_media(
+        #     chat_id=chat_id,
+        #     message_id=message_id,
+        #     media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
+        #     reply_markup=preview_keyboard,     
+        # )
+        print(f"📸 7预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
     except Exception as e:
         print(f"⚠️ 8更新预览图失败B：{e}", flush=True)
 
@@ -1506,7 +1538,7 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
             missing_parts.append("📷 需要设置预览图（不是默认图）")
 
         if not has_tag_ok:
-            missing_parts.append(f"🏷️ 请检查标签）")
+            missing_parts.append(f"🏷️ 请检查标签是否正确")
         elif not tags_ok :
             missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
         
@@ -2182,6 +2214,17 @@ from aiogram.filters import CommandObject
 
 
 
+@dp.message(Command("next"))
+async def handle_get_next_report_to_judge(message: Message, state: FSMContext):
+    report_row = await AnanBOTPool.get_next_report_to_judge()
+    print(f"下一个待裁定 {report_row}", flush=True)
+    next_file_unique_id = report_row['file_unique_id'] if report_row else None
+    report_id = report_row['report_id']
+    print(f"下一个待裁定 {next_file_unique_id}", flush=True)
+    if next_file_unique_id:
+        next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
+        result , error = await send_to_review_group(next_content_id, state)
+        await AnanBOTPool.update_report_status(report_id, "published")
 
 # ====== ③ 指令处理器：/postreview 依序发送，每个间隔 15 秒 ======
 @dp.message(Command("postreview"))
@@ -2809,7 +2852,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
                 missing_parts.append("📷 需要设置预览图（不是默认图）")
 
             if not has_tag_ok:
-                missing_parts.append(f"🏷️ 请检查标签）")
+                missing_parts.append(f"🏷️ 请检查标签是否正确")
             elif not tags_ok :
                 missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
             
@@ -3190,6 +3233,10 @@ async def handle_start_remove_tag(message: Message, state: FSMContext):
     await state.set_state(ProductPreviewFSM.waiting_for_removetag_source)
     await state.set_data({"tag": tag})
     await message.answer(f"🔍 请发送要移除该 tag 的 source_id")
+
+
+
+
 
 @dp.message(F.chat.type == "private", ProductPreviewFSM.waiting_for_removetag_source, F.text)
 async def handle_removetag_source_input(message: Message, state: FSMContext):

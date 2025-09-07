@@ -2321,14 +2321,14 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     '''
 
 
-    if product_info.get("review_status") == 2:
+    if product_info.get("review_status") in (2,4):
         guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
         if not guild_row:
-            return await callback_query.answer(f"⚠️ 这个资源正在审核状态", show_alert=True)
-    elif product_info.get("review_status") in (3, 4, 5):
+            return await callback_query.answer(f"⚠️ 这个资源正在审核状态(撸馆社团干部审核中)", show_alert=True)
+    elif product_info.get("review_status") in (3, 5):
         guild_row = await AnanBOTPool.check_guild_role(user_id,'owner')
         if not guild_row:
-            return await callback_query.answer(f"⚠️ 这个资源正在上架中", show_alert=True)
+            return await callback_query.answer(f"⚠️ 这个资源正在上架中(撸馆社长审核中)", show_alert=True)
     else:
         result_kb = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]

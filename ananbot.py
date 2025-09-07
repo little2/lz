@@ -2272,6 +2272,7 @@ async def send_to_review_group(content_id: int, state: FSMContext):
         )
         invalidate_cached_product(content_id)
         await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
+        
         return True, None
         
     except Exception as e:
@@ -2538,7 +2539,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext) -
                 text=f"<a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报",
                 parse_mode="HTML"
             )
-            # return False #TODO
+            return False  #TODO
 
         # Step 2: 是否已有举报在处理中
         existing = await AnanBOTPool.find_existing_report(file_unique_id)
@@ -2550,8 +2551,8 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext) -
             )
 
             #送出审核 TODO
-            content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
-            result , error = await send_to_review_group(content_id, state)
+            # content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+            # result , error = await send_to_review_group(content_id, state)
 
             return False
 
@@ -2924,6 +2925,19 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
 
         await callback_query.answer("✅ 已处理举报", show_alert=False)
         invalidate_cached_product(content_id)
+
+        # 找下一个
+        
+        report_row = await AnanBOTPool.get_next_report_to_judge()
+        print(f"下一个待裁定 {report_row}", flush=True)
+        next_file_unique_id = report_row['file_unique_id'] if report_row else None
+        report_id = report_row['report_id']
+        print(f"下一个待裁定 {next_file_unique_id}", flush=True)
+        if next_file_unique_id:
+            next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
+            result , error = await send_to_review_group(next_content_id, state)
+            await AnanBOTPool.update_report_status(report_id, "approved")
+
 
     except Exception as e:
         logging.exception(f"[judge_suggest] 裁定失败 content_id={content_id}: {e}")

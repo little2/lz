@@ -1259,6 +1259,29 @@ class AnanBOTPool(LYBase):
            
             await cls.release(conn, cur)
 
+    @classmethod
+    async def get_next_report_to_judge(cls) -> dict | None:
+        """
+        查询是否已有针对该 file_unique_id 的举报（状态在 editing/pending/published/failed）。
+        有则返回第一条；无则 None。
+        """
+        sql = """
+            SELECT * FROM report 
+             WHERE process_status IN ('pending')
+             LIMIT 1
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(sql)
+            row = await cur.fetchone()
+            return row if row else None
+        finally:
+            await cls.release(conn, cur)
+
+
+    
+
+
     # ananbot_utils.py 内的 AnanBOTPool 类里新增
     @classmethod
     async def create_report(cls, file_unique_id: str, transaction_id: int, report_type: int, report_reason: str) -> int:

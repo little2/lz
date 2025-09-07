@@ -2142,7 +2142,7 @@ async def handle_search(message: Message, state: FSMContext):
             print(f"⚠️ 解码失败: {e}", flush=True)
     elif parts[0] == "a" or parts[0] == "admin":
         try:
-            await report_content(message.from_user.id, parts[1], state, admin)
+            await report_content(message.from_user.id, parts[1], state, "admin")
           
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)            

@@ -1502,14 +1502,14 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
         missing_parts = []
         if not content_ok:
             missing_parts.append("📝 内容需 > 30 字")
-        if not tags_ok :
-            missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
-        elif not has_tag_ok:
-            missing_parts.append(f"🏷️ 请检查标签）")
-           
         if not thumb_ok:
             missing_parts.append("📷 需要设置预览图（不是默认图）")
-       
+
+        if not has_tag_ok:
+            missing_parts.append(f"🏷️ 请检查标签）")
+        elif not tags_ok :
+            missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+        
 
         tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
 
@@ -2797,12 +2797,14 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
             missing_parts = []
             if not content_ok:
                 missing_parts.append("📝 内容需 > 30 字")
-            if not tags_ok :
-                missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
-            elif not has_tag_ok:
-                missing_parts.append(f"🏷️ 请检查标签）")
             if not thumb_ok:
                 missing_parts.append("📷 需要设置预览图（不是默认图）")
+
+            if not has_tag_ok:
+                missing_parts.append(f"🏷️ 请检查标签）")
+            elif not tags_ok :
+                missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+            
 
             tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
 

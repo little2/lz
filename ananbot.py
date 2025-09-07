@@ -2140,7 +2140,12 @@ async def handle_search(message: Message, state: FSMContext):
           
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)
-            
+    elif parts[0] == "a" or parts[0] == "admin":
+        try:
+            await report_content(message.from_user.id, parts[1], state, admin)
+          
+        except Exception as e:
+            print(f"⚠️ 解码失败: {e}", flush=True)            
     elif parts[0] == "p":
         try:
             aes = AESCrypto(AES_KEY)
@@ -2520,7 +2525,7 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
         return False
 
 
-async def report_content(user_id: int, file_unique_id: str, state: FSMContext) -> bool:
+async def report_content(user_id: int, file_unique_id: str, state: FSMContext, model: str ="normal") -> bool:
     """
     举报流程（新版）：
     1) 校验用户是否对该资源有可举报的交易
@@ -2539,7 +2544,10 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext) -
                 text=f"<a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报",
                 parse_mode="HTML"
             )
-            return False  #TODO
+
+            if model != "admin":
+                return False
+           
 
         # Step 2: 是否已有举报在处理中
         existing = await AnanBOTPool.find_existing_report(file_unique_id)
@@ -2551,12 +2559,11 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext) -
             )
 
             #送出审核 TODO
-            # content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
-            # result , error = await send_to_review_group(content_id, state)
-
-            return False
-
-       
+            if model == "admin":
+                content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+                result , error = await send_to_review_group(content_id, state)
+            else:
+                return False
 
         # Step 3: 举报类型按钮（短文案，防止 TG 截断）
         kb = build_report_type_keyboard(file_unique_id, tx['transaction_id'])

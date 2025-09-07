@@ -1157,14 +1157,14 @@ class AnanBOTPool(LYBase):
                 # 管理员直接返回任意一条 guild 记录
                 await cur.execute(
                     "SELECT * FROM guild WHERE guild_owner LIKE %s LIMIT 1;",
-                    (f"%{user_id};",)
+                    (f"%{user_id};%",)
                 )
 
             # 普通用户检查 guild_manager 字段
             elif role == "manager":
                 await cur.execute(
                     "SELECT * FROM guild WHERE guild_manager LIKE %s LIMIT 1;",
-                    (f"%{user_id};",)
+                    (f"%{user_id};%",)
                 )
             
             row = await cur.fetchone()

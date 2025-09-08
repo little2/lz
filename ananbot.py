@@ -298,6 +298,7 @@ async def get_product_info(content_id: int):
     # 统一从工具函数取
     cached = get_cached_product(content_id)
     if cached is not None:
+        print(f"\r\nfrom cache", flush=True)
         return cached
 
     # 查询是否已有同 source_id 的 product
@@ -1003,7 +1004,7 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
     except Exception:
         cur_price = 68
 
-    caption = f"当前价格为 {cur_price}\n\n请在 1 分钟内输入商品价格(1-99)"
+    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格(1-99)"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消", callback_data=f"cancel_set_price:{content_id}")]
     ])
@@ -1139,7 +1140,7 @@ async def handle_set_preview(callback_query: CallbackQuery, state: FSMContext):
 
 
     # 更新原消息内容（图片不变，仅改文字+按钮）
-    caption_text = "📸 请在 1 分钟内发送预览图（图片格式）"
+    caption_text = "📸 请在 3 分钟内发送预览图（图片格式）"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="🪄 自动更新预览图", callback_data=f"auto_update_thumb:{content_id}")
@@ -1272,47 +1273,33 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         source_id = row["source_id"]
         await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
 
-    # print(f"📸 5更新预览图缓存：{file_unique_id}", flush=True)
-    cache = get_cached_product(content_id) or {}
-    cache["thumb_unique_id"] = file_unique_id
-    cache["thumb_file_id"] = file_id
-    set_cached_product(content_id, cache)
-    #TODO 搞不定上传预览图，但菜单会不见
-    # await photo_message.delete()
+
+
+
+   
     # print(f"📸 6预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
     # 编辑原消息，更新为商品卡片
 
    
     
 
-
-    # thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    thumb_file_id = file_id
+    _, preview_text, preview_keyboard = await get_product_tpl(content_id)
     try:
-        # print(f"TPL: thumb={thumb_file_id[:10]}..., caption_len={len(preview_text)}, kb_type={type(preview_keyboard)}", flush=True)
-        orig_caption = message.caption or ""
-        orig_entities = message.caption_entities
-        orig_keyboard = message.reply_markup
-
-        # 执行编辑，只换 media，保留文字和按钮
-        edit_result = await bot.edit_message_media(
-            chat_id=chat_id,
-            message_id=message_id,
-            media=InputMediaPhoto(
-                media=cache["thumb_file_id"],
-                caption=orig_caption,
-                caption_entities=orig_entities
-            ),
-            reply_markup=orig_keyboard,
-        )
+        # print(f"\r\nTPL: thumb={thumb_file_id[:10]}..., caption_len={len(preview_text)}, kb_type={type(preview_keyboard)}", flush=True)
+       
+        # print(f"\r\nmessage_id = {message_id} {chat_id}")
         
 
-        # edit_result=await bot.edit_message_media(
-        #     chat_id=chat_id,
-        #     message_id=message_id,
-        #     media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
-        #     reply_markup=preview_keyboard,     
-        # )
+        edit_result=await bot.edit_message_media(
+            chat_id=chat_id,
+            message_id=message_id,
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
+            reply_markup=preview_keyboard,     
+        )
+        # print(f"Edit result: {edit_result}", flush=True)
         print(f"📸 7预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
+        await photo_message.delete()
     except Exception as e:
         print(f"⚠️ 8更新预览图失败B：{e}", flush=True)
 
@@ -1322,6 +1309,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         await state.clear()
     except Exception as e:
         print(f"⚠️ 清除状态失败：{e}", flush=True)
+    invalidate_cached_product(content_id)
     print(f"📸 9预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
 
 
@@ -1805,25 +1793,25 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         )
 
          
-        # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
-        try:
-            result_kb = InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text=f"{button_str}", callback_data="a=nothing")]]
-            )
+        # # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
+        # try:
+        #     result_kb = InlineKeyboardMarkup(
+        #         inline_keyboard=[[InlineKeyboardButton(text=f"{button_str}", callback_data="a=nothing")]]
+        #     )
 
-            # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
-            if ret_chat is not None and ret_msg is not None:
-                # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
-                await bot.edit_message_reply_markup(
-                    chat_id=ret_chat,
-                    message_id=ret_msg,
-                    reply_markup=result_kb
-                )
+        #     # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
+        #     if ret_chat is not None and ret_msg is not None:
+        #         # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
+        #         await bot.edit_message_reply_markup(
+        #             chat_id=ret_chat,
+        #             message_id=ret_msg,
+        #             reply_markup=result_kb
+        #         )
               
-                print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
+        #         print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
 
-        except Exception as e:
-            logging.exception(f"更新原审核消息按钮失败: {e}")
+        # except Exception as e:
+        #     logging.exception(f"更新原审核消息按钮失败: {e}")
 
 
     except Exception as e:
@@ -2224,6 +2212,8 @@ async def handle_get_next_report_to_judge(message: Message, state: FSMContext):
     if next_file_unique_id:
         next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
         result , error = await send_to_review_group(next_content_id, state)
+        await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
+        
         await AnanBOTPool.update_report_status(report_id, "published")
 
 # ====== ③ 指令处理器：/postreview 依序发送，每个间隔 15 秒 ======
@@ -2240,6 +2230,7 @@ async def cmd_postreview(message: Message, state: FSMContext):
     for content_id in ids:
         try:
             result, error = await send_to_review_group(content_id, state)
+            
         except Exception as e:
             result, error = False, str(e)
 
@@ -2319,7 +2310,6 @@ async def send_to_review_group(content_id: int, state: FSMContext):
             parse_mode="HTML"
         )
         invalidate_cached_product(content_id)
-        await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
         
         return True, None
         
@@ -2417,12 +2407,12 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
 
     product_review_url_cache[content_id] = return_url
-    
-    buttons.extend([
-        [
-            InlineKeyboardButton(text="🔙 返回审核", url=f"{return_url}")
-        ]
-    ])
+    if return_url:
+        buttons.extend([
+            [
+                InlineKeyboardButton(text="🔙 返回审核", url=f"{return_url}")
+            ]
+        ])
 
 
 
@@ -2604,6 +2594,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
             #送出审核 TODO
             if model == "admin":
                 content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+                await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
                 result , error = await send_to_review_group(content_id, state)
             else:
                 return False
@@ -2724,6 +2715,7 @@ async def handle_report_reason_text(message: Message, state: FSMContext):
         )
         
         content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+        await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
         result , error = await send_to_review_group(content_id, state)
         if result:
             await message.answer(f"✅ 举报已提交（编号：{report_id}）。我们会尽快处理。")
@@ -2986,6 +2978,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         if next_file_unique_id:
             next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
             result , error = await send_to_review_group(next_content_id, state)
+            await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
             await AnanBOTPool.update_report_status(report_id, "published")
 
 

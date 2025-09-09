@@ -1787,31 +1787,32 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
 
         print(f"{'✅' if review_status in (3,6) else '❌'} 审核结果: {button_str}", flush=True)
-        await callback_query.message.edit_media(
+        ret = await callback_query.message.edit_media(
             media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
             reply_markup=preview_keyboard  # 👈 关键：隐藏所有按钮
         )
+        
 
          
         # # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
-        # try:
-        #     result_kb = InlineKeyboardMarkup(
-        #         inline_keyboard=[[InlineKeyboardButton(text=f"{button_str}", callback_data="a=nothing")]]
-        #     )
+        try:
+            result_kb = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=f"{button_str}", callback_data="a=nothing")]]
+            )
 
-        #     # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
-        #     if ret_chat is not None and ret_msg is not None:
-        #         # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
-        #         await bot.edit_message_reply_markup(
-        #             chat_id=ret_chat,
-        #             message_id=ret_msg,
-        #             reply_markup=result_kb
-        #         )
+            # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
+            if ret_chat is not None and ret_msg is not None:
+                # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
+                await bot.edit_message_reply_markup(
+                    chat_id=ret_chat,
+                    message_id=ret_msg,
+                    reply_markup=result_kb
+                )
               
-        #         print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
+                print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
 
-        # except Exception as e:
-        #     logging.exception(f"更新原审核消息按钮失败: {e}")
+        except Exception as e:
+            logging.exception(f"更新原审核消息按钮失败: {e}")
 
 
     except Exception as e:
@@ -1929,6 +1930,12 @@ async def receive_content_input(message: Message, state: FSMContext):
         except Exception as e:
             print(f"⚠️ 更新内容失败：{e}", flush=True)
         timer.lap("edit_message_media")
+
+
+        # ✅ 7) 弹出字数
+        length = len(content_text)
+        await message.answer(f"📏 内容字数：{length}")
+
     finally:
         timer.end()
 
@@ -2317,6 +2324,59 @@ async def send_to_review_group(content_id: int, state: FSMContext):
         return False,e
         
 
+async def _rename_review_button_to_in_progress(callback_query: CallbackQuery, content_id: int) -> None:
+    """
+    将当前消息里的 '🔎 审核' 按钮，改成 '{username} 🔎 审核中'
+    - 仅改这条被点击的消息
+    - 仅改 callback_data == f"review:{content_id}" 的按钮
+    - 其它按钮（例如 🔙 返回审核）保持不变
+    """
+    msg = callback_query.message
+    if not msg or not msg.reply_markup:
+        return
+
+    # 取展示用名字：优先 username，加 @；否则用 full_name
+    u = callback_query.from_user
+    if u.username:
+        reviewer = f"@{u.username}"
+    else:
+        reviewer = (u.full_name or str(u.id)).strip()
+
+    # Telegram 按钮文字最大 64 字，做个保险截断
+    new_text_prefix = f"{reviewer} 🔎 审核中"
+    new_text = new_text_prefix[:64]
+
+    kb = msg.reply_markup
+    changed = False
+    new_rows: list[list[InlineKeyboardButton]] = []
+
+    for row in kb.inline_keyboard:
+        new_row: list[InlineKeyboardButton] = []
+        for btn in row:
+            # 只处理 callback 按钮，且 callback_data 精确匹配 review:{content_id}
+            if getattr(btn, "callback_data", None) == f"review:{content_id}":
+                # 避免重复改名（已是“审核中”就不再改）
+                if btn.text != new_text:
+                    new_row.append(
+                        InlineKeyboardButton(text=new_text, callback_data=btn.callback_data)
+                    )
+                    changed = True
+                else:
+                    new_row.append(btn)
+            else:
+                new_row.append(btn)
+        new_rows.append(new_row)
+
+    if changed:
+        try:
+            await callback_query.bot.edit_message_reply_markup(
+                chat_id=msg.chat.id,
+                message_id=msg.message_id,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows),
+            )
+        except Exception as e:
+            # 静默失败即可，不影响后续流程
+            print(f"⚠️ 更新审核按钮文字失败: {e}", flush=True)
 
 
 
@@ -2330,6 +2390,8 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         content_id = int(cid)
     except Exception:
         return await callback_query.answer("⚠️ 参数错误", show_alert=True)
+
+    
 
     user_id = callback_query.from_user.id
     bot_username = await get_bot_username()
@@ -2388,31 +2450,32 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     buttons = product_info.get("buttons") or [] 
 
-    # ===== 构造“返回审核”的链接（指向当前这条群消息）=====
-    src_chat_id   = callback_query.message.chat.id
-    src_msg_id    = callback_query.message.message_id
-    src_thread_id = getattr(callback_query.message, "message_thread_id", None)
+    if not product_review_url_cache.get(content_id):
+        # ===== 构造“返回审核”的链接（指向当前这条群消息）=====
+        src_chat_id   = callback_query.message.chat.id
+        src_msg_id    = callback_query.message.message_id
+        src_thread_id = getattr(callback_query.message, "message_thread_id", None)
 
-    # -100xxxxxxxxxx → xxxxxxxxxx
-    chat_for_link = str(src_chat_id)
-    if chat_for_link.startswith("-100"):
-        chat_for_link = chat_for_link[4:]
-    else:
-        chat_for_link = str(abs(src_chat_id))
+        # -100xxxxxxxxxx → xxxxxxxxxx
+        chat_for_link = str(src_chat_id)
+        if chat_for_link.startswith("-100"):
+            chat_for_link = chat_for_link[4:]
+        else:
+            chat_for_link = str(abs(src_chat_id))
 
-    if src_thread_id:
-        return_url = f"https://t.me/c/{chat_for_link}/{src_thread_id}/{src_msg_id}"
-    else:
-        return_url = f"https://t.me/c/{chat_for_link}/{src_msg_id}"
+        if src_thread_id:
+            return_url = f"https://t.me/c/{chat_for_link}/{src_thread_id}/{src_msg_id}"
+        else:
+            return_url = f"https://t.me/c/{chat_for_link}/{src_msg_id}"
 
 
-    product_review_url_cache[content_id] = return_url
-    if return_url:
-        buttons.extend([
-            [
-                InlineKeyboardButton(text="🔙 返回审核", url=f"{return_url}")
-            ]
-        ])
+        product_review_url_cache[content_id] = return_url
+        if return_url:
+            buttons.extend([
+                [
+                    InlineKeyboardButton(text="🔙 返回审核", url=f"{return_url}")
+                ]
+            ])
 
 
 
@@ -2426,9 +2489,6 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
         await Media.fetch_file_by_file_id_from_x(state, source_id, 10)
         return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试", show_alert=True)
-
-
-
     if file_id :
         try:
             if file_type == "photo" or file_type == "p":
@@ -2453,10 +2513,11 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
         await update_product_preview(content_id, thumb_file_id, state , newsend)
         
-
-
-
         await callback_query.answer(f"👉 机器人(@{bot_username})已将审核内容传送给你", show_alert=False)
+
+        # ✅ 立刻把按钮文字改成「{username} 🔎 审核中」
+        await _rename_review_button_to_in_progress(callback_query, content_id)
+
     except Exception as e:
         if str(e) == "Telegram server says - Bad Request: wrong file identifier/HTTP URL specified":
             invalidate_cached_product(content_id)

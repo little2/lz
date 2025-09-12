@@ -2215,13 +2215,16 @@ async def handle_get_next_report_to_judge(message: Message, state: FSMContext):
     print(f"下一个待裁定 {report_row}", flush=True)
     next_file_unique_id = report_row['file_unique_id'] if report_row else None
     report_id = report_row['report_id']
-    print(f"下一个待裁定 {next_file_unique_id}", flush=True)
+    print(f"file_unique_id {next_file_unique_id}", flush=True)
     if next_file_unique_id:
         next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
-        result , error = await send_to_review_group(next_content_id, state)
-        await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
-        
-        await AnanBOTPool.update_report_status(report_id, "published")
+        if next_content_id:
+            result, error = await send_to_review_group(next_content_id, state)
+            await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
+            await AnanBOTPool.update_report_status(report_id, "published")
+        else:
+            await message.answer(f"❌ 未找到对应的 content_id: {next_file_unique_id}")  
+            
 
 # ====== ③ 指令处理器：/postreview 依序发送，每个间隔 15 秒 ======
 @dp.message(Command("postreview"))
@@ -2520,8 +2523,9 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     except Exception as e:
         if str(e) == "Telegram server says - Bad Request: wrong file identifier/HTTP URL specified":
-            invalidate_cached_product(content_id)
             await AnanBOTPool.upsert_product_thumb(int(content_id), thumb_file_unique_id, '', bot_username)
+            invalidate_cached_product(content_id)
+            print(f"🔄 无效的文件 ID，已清理缓存，准备重新拉取 {source_id} for content_id: {content_id}, thumb_file_id: {thumb_file_id}", flush=True)
             await callback_query.answer(f"⚠️ 发送的文件无效，正在自动修复中，请稍候再试", show_alert=True)
         else:
             await callback_query.answer(f"⚠️ 请先启用机器人 (@{bot_username}) 私信 (私信机器人按 /start )", show_alert=True)

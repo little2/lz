@@ -57,7 +57,7 @@ PRODUCT_INFO_CACHE_TTL = 60  # 秒
 PRODUCT_INFO_CACHE_MAX = 100  # 新增：最多缓存条数
 product_review_url_cache: dict[int, str] = {}
 
-DEFAULT_THUMB_FILE_ID = "AgACAgEAAxkBAAPIaHHqdjJqYXWcWVoNoAJFGFBwBnUAAjGtMRuIOEBF8t8-OXqk4uwBAAMCAAN5AAM2BA"
+DEFAULT_THUMB_FILE_ID = ""
 
 # ===== 举报类型：全域配置 =====
 REPORT_TYPES: dict[int, str] = {
@@ -300,6 +300,8 @@ async def get_product_info(content_id: int):
     if cached is not None:
         print(f"\r\nfrom cache", flush=True)
         return cached
+    else:
+        print(f"\r\nnot from cache", flush=True)
 
     # 查询是否已有同 source_id 的 product
     # 查找缩图 file_id
@@ -2297,7 +2299,11 @@ async def send_to_review_group(content_id: int, state: FSMContext):
     source_id = product_info.get("source_id") or ""
     thumb_file_unqiue_id = product_info.get("thumb_file_unique_id") or ""
 
-
+    if not thumb_file_unqiue_id and thumb_file_id:
+        print(f"背景搬运缩略图 {source_id} for content_id: {content_id}", flush=True)
+        # 不阻塞：丢到后台做补拉
+        spawn_once(f"thumb_file_unqiue_id:{thumb_file_unqiue_id}", Media.fetch_file_by_file_id_from_x(state, thumb_file_unqiue_id, 10))
+    
     if not file_id and source_id and thumb_file_id:
         print(f"背景搬运 {source_id} for content_id: {content_id}", flush=True)
         # 不阻塞：丢到后台做补拉
@@ -3671,11 +3677,32 @@ def invalidate_cached_product(content_id: int | str) -> None:
     try:
         cid = int(content_id)
     except Exception:
+        print("⚠️ invalidate_cached_product 参数错误", flush=True)
         return
     product_info_cache.pop(cid, None)
     product_info_cache_ts.pop(cid, None)
 
+async def get_bot_username():
+    if lz_var.bot_username:
+        return lz_var.bot_username
+    else:
+        bot_info = await bot.get_me()
+        bot_username = bot_info.username
+        lz_var.bot_username = bot_username
+        return lz_var.bot_username
+        
 
+async def set_default_thumb_file_id():
+    global DEFAULT_THUMB_FILE_ID
+    first = lz_var.default_thumb_unique_file_ids[0] if lz_var.default_thumb_unique_file_ids else None
+    if first:
+
+        bot_username = await get_bot_username()
+       
+        DEFAULT_THUMB_FILE_ID = await AnanBOTPool.get_default_preview_thumb_file_id(bot_username, first)
+       
+    else:
+        print("⚠️ 未配置任何默认缩略图", flush=True)
 
 async def keep_alive_ping():
     url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if BOT_MODE == "webhook" else f"{WEBHOOK_HOST}/"
@@ -3691,13 +3718,15 @@ async def keep_alive_ping():
 async def main():
     logging.basicConfig(level=logging.INFO)
     global bot_username
-    bot_info = await bot.get_me()
-    bot_username = bot_info.username
-    lz_var.bot_username = bot_username
+    bot_username = await get_bot_username()
     print(f"🤖 当前 bot 用户名：@{bot_username}")
+    
 
    # ✅ 初始化 MySQL 连接池
     await AnanBOTPool.init_pool()
+
+    await set_default_thumb_file_id()
+    print(f"✅ 默认缩略图 file_id：{DEFAULT_THUMB_FILE_ID}")
 
 
     if BOT_MODE == "webhook":

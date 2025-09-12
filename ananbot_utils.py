@@ -480,6 +480,27 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
 
+    @classmethod
+    async def get_default_preview_thumb_file_id(cls, bot_username: str, file_unqiue_id: str):
+        print(f"▶️ 正在获取缩略图 file_id for file_unqiue_id: {file_unqiue_id} by bot: {bot_username}", flush=True)
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                "SELECT file_id, bot FROM file_extension WHERE file_unique_id = %s AND bot = %s",
+                (file_unqiue_id,bot_username)
+            )
+            row = await cur.fetchone()
+            
+            if row and row["file_id"]:
+                return row["file_id"]
+            
+                
+
+        finally:
+            await cls.release(conn, cur)
+
+
+
 
     @classmethod
     async def insert_collection_item(cls, content_id: int, member_content_id: int, file_unique_id: str, file_type: str, position: int = 0):

@@ -539,13 +539,38 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
 
+        feedback_kb = None
+        if lz_var.UPLOADER_BOT_NAME and source_id:
+            feedback_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(
+                    text="⚠️ 反馈内容",
+                    url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
+                )
+            ]])
+
+
         try:
             if file_type == "photo" or file_type == "p":
-                await lz_var.bot.send_photo(chat_id=from_user_id, photo=file_id,reply_to_message_id=callback.message.message_id)
+                await lz_var.bot.send_photo(
+                    chat_id=from_user_id,
+                    photo=file_id,
+                    reply_to_message_id=callback.message.message_id,
+                    reply_markup=feedback_kb
+                )
             elif file_type == "video" or file_type == "v":
-                await lz_var.bot.send_video(chat_id=from_user_id, video=file_id, reply_to_message_id=callback.message.message_id)
+                await lz_var.bot.send_video(
+                    chat_id=from_user_id,
+                    video=file_id,
+                    reply_to_message_id=callback.message.message_id,
+                    reply_markup=feedback_kb
+                )
             elif file_type == "document" or file_type == "d":
-                await lz_var.bot.send_document(chat_id=from_user_id, document=file_id, reply_to_message_id=callback.message.message_id)
+                await lz_var.bot.send_document(
+                    chat_id=from_user_id,
+                    document=file_id,
+                    reply_to_message_id=callback.message.message_id,
+                    reply_markup=feedback_kb
+                )
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问: {e}")
 

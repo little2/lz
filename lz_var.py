@@ -7,6 +7,7 @@ default_thumb_file_id: list[str] = None  # 但不推荐，类型不完整
 sungfeng: int = 7753111936  # 顺丰快递,基本废用了
 x_man_bot_id: int = 7793315433
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
+UPLOADER_BOT_NAME: str = "luzai02bot"
 default_thumb_unique_file_ids: list[str] = [
     "AQADMK0xG4g4QEV-",
     "AQADMq0xG4g4QEV-",

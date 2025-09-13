@@ -2658,7 +2658,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
         if existing and existing.get("report_id"):
             await bot.send_message(
                 chat_id=user_id,
-                text=f"<a href='{trade_url}'>{file_unique_id}</a> 已有人先行举报",
+                text=f"<a href='{trade_url}'>{file_unique_id}</a> 已有人先行反馈",
                 parse_mode="HTML"
             )
 
@@ -2681,7 +2681,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
         thumb_file_id = product_row.get("thumb_file_id") or ""
         preview_text = product_row.get("preview_text") or ""
        
-        prompt = f"{preview_text}\r\n\r\n请选择对 <a href='{trade_url}'>{file_unique_id}</a> 的举报类型："
+        prompt = f"{preview_text}\r\n\r\n请选择对 <a href='{trade_url}'>{file_unique_id}</a> 的反馈类型："
 
         if thumb_file_id:
             # 用图片 + caption
@@ -2707,7 +2707,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
     except Exception as e:
         logging.exception(f"[report] 失败 user_id={user_id} file_unique_id={file_unique_id}: {e}")
         try:
-            await bot.send_message(chat_id=user_id, text="⚠️ 举报处理失败，请稍后重试。")
+            await bot.send_message(chat_id=user_id, text="⚠️ 反馈处理失败，请稍后重试。")
         except Exception:
             pass
         return False

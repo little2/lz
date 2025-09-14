@@ -952,6 +952,26 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+
+    @classmethod
+    async def get_product_info_by_fuid(cls, file_unique_id: str):
+        """
+        读取当前 bid_status（可选的幂等检查用）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                "SELECT p.id as product_id,p.owner_user_id,p.review_status,s.thumb_file_unique_id,s.id as content_id FROM sora_content s LEFT JOIN product p ON p.content_id = s.id WHERE s.source_id=%s",
+                (file_unique_id,)
+            )
+            row = await cur.fetchone()
+            return row
+        finally:
+            await cls.release(conn, cur)
+
+        
+
+
     @classmethod
     async def set_product_review_status(cls, content_id: int, status: int = 1) -> int:
         """
@@ -1144,7 +1164,8 @@ class AnanBOTPool(LYBase):
  
             # 2) 取归属的 guild_id
             await cur.execute(
-                "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL ORDER BY tag_count limit 1;",
+                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.quantity > 0 ORDER BY a.quantity ASC limit 1;",
+                # "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL AND t.quantity > 0 ORDER BY t.quantity ASC limit 1;",
                 (file_row["source_id"],)
             )
             file_tag_row = await cur.fetchone()

@@ -488,6 +488,8 @@ async def get_product_info(content_id: int):
         buttons = [[InlineKeyboardButton(text="通过审核,但上架失败", callback_data=f"none")]]
     elif review_status == 9:
         buttons = [[InlineKeyboardButton(text="通过审核,已上架", callback_data=f"none")]]
+    elif review_status == 10:
+        buttons = [[InlineKeyboardButton(text="资源已失效", callback_data=f"none")]]
 
 
     return_url = product_review_url_cache.get(content_id)
@@ -1761,6 +1763,12 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             review_status = 6 
         else:
             review_status = int(callback_query.data.split(":")[2])
+
+
+        result = await AnanBOTPool.set_product_guild(content_id)
+        #TODO: 恩考如何自动发送
+        
+        return
     except Exception as e:
         logging.exception(f"解析回调数据失败: {e}")
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)

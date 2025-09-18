@@ -164,7 +164,6 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         param = args[1].strip()
         parts = param.split("_")
 
-
         if parts[0] == "f":
 
             search_key_index = parts[1]
@@ -229,6 +228,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 print(f"❌ 解密失败：{e}", flush=True)
+        elif parts[0] == "post":
+            await _submit_to_lg()
         else:
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")
     else:
@@ -249,66 +250,81 @@ async def handle_post(message: Message, state: FSMContext, command: Command = Co
     if len(args) > 1:
         content_id = args[1].strip()
 
-        aes = AESCrypto(AES_KEY)
-        content_id_str = aes.aes_encode(content_id)
-
-        # await message.answer(f"📦 你提供的参数是：`{content_id}`", parse_mode="HTML")
-
-        # 2) 再往指定 chat & thread 发一则 HTML 文本 +「兑换」按钮
-        try:
-            tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
-            # tpl_data = await db.search_sora_content_by_id(int(content_id))
-            print(f"tpl_data: {tpl_data}", flush=True)
-
-            conllect_str = "📦 文件列表：\r\n🎬 103.23 MB | 11:21\r\n🎬 323.23 MB | 31:21\r\n\r\n📊 本合集包含：🎬 x2 🖼️ x3"
-
-            # tpl_data = {
-            #     "file_type": "video",
-            #     "fee": 39,
-            #     # "file_size": 32989,
-            #     "duration": 33,
-            #     "create_timestamp": 333,
-            #     "tag": "#黑人 #高年级_小五 #没有露脸 #没反应 #露出鸡鸡 #正太与叔叔 #手持拍摄 #舔肛",
-            #     "collection":conllect_str
-            # }
-            if tpl_data['guild_keyword']:
-                keyword_id = await db.get_search_keyword_id(tpl_data['guild_keyword'])
-            else:
-                keyword_id = '-1'
-            content = await Tplate.pure_text_tpl(tpl_data)
-
-
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="👀 看看先", url=f"https://t.me/{lz_var.bot_username}?start=f_{keyword_id}_{content_id_str}")]
-            ])
-            if 'guild_chat_id' in tpl_data and tpl_data['guild_chat_id']:
-                await message.bot.send_message(
-                    chat_id=tpl_data['guild_chat_id'],              # 目标频道/群
-                    message_thread_id=tpl_data['guild_thread_id'],  # 主题(Topic) ID
-                    text=content,                                   # HTML 文本
-                    parse_mode="HTML",
-                reply_markup=kb
-            )
-
-            if 'guild_resource_chat_id' in tpl_data and tpl_data['guild_resource_chat_id']:
-                # 如果有资源频道，则发到资源频道
-                print(f"✅ 发送到资源频道 {tpl_data['guild_resource_chat_id']}，主题 {tpl_data['guild_resource_thread_id']}", flush=True)
-                await message.bot.send_message(
-                    chat_id=tpl_data['guild_resource_chat_id'],              # 目标频道/群
-                    message_thread_id=tpl_data['guild_resource_thread_id'],  # 主题(Topic) ID
-                    text=content,                                   # HTML 文本
-                    parse_mode="HTML",
-                    reply_markup=kb
-                )
-
-        except Exception as e:
-            print(f"❌ 发送到目标 thread 失败: {e}", flush=True)
+        await _submit_resource(int(content_id))
+        
 
     else:
         await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         pass
 
 
+async def _submit_to_lg():
+    try:
+        product_rows = await MySQLPool.get_pending_product()
+        if not product_rows:
+            print("📭 没有找到待送审的 product", flush=True)
+            return
+
+        for row in product_rows:
+            content_id = row.get("content_id")
+            if not content_id:
+                continue
+            print(f"🚀 提交 content_id={content_id} 到 LG", flush=True)
+            await _submit_resource(int(content_id))
+
+    except Exception as e:
+        print(f"❌ _submit_to_lg 执行失败: {e}", flush=True)
+
+
+async def _submit_resource(content_id: int):
+    aes = AESCrypto(AES_KEY)
+    content_id_str = aes.aes_encode(content_id)
+
+    # await message.answer(f"📦 你提供的参数是：`{content_id}`", parse_mode="HTML")
+
+    # 2) 再往指定 chat & thread 发一则 HTML 文本 +「兑换」按钮
+    try:
+        tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
+        # tpl_data = await db.search_sora_content_by_id(int(content_id))
+        print(f"tpl_data: {tpl_data}", flush=True)
+
+        
+        if tpl_data['guild_keyword']:
+            keyword_id = await db.get_search_keyword_id(tpl_data['guild_keyword'])
+        else:
+            keyword_id = '-1'
+        content = await Tplate.pure_text_tpl(tpl_data)
+
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👀 看看先", url=f"https://t.me/{lz_var.bot_username}?start=f_{keyword_id}_{content_id_str}")]
+        ])
+        if 'guild_chat_id' in tpl_data and tpl_data['guild_chat_id']:
+            await lz_var.bot.send_message(
+                chat_id=tpl_data['guild_chat_id'],              # 目标频道/群
+                message_thread_id=tpl_data['guild_thread_id'],  # 主题(Topic) ID
+                text=content,                                   # HTML 文本
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+            await MySQLPool.set_product_preview_status(content_id,9)
+        
+
+        if 'guild_resource_chat_id' in tpl_data and tpl_data['guild_resource_chat_id']:
+            # 如果有资源频道，则发到资源频道
+            print(f"✅ 发送到资源频道 {tpl_data['guild_resource_chat_id']}，主题 {tpl_data['guild_resource_thread_id']}", flush=True)
+            await lz_var.bot.send_message(
+                chat_id=tpl_data['guild_resource_chat_id'],              # 目标频道/群
+                message_thread_id=tpl_data['guild_resource_thread_id'],  # 主题(Topic) ID
+                text=content,                                   # HTML 文本
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+            await MySQLPool.set_product_preview_status(content_id,9)
+
+    except Exception as e:
+        print(f"❌ 发送到目标 thread 失败: {e}", flush=True)
+    pass
 
 # == 主菜单选项响应 ==
 @router.callback_query(F.data == "search")

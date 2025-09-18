@@ -242,3 +242,37 @@ class MySQLPool:
                 return retSend
 
         return None
+
+    @classmethod
+    async def set_product_preview_status(cls, content_id: int, preview_status: int):
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute("""
+                UPDATE product SET review_status = %s
+                WHERE content_id = %s
+            """, (preview_status,content_id))
+            
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)
+
+    @classmethod
+    async def get_pending_product(cls):
+        """取得最多 2 笔待送审的 product (guild_id 不为空且 review_status=6)"""
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute("""
+                SELECT content_id, guild_id, review_status
+                FROM product
+                WHERE guild_id IS NOT NULL
+                  AND review_status = 6
+                LIMIT 3
+            """)
+            rows = await cursor.fetchall()
+            return rows
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+            return []
+        finally:
+            await cls.release(conn, cursor)

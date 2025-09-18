@@ -1160,6 +1160,7 @@ class AnanBOTPool(LYBase):
             file_row = await cur.fetchone()
             if not file_row:
                 # 没有这条 content_id
+                print(f"no content id")
                 return False
  
             # 2) 取归属的 guild_id
@@ -1170,7 +1171,10 @@ class AnanBOTPool(LYBase):
             )
             file_tag_row = await cur.fetchone()
             if not file_tag_row:
+                print(f"no tag")
                 return False
+
+            print(f"{file_tag_row}")
 
             await cur.execute(
                 """

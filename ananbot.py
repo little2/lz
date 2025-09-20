@@ -2346,37 +2346,50 @@ async def handle_get_next_report_to_judge(message: Message, state: FSMContext):
 
 # ====== ③ 指令处理器：/postreview 依序发送，每个间隔 15 秒 ======
 @dp.message(Command("postreview"))
-async def cmd_postreview(message: Message, state: FSMContext):
-    ids = await AnanBOTPool.fetch_review_status_content_ids(2)
-    if not ids:
-        await message.answer("目前没有待复审的商品（review_status = 2）。")
-        return
+async def cmd_postreview(message: Message, command: CommandObject, state: FSMContext):
 
-    success, failed = 0, 0
-    await message.answer(f"开始批量发送到审核群组，共 {len(ids)} 个内容。每个间隔 15 秒。")
+    bot_username = await get_bot_username()  # 👈 增加这一行
+    args = (command.args or "").strip().split()
+    if len(args) != 1 or not args[0].isdigit():
+        ids = await AnanBOTPool.fetch_review_status_content_ids(2)
+        if not ids:
+            await message.answer("目前没有待复审的商品（review_status = 2）。")
+            return
 
-    for content_id in ids:
-        try:
-            result, error = await send_to_review_group(int(content_id), state)
-            
-        except Exception as e:
-            result, error = False, str(e)
+        success, failed = 0, 0
+        await message.answer(f"开始批量发送到审核群组，共 {len(ids)} 个内容。每个间隔 15 秒。")
 
+        for content_id in ids:
+            try:
+                result, error = await send_to_review_group(int(content_id), state)
+                
+            except Exception as e:
+                result, error = False, str(e)
+
+            if result:
+                success += 1
+                await message.answer("✅ 已发送到审核群组")
+            else:
+                failed += 1
+                if error:
+                    await message.answer(f"⚠️ 发送失败：{error}")
+                else:
+                    await message.answer("⚠️ 发送失败：未知错误")
+
+            # 间隔 15 秒
+            await asyncio.sleep(15)
+
+        await message.answer(f"完成：成功 {success}，失败 {failed}，总计 {len(ids)}。")
+    else:
+        content_id = int(args[0])
+        result , error = await send_to_review_group(content_id, state)
         if result:
-            success += 1
             await message.answer("✅ 已发送到审核群组")
         else:
-            failed += 1
             if error:
                 await message.answer(f"⚠️ 发送失败：{error}")
             else:
                 await message.answer("⚠️ 发送失败：未知错误")
-
-        # 间隔 15 秒
-        await asyncio.sleep(15)
-
-    await message.answer(f"完成：成功 {success}，失败 {failed}，总计 {len(ids)}。")
-
 
 
 
@@ -2393,16 +2406,9 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
     args = (command.args or "").strip().split()
     if len(args) != 1 or not args[0].isdigit():
         return await message.answer("❌ 使用格式: /post [content_id]")
-
     content_id = int(args[0])
-    result , error = await send_to_review_group(content_id, state)
-    if result:
-        await message.answer("✅ 已发送到审核群组")
-    else:
-        if error:
-            await message.answer(f"⚠️ 发送失败：{error}")
-        else:
-            await message.answer("⚠️ 发送失败：未知错误")
+    await _send_to_topic(content_id)
+    
 
 
 async def send_to_review_group(content_id: int, state: FSMContext):

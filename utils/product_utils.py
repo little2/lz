@@ -36,6 +36,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     aes = AESCrypto(AES_KEY)
     content_id_str = aes.aes_encode(content_id)
     content = None
+    kb = None
 
     try:
         

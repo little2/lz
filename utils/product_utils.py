@@ -15,6 +15,7 @@ async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
     try:
         tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
         review_status = await submit_resource_to_chat_action(content_id,bot,tpl_data)
+        
         MySQLPool.set_product_review_status(content_id, review_status)
     except Exception as e:
         print(f"❌ submit_resource_to_chat error: {e}", flush=True)

@@ -38,6 +38,8 @@ from utils.product_utils import submit_resource_to_chat_action
 bot = Bot(token=BOT_TOKEN)
 lz_var.bot = bot
 
+publish_bot = Bot(token=PUBLISH_BOT_TOKEN)
+
 # 全局变量缓存 bot username
 media_upload_tasks: dict[tuple[int, int], asyncio.Task] = {}
 
@@ -1789,12 +1791,16 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     # 1) 更新 bid_status=1
     try:
+        if review_status == 2:
+            review_status = 1
+
         affected = await AnanBOTPool.set_product_review_status(content_id, review_status)
         if affected == 0:
             return await callback_query.answer("⚠️ 未找到对应商品，审核失败", show_alert=True)
-        if review_status == 2:
-            affected2 = await AnanBOTPool.set_product_review_status(content_id, 1)
-            print(f"🔍 审核拒绝，重置 bid_status =1 : {affected2}", flush=True)
+        
+        # if review_status == 2:
+        #     affected2 = await AnanBOTPool.set_product_review_status(content_id, 1)
+        #     print(f"🔍 审核拒绝，重置 bid_status =1 : {affected2}", flush=True)
     except Exception as e:
         logging.exception(f"审核失败: {e}")
         return await callback_query.answer("⚠️ 审核失败，请稍后重试", show_alert=True)
@@ -1832,67 +1838,61 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             button_str = f"✅ {reviewer} 已审核{judge_string}"
    
 
-        buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
+       
         
-        # ⬇️ 改为后台执行，不阻塞当前回调
-        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
-        # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
-        # spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
-        await _send_to_topic(content_id)
+
       
 
     elif review_status == 3:
         await callback_query.answer("✅ 已通过审核，审核人 +3 活跃值", show_alert=True)
         button_str = f"✅ {reviewer} 已通过审核"
-        buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
+        
 
     elif review_status == 1:
         button_str = f"❌ {reviewer} 已拒绝审核"
         await callback_query.answer("❌ 已拒绝审核，审核人 +3 活跃值", show_alert=True)
-        buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
-
-    spawn_once(f"update_today_contribute:{content_id}", AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3))
-
-    
-
-    thumb_file_id, preview_text, _ = await get_product_tpl(content_id)
-    
-    preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-    try:
-
-
-
-        print(f"{'✅' if review_status in (3,6) else '❌'} 审核结果: {button_str}", flush=True)
-        ret = await callback_query.message.edit_media(
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
-            reply_markup=preview_keyboard  # 👈 关键：隐藏所有按钮
-        )
         
 
-         
-        # # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
-        try:
-            result_kb = InlineKeyboardMarkup(
-                inline_keyboard=[[InlineKeyboardButton(text=f"{button_str}", callback_data="a=nothing")]]
-            )
 
-            # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
-            if ret_chat is not None and ret_msg is not None:
-                # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
-                await bot.edit_message_reply_markup(
-                    chat_id=ret_chat,
-                    message_id=ret_msg,
-                    reply_markup=result_kb
-                )
-              
-                print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
+    # await _reset_review_bot_button(callback_query,content_id,button_str)
 
-        except Exception as e:
-            logging.exception(f"更新原审核消息按钮失败: {e}")
+    spawn_once(f"_reset_review_bot_button:{content_id}",_reset_review_bot_button(callback_query,content_id,button_str) )
+    spawn_once(f"update_today_contribute:{content_id}", AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3))
+     # 处理审核区的按钮  
+    # await _reset_review_zone_button(button_str,ret_chat,ret_msg) 
+    spawn_once(f"_reset_review_zone_button:{content_id}", _reset_review_zone_button(button_str,ret_chat,ret_msg) )
+
+    if review_status == 6:
+        # ⬇️ 改为后台执行，不阻塞当前回调
+        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+        # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
+        spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
+        # await _send_to_topic(content_id)
 
 
+async def _reset_review_bot_button(callback_query: CallbackQuery,content_id:int,button_str:str):  
+    buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
+
+    message = callback_query.message
+
+    # 图片 file_id
+    if message.photo:
+        thumb_file_id = message.photo[-1].file_id
+    else:
+        thumb_file_id = None
+
+    # 文本（caption 或 text）
+    preview_text = message.caption or message.text or ""
+
+    # thumb_file_id, preview_text, _ = await get_product_tpl(content_id)
+    preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    try:
+        # 处理当下的按钮
+        ret = await callback_query.message.edit_media(
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+            reply_markup=preview_keyboard  
+        )
     except Exception as e:
         logging.exception(f"编辑媒体失败: {e}")
         # 兜底：至少把按钮清掉
@@ -1901,18 +1901,44 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         except Exception:
             pass
 
+async def _reset_review_zone_button(button_str,ret_chat,ret_msg):
+    # # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
+    try:
+       
+        result_kb = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text=f"{button_str}", callback_data="a=nothing")]]
+        )
+
+        # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
+        if ret_chat is not None and ret_msg is not None:
+            # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
+            await bot.edit_message_reply_markup(
+                chat_id=ret_chat,
+                message_id=ret_msg,
+                reply_markup=result_kb
+            )
+            
+            print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
+
+    except Exception as e:
+        logging.exception(f"更新原审核消息按钮失败: {e}")
+
 async def _send_to_topic(content_id:int):
+    global publish_bot
     guild_id = await AnanBOTPool.set_product_guild(content_id) 
     print(f"send to guild_id={guild_id}")
     if guild_id is not None and guild_id > 0:       
-        publish_bot = Bot(token=PUBLISH_BOT_TOKEN)
+        
         me = await publish_bot.get_me()
         publish_bot_username = me.username
-        tpl_data = await AnanBOTPool.search_sora_content_by_id(int(content_id),publish_bot_username)
-        review_status = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
-        if review_status is not None:
-            await AnanBOTPool.set_product_review_status(content_id, review_status)
-        await publish_bot.session.close()
+        try:
+            tpl_data = await AnanBOTPool.search_sora_content_by_id(int(content_id),publish_bot_username)
+            review_status = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
+            if review_status is not None:
+                await AnanBOTPool.set_product_review_status(content_id, review_status)
+        except Exception as e:
+            logging.exception(f"发送到发布频道失败: {e}")
+        
     return
     
 
@@ -3387,10 +3413,6 @@ async def handle_start_remove_tag(message: Message, state: FSMContext):
     await state.set_state(ProductPreviewFSM.waiting_for_removetag_source)
     await state.set_data({"tag": tag})
     await message.answer(f"🔍 请发送要移除该 tag 的 source_id")
-
-
-
-
 
 @dp.message(F.chat.type == "private", ProductPreviewFSM.waiting_for_removetag_source, F.text)
 async def handle_removetag_source_input(message: Message, state: FSMContext):

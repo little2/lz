@@ -70,9 +70,12 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 parse_mode="HTML",
                 reply_markup=kb
             )
-            print(f"✅ 发送到公会频道 {retGuild}", flush=True)
-            
+            print(f"✅ 发送到公会频道", flush=True)
+    except Exception as e:
+        print(f"❌ 发送资源失败: {e}", flush=True)
 
+
+    try:
         # 发送到资源频道
         if tpl_data.get("guild_resource_chat_id"):
             print(f"准备发送到资源频道 {tpl_data['guild_resource_chat_id']}", flush=True)
@@ -91,8 +94,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         
     except Exception as e:
         print(f"❌ 发送资源失败: {e}", flush=True)
-    finally:
-        _bot.close()
+    
    
         
         

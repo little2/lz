@@ -1125,13 +1125,13 @@ async def receive_price_input(message: Message, state: FSMContext):
     message_id = data.get("message_id")
     
     price_str = message.text.strip()
-    if not price_str.isdigit() or not (1 <= int(price_str) <= 99):
-        # await message.answer("❌ 请输入 1~99 的整数作为价格")
+    if not price_str.isdigit() or not (34 <= int(price_str) <= 102):
+        # await message.answer("❌ 请输入 34~102 的整数作为价格")
         # 回到菜单
         
         callback_id = data.get("callback_id")
         if callback_id:
-            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 1~99 的整数作为价格", show_alert=True)
+            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 34~102 的整数作为价格", show_alert=True)
         else:
             await state.clear()
             thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)

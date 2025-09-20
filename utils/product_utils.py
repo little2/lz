@@ -29,7 +29,8 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     """
     _bot = bot or lz_var.bot
 
-    bot_username =_bot.get_me().username 
+    me = await _bot.get_me()
+    bot_username = me.username
 
     aes = AESCrypto(AES_KEY)
     content_id_str = aes.aes_encode(content_id)
@@ -89,6 +90,8 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         
     except Exception as e:
         print(f"❌ 发送资源失败: {e}", flush=True)
+    finally:
+        _bot.close()
    
         
         

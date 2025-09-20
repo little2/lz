@@ -11,6 +11,18 @@ import lz_var
 
 
 async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
+    await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+    try:
+        tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
+        review_status = await submit_resource_to_chat_action(content_id,bot,tpl_data)
+        MySQLPool.set_product_review_status(content_id, review_status)
+    except Exception as e:
+        print(f"❌ submit_resource_to_chat error: {e}", flush=True)
+    finally:
+        await MySQLPool.close()
+
+
+async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = None, tpl_data: dict = {}):
     """
     将 product 的内容提交到 guild 频道 / 资源频道。
     - bot: 可选，传入指定的 Bot；默认使用 lz_var.bot
@@ -18,13 +30,13 @@ async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
     _bot = bot or lz_var.bot
 
     
-    await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+    
 
     aes = AESCrypto(AES_KEY)
     content_id_str = aes.aes_encode(content_id)
 
     try:
-        tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
+        
         # print(f"tpl_data: {tpl_data}", flush=True)
 
         if tpl_data.get("guild_keyword"):
@@ -45,6 +57,7 @@ async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
             )
         ]])
 
+        review_status = None
         
         # 发送到 guild 频道
         if tpl_data.get("guild_chat_id"):
@@ -69,12 +82,15 @@ async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
                 parse_mode="HTML",
                 reply_markup=kb
             )
-            MySQLPool.set_product_review_status(content_id, 9)
-            # print(f"✅ 发送到资源频道 {retResource}", flush=True)
+            review_status = 9
             
+            
+            # print(f"✅ 发送到资源频道 {retResource}", flush=True)
+            return review_status
         
     except Exception as e:
         print(f"❌ 发送资源失败: {e}", flush=True)
-    finally:
-        await MySQLPool.close()
+   
+        
+        
 

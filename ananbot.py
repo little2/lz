@@ -33,7 +33,7 @@ from lz_config import AES_KEY
 from utils.prof import SegTimer
 from utils.aes_crypto import AESCrypto
 
-from utils.product_utils import submit_resource_to_chat
+from utils.product_utils import submit_resource_to_chat_action
 
 bot = Bot(token=BOT_TOKEN)
 lz_var.bot = bot
@@ -293,7 +293,7 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
     content_id = int(content_id)  # 兜底：/review 等场景传的是字符串
     product_row = await get_product_info(content_id)
 
-    print(f"🔍 get_product_tpl for content_id={content_id}: {product_row}", flush=True)
+    print(f"🔍 get_product_tpl for content_id={content_id}", flush=True)
 
     thumb_file_id = product_row.get("thumb_file_id") or ""
     preview_text = product_row.get("preview_text") or ""
@@ -1836,7 +1836,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         
         # ⬇️ 改为后台执行，不阻塞当前回调
         spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
-        spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
+        # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
+        # spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
+        await _send_to_topic(content_id)
       
 
     elif review_status == 3:
@@ -1901,10 +1903,13 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
 async def _send_to_topic(content_id:int):
     guild_id = await AnanBOTPool.set_product_guild(content_id) 
-    print(f"guild_id={guild_id}")
+    print(f"send to guild_id={guild_id}")
     if guild_id is not None and guild_id > 0:       
         publish_bot = Bot(token=PUBLISH_BOT_TOKEN)
-        await submit_resource_to_chat(int(content_id),publish_bot)
+        publish_bot_username = (await publish_bot.get_me()).username
+        tpl_data = await AnanBOTPool.search_sora_content_by_id(int(content_id),publish_bot_username)
+        review_status = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
+        AnanBOTPool.set_product_review_status(content_id, review_status)
     return
     
 

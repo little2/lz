@@ -29,8 +29,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     """
     _bot = bot or lz_var.bot
 
-    
-    
+    bot_username =_bot.get_me().username 
 
     aes = AESCrypto(AES_KEY)
     content_id_str = aes.aes_encode(content_id)
@@ -53,7 +52,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="👀 看看先",
-                url=f"https://t.me/{lz_var.bot_username}?start=f_{keyword_id}_{content_id_str}"
+                url=f"https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
             )
         ]])
 

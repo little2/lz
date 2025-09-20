@@ -330,7 +330,7 @@ class AnanBOTPool(LYBase):
                     s.thumb_file_unique_id,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
                     p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status, p.anonymous_mode, p.id as product_id,
-                    g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id
+                    g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id, g.guild_chat_id, g.guild_thread_id
                 FROM sora_content s
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
                 LEFT JOIN product p ON s.id = p.content_id

@@ -35,6 +35,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
     aes = AESCrypto(AES_KEY)
     content_id_str = aes.aes_encode(content_id)
+    content = None
 
     try:
         
@@ -72,7 +73,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             )
             print(f"✅ 发送到公会频道", flush=True)
     except Exception as e:
-        print(f"❌ 发送资源失败: {e}", flush=True)
+        print(f"❌ 发送资源失败1: {e}", flush=True)
 
 
     try:
@@ -93,7 +94,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             return review_status
         
     except Exception as e:
-        print(f"❌ 发送资源失败: {e}", flush=True)
+        print(f"❌ 发送资源失败2: {e}", flush=True)
     
    
         

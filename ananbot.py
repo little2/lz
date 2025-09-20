@@ -1909,7 +1909,7 @@ async def _send_to_topic(content_id:int):
         publish_bot_username = (await publish_bot.get_me()).username
         tpl_data = await AnanBOTPool.search_sora_content_by_id(int(content_id),publish_bot_username)
         review_status = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
-        AnanBOTPool.set_product_review_status(content_id, review_status)
+        await AnanBOTPool.set_product_review_status(content_id, review_status)
     return
     
 

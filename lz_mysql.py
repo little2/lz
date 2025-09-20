@@ -244,13 +244,13 @@ class MySQLPool:
         return None
 
     @classmethod
-    async def set_product_preview_status(cls, content_id: int, preview_status: int):
+    async def set_product_review_status(cls, content_id: int, review_status: int):
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute("""
                 UPDATE product SET review_status = %s
                 WHERE content_id = %s
-            """, (preview_status,content_id))
+            """, (review_status, content_id))
             
         except Exception as e:
             print(f"⚠️ 数据库执行出错: {e}")
@@ -267,7 +267,7 @@ class MySQLPool:
                 FROM product
                 WHERE guild_id IS NOT NULL
                   AND review_status = 6
-                LIMIT 3
+                LIMIT 1
             """)
             rows = await cursor.fetchall()
             return rows

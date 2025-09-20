@@ -157,3 +157,44 @@ class LYBase:
 
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def update_today_contribute(cls, user_id: int, contribute: int = 1):
+        """
+        更新用户今日发言贡献数:
+        - 如果不存在记录则插入
+        - 如果存在记录则 count + 1 并更新 update_timestamp
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            from datetime import datetime
+            import time
+
+            stat_date = datetime.now().strftime("%Y-%m-%d")
+            now = int(time.time())
+
+            sql = """
+                INSERT INTO `contribute_today` (`user_id`, `stat_date`, `count`, `update_timestamp`)
+                VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    `count` = `count` + %s,
+                    `update_timestamp` = VALUES(`update_timestamp`)
+            """
+
+            params = [user_id, stat_date, contribute, now, contribute]
+            await cur.execute(sql, params)
+            await conn.commit()
+
+            return {
+                "ok": "1",
+                "status": "inserted_or_updated",
+                "user_id": user_id,
+                "stat_date": stat_date,
+                "timestamp": now,
+            }
+
+        except Exception as e:
+            return {"ok": "", "status": "error", "error": str(e)}
+
+        finally:
+            await cls.release(conn, cur)

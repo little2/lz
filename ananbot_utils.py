@@ -1165,7 +1165,7 @@ class AnanBOTPool(LYBase):
  
             # 2) 取归属的 guild_id
             await cur.execute(
-                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.quantity > 0 ORDER BY a.quantity ASC limit 1;",
+                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.guild_id > 0 AND a.quantity > 0 ORDER BY a.quantity ASC limit 1;",
                 # "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL AND t.quantity > 0 ORDER BY t.quantity ASC limit 1;",
                 (file_row["source_id"],)
             )
@@ -1187,7 +1187,7 @@ class AnanBOTPool(LYBase):
             )
             affected = cur.rowcount
             await conn.commit()
-            return affected
+            return file_tag_row["guild_id"] or None
         finally:
             await cls.release(conn, cur)
 

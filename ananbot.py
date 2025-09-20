@@ -26,13 +26,14 @@ import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media
-from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT
+from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN
 import lz_var
 from lz_config import AES_KEY
 
 from utils.prof import SegTimer
 from utils.aes_crypto import AESCrypto
 
+from utils.product_utils import submit_resource_to_chat
 
 bot = Bot(token=BOT_TOKEN)
 lz_var.bot = bot
@@ -1763,12 +1764,6 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             review_status = 6 
         else:
             review_status = int(callback_query.data.split(":")[2])
-
-
-        result = await AnanBOTPool.set_product_guild(content_id)
-        #TODO: 恩考如何自动发送
-        
-        return
     except Exception as e:
         logging.exception(f"解析回调数据失败: {e}")
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)
@@ -1826,7 +1821,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     button_str = ""
 
     if review_status == 6:
-        await callback_query.answer(f"✅ 已审核{judge_string}", show_alert=True)
+        await callback_query.answer(f"✅ 已审核{judge_string}，审核人 +3 活跃值", show_alert=True)
         
 
         if judge_string == "'N'":
@@ -1841,18 +1836,22 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         
         # ⬇️ 改为后台执行，不阻塞当前回调
         spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
-        spawn_once(f"setguild:{content_id}", AnanBOTPool.set_product_guild(content_id))
+        spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
       
 
     elif review_status == 3:
-        await callback_query.answer("✅ 已通过审核", show_alert=True)
+        await callback_query.answer("✅ 已通过审核，审核人 +3 活跃值", show_alert=True)
         button_str = f"✅ {reviewer} 已通过审核"
         buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
 
     elif review_status == 1:
         button_str = f"❌ {reviewer} 已拒绝审核"
-        await callback_query.answer("❌ 已拒绝审核", show_alert=True)
+        await callback_query.answer("❌ 已拒绝审核，审核人 +3 活跃值", show_alert=True)
         buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
+
+    spawn_once(f"update_today_contribute:{content_id}", AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3))
+
+    
 
     thumb_file_id, preview_text, _ = await get_product_tpl(content_id)
     
@@ -1900,6 +1899,14 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         except Exception:
             pass
 
+async def _send_to_topic(content_id:int):
+    guild_id = await AnanBOTPool.set_product_guild(content_id) 
+    print(f"guild_id={guild_id}")
+    if guild_id is not None and guild_id > 0:       
+        publish_bot = Bot(token=PUBLISH_BOT_TOKEN)
+        await submit_resource_to_chat(int(content_id),publish_bot)
+    return
+    
 
 ############
 #  content     
@@ -2316,7 +2323,7 @@ async def cmd_postreview(message: Message, state: FSMContext):
 
     for content_id in ids:
         try:
-            result, error = await send_to_review_group(content_id, state)
+            result, error = await send_to_review_group(int(content_id), state)
             
         except Exception as e:
             result, error = False, str(e)
@@ -2572,7 +2579,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         invalidate_cached_product(content_id)
         await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
         await Media.fetch_file_by_file_id_from_x(state, source_id, 10)
-        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试", show_alert=True)
+        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 (若一直无法同步，请到群里反应)", show_alert=True)
     if file_id :
         try:
             if file_type == "photo" or file_type == "p":

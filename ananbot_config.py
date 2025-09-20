@@ -43,4 +43,4 @@ REVIEW_CHAT_ID = config.get('review_chat_id', os.getenv('REVIEW_CHAT_ID', ''))
 
 REVIEW_THREAD_ID = config.get('review_thread_id', os.getenv('REVIEW_THREAD_ID', ''))
 
-REVIEW_THREAD_ID = config.get('bot_resource_username', os.getenv('BOT_RESOURCE_USERNAME', ''))
+PUBLISH_BOT_TOKEN = config.get('publish_bot_token', os.getenv('PUBLISH_BOT_TOKEN', ''))

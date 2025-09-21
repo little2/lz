@@ -2650,14 +2650,35 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         await _rename_review_button_to_in_progress(callback_query, content_id)
 
     except Exception as e:
-        if str(e) == "Telegram server says - Bad Request: wrong file identifier/HTTP URL specified":
+
+        error_text = str(e).lower()
+
+        # 定义可能代表文件 ID 无效的关键字
+        file_invalid_keywords = [
+            "wrong file identifier",
+            "can't use file of type"
+        ]
+
+        if any(keyword in error_text for keyword in file_invalid_keywords):
             await AnanBOTPool.upsert_product_thumb(int(content_id), thumb_file_unique_id, '', bot_username)
             invalidate_cached_product(content_id)
-            print(f"🔄 无效的文件 ID，已清理缓存，准备重新拉取 {source_id} for content_id: {content_id}, thumb_file_id: {thumb_file_id}", flush=True)
-            await callback_query.answer(f"⚠️ 发送的文件无效，正在自动修复中，请稍候再试", show_alert=True)
+            print(
+                f"🔄 无效的文件 ID，已清理缓存，准备重新拉取 {source_id} for content_id: {content_id}, thumb_file_id: {thumb_file_id}",
+                flush=True
+            )
+            await callback_query.answer("⚠️ 发送的文件无效，正在自动修复中，请稍候再试", show_alert=True)
         else:
-            await callback_query.answer(f"⚠️ 请先启用机器人 (@{bot_username}) 私信 (私信机器人按 /start )", show_alert=True)
+            await callback_query.answer(
+                f"⚠️ 请先启用机器人 (@{bot_username}) 私信 (私信机器人按 /start )",
+                show_alert=True
+            )
+
         print(f"⚠️ 发送审核卡片失败: {e}", flush=True)
+
+
+
+
+
 
 
 ############

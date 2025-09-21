@@ -1879,7 +1879,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     spawn_once(f"_review_next_product:{content_id}",_review_next_product(state) )
 
 async def _review_next_product(state: Optional[FSMContext] = None):
-    ids = await AnanBOTPool.fetch_review_status_content_ids(2,2)
+    ids = await AnanBOTPool.fetch_review_status_content_ids(2,1)
     if not ids:
        return
     for content_id in ids:
@@ -2464,6 +2464,7 @@ async def send_to_review_group(content_id: int, state: FSMContext):
     # 合并更新 product content
     spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
 
+    
 
     try:
         await bot.send_message(

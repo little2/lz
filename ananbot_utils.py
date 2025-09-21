@@ -1389,7 +1389,7 @@ class AnanBOTPool(LYBase):
 
     # ====== ② DB 辅助函数：取出所有 review_status = 2 的 content_id ======
     @classmethod
-    async def fetch_review_status_content_ids(cls, review_status_id:int) -> list[int]:
+    async def fetch_review_status_content_ids(cls, review_status_id:int, quantity:int = 10) -> list[int]:
         """
         返回需要发送到审核群组的 content_id 列表（product.review_status = 2）
         """
@@ -1398,8 +1398,8 @@ class AnanBOTPool(LYBase):
             # 这里假设 product 表字段为 content_id、review_status
             # 若你表结构不同，把列名改为实际名称即可
             await cur.execute(
-                "SELECT content_id FROM product WHERE review_status = %s ORDER BY content_id ASC LIMIT 5",
-                (review_status_id,)
+                "SELECT content_id FROM product WHERE review_status = %s ORDER BY RAND() LIMIT %s",
+                (review_status_id, quantity)
             )
             rows = await cur.fetchall()
             # aiomysql.DictCursor 时：row 是 dict；普通 Cursor 时：row 是 tuple

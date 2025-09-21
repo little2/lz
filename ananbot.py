@@ -1860,20 +1860,35 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         
 
 
-    # await _reset_review_bot_button(callback_query,content_id,button_str)
 
+    if review_status == 6:
+        spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
+        # ⬇️ 改为后台执行，不阻塞当前回调
+        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+        # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
+
+        # await _send_to_topic(content_id)
+    # await _reset_review_bot_button(callback_query,content_id,button_str)
+    
     spawn_once(f"_reset_review_bot_button:{content_id}",_reset_review_bot_button(callback_query,content_id,button_str) )
     spawn_once(f"update_today_contribute:{content_id}", AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3))
      # 处理审核区的按钮  
     # await _reset_review_zone_button(button_str,ret_chat,ret_msg) 
     spawn_once(f"_reset_review_zone_button:{content_id}", _reset_review_zone_button(button_str,ret_chat,ret_msg) )
 
-    if review_status == 6:
-        # ⬇️ 改为后台执行，不阻塞当前回调
-        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
-        # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
-        spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
-        # await _send_to_topic(content_id)
+    spawn_once(f"_review_next_product:{content_id}",_review_next_product(state) )
+
+async def _review_next_product(state: Optional[FSMContext] = None):
+    ids = await AnanBOTPool.fetch_review_status_content_ids(2,2)
+    if not ids:
+       return
+    for content_id in ids:
+        try:
+            result, error = await send_to_review_group(int(content_id), state)
+        except Exception as e:
+            result, error = False, str(e)
+        await asyncio.sleep(1)
+
 
 
 async def _reset_review_bot_button(callback_query: CallbackQuery,content_id:int,button_str:str):  
@@ -2357,7 +2372,7 @@ async def cmd_postreview(message: Message, command: CommandObject, state: FSMCon
     bot_username = await get_bot_username()  # 👈 增加这一行
     args = (command.args or "").strip().split()
     if len(args) != 1 or not args[0].isdigit():
-        ids = await AnanBOTPool.fetch_review_status_content_ids(2)
+        ids = await AnanBOTPool.fetch_review_status_content_ids(2,5)
         if not ids:
             await message.answer("目前没有待复审的商品（review_status = 2）。")
             return

@@ -1398,7 +1398,7 @@ class AnanBOTPool(LYBase):
             # 这里假设 product 表字段为 content_id、review_status
             # 若你表结构不同，把列名改为实际名称即可
             await cur.execute(
-                "SELECT content_id FROM product WHERE review_status = %s ORDER BY content_id ASC LIMIT 10",
+                "SELECT content_id FROM product WHERE review_status = %s ORDER BY content_id ASC LIMIT 5",
                 (review_status_id,)
             )
             rows = await cur.fetchall()

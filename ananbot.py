@@ -1615,8 +1615,8 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
 
     # return
 
-    # 和原来的内容合并
-    spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+    # # 和原来的内容合并,  改到 send_to_review_group 一起做
+    # spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
 
     
 
@@ -1788,7 +1788,13 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         logging.exception(f"解析返回审核 URL 失败: {e}")
     print(f"🔍 返回审核定位: chat={ret_chat} thread={ret_thread} msg={ret_msg}", flush=True)
 
-
+    product_row = await get_product_info(content_id)
+    product_info = product_row.get("product_info") or {}
+    print(f"🔍 product_info = {product_info}", flush=True)
+    check_result,check_error_message =  await _check_product_policy(product_row)
+    if check_result is not True:
+        return await callback_query.answer(check_error_message, show_alert=True)
+    
     # 1) 更新 bid_status=1
     try:
         if review_status == 2:
@@ -2439,6 +2445,11 @@ async def send_to_review_group(content_id: int, state: FSMContext):
         [InlineKeyboardButton(text="🔎 审核", callback_data=f"review:{content_id}")],
         [InlineKeyboardButton(text="🤖 机器人", url=f"{bot_url}")]
     ])
+
+    # 合并更新 product content
+    spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+
+
     try:
         await bot.send_message(
             chat_id=REVIEW_CHAT_ID,
@@ -2619,7 +2630,13 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         invalidate_cached_product(content_id)
         await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
         await Media.fetch_file_by_file_id_from_x(state, source_id, 10)
-        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 (若一直无法同步，请到群里反应)", show_alert=True)
+        #TODO: 应该在发送到审核区时就会做一次了
+        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+
+        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 \r\n\r\n(若一直无法同步，请到群里反应)", show_alert=True)
+    
+
+
     if file_id :
         try:
             if file_type == "photo" or file_type == "p":
@@ -3022,51 +3039,48 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         # 从 DB 查举报详情 (交易 + 举报 + bid)
         product_row = await get_product_info(content_id)
         product_info = product_row.get("product_info") or {}
-        thumb_file_id = product_row.get("thumb_file_id") or ""
-        content_text = (product_info.get("content") or "").strip()
-        tag_string = product_info.get("tag", "")
+        file_unique_id = product_info.get('source_id')
+
+        # try:
+            
+        #     if source_id is None:
+        #         sora_content = await AnanBOTPool.search_sora_content_by_id(content_id,lz_var.bot_username)  # 确保 content_id 存在
+        #         file_unique_id = source_id = sora_content.get("source_id") if sora_content else None
+        #     tag_set = await AnanBOTPool.get_tags_for_file(source_id) if source_id else set()
+        #     tag_count = len(tag_set or [])
+        # except Exception:
+        #     tag_set = set()
+        #     tag_count = 0
+
+        # # 内容长度校验（“超过30字”→ 严格 > 30）
+        # content_ok = len(content_text) > 30
+        # tags_ok = tag_count >= 5
+        # thumb_ok = has_custom_thumb
+        # has_tag_ok = has_tag_string
 
 
-        has_tag_string = bool(tag_string and tag_string.strip())
+        # # 如果有缺项，给出可操作的引导并阻止送审
+        # if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
+        #     missing_parts = []
+        #     if not content_ok:
+        #         missing_parts.append("📝 内容需 > 30 字")
+        #     if not thumb_ok:
+        #         missing_parts.append("📷 需要设置预览图（不是默认图）")
 
-
-        has_custom_thumb = bool(thumb_file_id and thumb_file_id != DEFAULT_THUMB_FILE_ID)
-
-        try:
-            sora_content = await AnanBOTPool.search_sora_content_by_id(content_id,lz_var.bot_username)  # 确保 content_id 存在
-            file_unique_id = source_id = sora_content.get("source_id") if sora_content else None
-            tag_set = await AnanBOTPool.get_tags_for_file(source_id) if source_id else set()
-            tag_count = len(tag_set or [])
-        except Exception:
-            tag_set = set()
-            tag_count = 0
-
-
-        # 内容长度校验（“超过30字”→ 严格 > 30）
-        content_ok = len(content_text) > 30
-        tags_ok = tag_count >= 5
-        thumb_ok = has_custom_thumb
-        has_tag_ok = has_tag_string
-
-
-        # 如果有缺项，给出可操作的引导并阻止送审
-        if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
-            missing_parts = []
-            if not content_ok:
-                missing_parts.append("📝 内容需 > 30 字")
-            if not thumb_ok:
-                missing_parts.append("📷 需要设置预览图（不是默认图）")
-
-            if not has_tag_ok:
-                missing_parts.append(f"🏷️ 请检查标签是否正确")
-            elif not tags_ok :
-                missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+        #     if not has_tag_ok:
+        #         missing_parts.append(f"🏷️ 请检查标签是否正确")
+        #     elif not tags_ok :
+        #         missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
             
 
-            tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
+        #     tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
 
-            return await callback_query.answer(tips, show_alert=True)
+        #     return await callback_query.answer(tips, show_alert=True)
 
+
+        check_result,check_error_message =  await _check_product_policy(product_row)
+        if check_result is not True:
+            return await callback_query.answer(check_error_message, show_alert=True)
         
         report_info = await AnanBOTPool.find_existing_report(file_unique_id)
         if not report_info:
@@ -3200,6 +3214,53 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         logging.exception(f"[judge_suggest] 裁定失败 content_id={content_id}: {e}")
         await callback_query.answer("⚠️ 裁定失败，请稍后重试", show_alert=True)
 
+
+
+async def _check_product_policy(product_row):
+    # product_row = await get_product_info(content_id)
+    product_info = product_row.get("product_info") or {}
+    source_id = file_unique_id = product_info.get('source_id')
+    content_text = (product_info.get("content") or "").strip()
+    tag_string = product_info.get("tag", "")
+    thumb_file_id = product_row.get("thumb_file_id") or ""
+    has_custom_thumb = bool(thumb_file_id and thumb_file_id != DEFAULT_THUMB_FILE_ID)
+    has_tag_string = bool(tag_string and tag_string.strip())
+
+    try:
+        tag_set = await AnanBOTPool.get_tags_for_file(source_id) if source_id else set()
+        tag_count = len(tag_set or [])
+    except Exception:
+        tag_set = set()
+        tag_count = 0
+
+    # 内容长度校验（“超过30字”→ 严格 > 30）
+    content_ok = len(content_text) > 30
+    tags_ok = tag_count >= 5
+    thumb_ok = has_custom_thumb
+    has_tag_ok = has_tag_string
+
+    check_result = True
+    check_error_message = None
+
+    # 如果有缺项，给出可操作的引导并阻止送审
+    if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
+        missing_parts = []
+        if not content_ok:
+            missing_parts.append("📝 内容需 > 30 字")
+        if not thumb_ok:
+            missing_parts.append("📷 需要设置预览图（不是默认图）")
+
+        if not has_tag_ok:
+            missing_parts.append(f"🏷️ 请检查标签是否正确")
+        elif not tags_ok :
+            missing_parts.append(f"🏷️ 标签需 ≥ 5 个（当前 {tag_count} 个）")
+        
+
+        tips = "⚠️ 送审前需补全：\n• " + "\n• ".join(missing_parts)
+        check_result = False
+        check_error_message = tips
+        
+    return check_result,check_error_message
 
 ############
 #  系列

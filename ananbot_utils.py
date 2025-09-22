@@ -1473,3 +1473,82 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+
+
+    @classmethod
+    async def sync_bid_product(cls) -> dict:
+        """
+        同步 bid → product：
+        - 取 10 笔 b.content_id IS NULL 且能在 sora_content 命中的记录
+        - 以一条 INSERT ... ON DUPLICATE KEY UPDATE 融合插入/更新 product
+        - product.content = [sora_content.id]（以字符串写入，与你现有风格一致）
+        - product.price = 68
+        - product.file_type = [bid.type]
+        - product.stage = 'pending'
+        - 回写 bid.content_id = [sora_content.id]
+        """
+        print("▶️ 正在同步 bid → product ...", flush=True)
+        conn, cur = await cls.get_conn_cursor()
+        fetched = upserted = bid_updated = 0
+        try:
+            # 1) 抓取最多 10 笔候选
+            await cur.execute("""
+                SELECT b.file_unique_id,
+                    COALESCE(b.type, '')      AS file_type,
+                    s.id                       AS content_id
+                FROM bid b
+                LEFT JOIN sora_content s ON b.file_unique_id = s.source_id
+                WHERE b.content_id IS NULL
+                AND b.file_unique_id IS NOT NULL
+                AND s.id IS NOT NULL
+                LIMIT 10
+            """)
+            rows = await cur.fetchall()
+            fetched = len(rows)
+            if not rows:
+                await conn.commit()
+                return {"fetched": 0, "product_upserted": 0, "bid_updated": 0}
+
+            # 2) 逐笔 UPSERT product 并回写 bid
+            for r in rows:
+                file_unique_id = r["file_unique_id"]
+                file_type      = r["file_type"] or ""
+                content_id     = int(r["content_id"])
+
+                # 单条 SQL 融合插入/更新
+                await cur.execute(
+                    """
+                    INSERT INTO product
+                        ( price, content_id, file_type, review_status, stage)
+                    VALUES
+                        (   %s,      %s,    %s,        2,          'pending')
+                    ON DUPLICATE KEY UPDATE
+                        price     = VALUES(price),
+                        file_type = VALUES(file_type),
+                        stage     = 'pending'
+                    """,
+                    (  68, content_id, file_type, )
+                )
+                upserted += 1
+
+                # 回写 bid.content_id
+                await cur.execute(
+                    "UPDATE bid SET content_id = %s WHERE file_unique_id = %s",
+                    (content_id, file_unique_id)
+                )
+                bid_updated += 1
+
+            await conn.commit()
+            return {"fetched": fetched, "product_upserted": upserted, "bid_updated": bid_updated}
+
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            print(f"[sync_bid_product] ERROR: {e}", flush=True)
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+

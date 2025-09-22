@@ -1,6 +1,7 @@
 import aiomysql
 import time
 from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT
+from typing import Optional, Dict, Any, List, Tuple
 
 import lz_var
 
@@ -276,3 +277,150 @@ class MySQLPool:
             return []
         finally:
             await cls.release(conn, cursor)
+
+
+
+
+    @classmethod
+    async def create_user_collection(
+        cls,
+        user_id: int,
+        title: str = "未命名合集",
+        description: str = "",
+        is_public: int = 1,
+    ) -> Dict[str, Any]:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                INSERT INTO user_collection (user_id, title, description, is_public)
+                VALUES (%s, %s, %s, %s)
+                """,
+                [user_id, (title or "")[:255], description or "", 1 if is_public == 1 else 0],
+            )
+            new_id = cur.lastrowid
+            await conn.commit()
+            return {"ok": "1", "status": "inserted", "id": new_id}
+        except Exception as e:
+            try: await conn.rollback()
+            except Exception: pass
+            return {"ok": "", "status": "error", "error": str(e)}
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def update_user_collection(
+        cls,
+        collection_id: int,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        is_public: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sets, params = [], []
+            if title is not None:
+                sets.append("title = %s")
+                params.append(title[:255].strip())
+            if description is not None:
+                sets.append("description = %s")
+                params.append(description.strip())
+            if is_public is not None:
+                sets.append("is_public = %s")
+                params.append(1 if int(is_public) == 1 else 0)
+
+            if not sets:
+                return {"ok": "1", "status": "noop", "id": collection_id}
+
+            sql = f"UPDATE user_collection SET {', '.join(sets)} WHERE id = %s"
+            params.append(collection_id)
+            await cur.execute(sql, params)
+            await conn.commit()
+            return {"ok": "1", "status": "updated", "id": collection_id}
+        except Exception as e:
+            try: await conn.rollback()
+            except Exception: pass
+            return {"ok": "", "status": "error", "error": str(e)}
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_user_collection_by_id(cls, collection_id: int) -> Optional[Dict[str, Any]]:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT id, user_id, title, description, is_public, created_at
+                FROM user_collection
+                WHERE id = %s
+                """,
+                [collection_id],
+            )
+            row = await cur.fetchone()
+            if not row:
+                return None
+            if isinstance(row, dict):
+                return row
+            cols = ["id", "user_id", "title", "description", "is_public", "created_at"]
+            return {k: v for k, v in zip(cols, row)}
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def list_user_collections(
+        cls, user_id: int, limit: int = 50, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT id, title, description, is_public, created_at
+                FROM user_collection
+                WHERE user_id = %s
+                ORDER BY id DESC
+                LIMIT %s OFFSET %s
+                """,
+                [user_id, int(limit), int(offset)],
+            )
+            rows = await cur.fetchall()
+            if not rows:
+                return []
+            if isinstance(rows[0], dict):
+                return rows
+            cols = ["id", "title", "description", "is_public", "created_at"]
+            return [{k: v for k, v in zip(cols, r)} for r in rows]
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def list_user_favorite_collections(
+        cls, user_id: int, limit: int = 50, offset: int = 0
+    ) -> list[dict]:
+        """
+        列出用户收藏的合集（基于 user_collection_favorite.user_collection_id 关联）。
+        按收藏记录 id 倒序（最新收藏在前）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT uc.id, uc.title, uc.description, uc.is_public, uc.created_at
+                FROM user_collection_favorite AS ucf
+                JOIN user_collection AS uc
+                ON uc.id = ucf.user_collection_id
+                WHERE ucf.user_id = %s
+                ORDER BY ucf.id DESC, uc.id DESC
+                LIMIT %s OFFSET %s
+                """,
+                [user_id, int(limit), int(offset)],
+            )
+            rows = await cur.fetchall()
+            if not rows:
+                return []
+            if isinstance(rows[0], dict):
+                return rows
+            cols = ["id", "title", "description", "is_public", "created_at"]
+            return [{k: v for k, v in zip(cols, r)} for r in rows]
+        finally:
+            await cls.release(conn, cur)

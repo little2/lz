@@ -1891,6 +1891,7 @@ async def _review_next_product(state: Optional[FSMContext] = None):
 
 
 
+
 async def _reset_review_bot_button(callback_query: CallbackQuery,content_id:int,button_str:str):  
     buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
 
@@ -2651,6 +2652,9 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
         return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 \r\n\r\n(若一直无法同步，请到群里反应)", show_alert=True)
     
+    # TODO
+
+    spawn_once(f"refine:{content_id}", AnanBOTPool.sync_bid_product())
 
 
     if file_id :
@@ -4304,6 +4308,8 @@ async def main():
 
    # ✅ 初始化 MySQL 连接池
     await AnanBOTPool.init_pool()
+
+    await AnanBOTPool.sync_bid_product()
 
     await set_default_thumb_file_id()
     print(f"✅ 默认缩略图 file_id：{DEFAULT_THUMB_FILE_ID}")

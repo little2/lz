@@ -8,10 +8,14 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramFor
 from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter
 
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from utils.unit_converter import UnitConverter
 from utils.aes_crypto import AESCrypto
 from utils.media_utils import Media
+
+
 
 import asyncio
 
@@ -31,6 +35,11 @@ from utils.product_utils import submit_resource_to_chat
 router = Router()
 
 _background_tasks: dict[str, asyncio.Task] = {}
+
+class LZFSM(StatesGroup):
+    waiting_for_title = State()
+    waiting_for_description = State()
+
 
 def spawn_once(key: str, coro: "Coroutine"):
     """相同 key 的后台任务只跑一个；结束后自动清理。"""
@@ -89,6 +98,225 @@ def collection_menu_keyboard():
         [InlineKeyboardButton(text="🛍️ 逛逛合集市场", callback_data="explore_marketplace")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
+
+# ========= 菜单构建 =========
+
+
+
+def create_collection_menu_keyboard(collection_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📌 合集主题（title）", callback_data=f"cc:title:{collection_id}")],
+        [InlineKeyboardButton(text="📝 合集简介（description）", callback_data=f"cc:description:{collection_id}")],
+        [InlineKeyboardButton(text="👁 是否公开（is_public）", callback_data=f"cc:is_public:{collection_id}")],
+        [InlineKeyboardButton(text="🔙 返回我的合集", callback_data="my_collections")],
+    ])
+
+def back_only_keyboard(back_to: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 返回上页", callback_data=back_to)]
+    ])
+
+def is_public_keyboard(collection_id: int, is_public: int | None):
+    pub  = ("✔️ " if is_public == 1 else "") + "公开"
+    priv = ("✔️ " if is_public == 0 else "") + "不公开"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=pub,  callback_data=f"cc:public:{collection_id}:1"),
+            InlineKeyboardButton(text=priv, callback_data=f"cc:public:{collection_id}:0"),
+        ],
+        [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"cc:back:{collection_id}")]
+    ])
+
+
+# ========= 工具 =========
+
+def _short(text: str | None, n: int = 60) -> str:
+    if not text:
+        return ""
+    text = text.replace("\r", " ").replace("\n", " ")
+    return text[:n] + ("..." if len(text) > n else "")
+
+# ========= 创建合集：先新建记录，进入设置菜单 =========
+
+# ====== 我的合集：按钮+分页 ======
+
+
+
+
+
+
+
+
+
+@router.callback_query(F.data.regexp(r"^cc:title:\d+$"))
+async def handle_cc_title(callback: CallbackQuery, state: FSMContext):
+    _, _, cid = callback.data.split(":")
+    await state.update_data({
+        "collection_id": int(cid),
+        "anchor_chat_id": callback.message.chat.id,
+        "anchor_msg_id": callback.message.message_id,
+    })
+    await state.set_state(LZFSM.waiting_for_title)
+    await callback.message.edit_text(
+        "📝 请输入标题（长度 ≤ 255，可包含中文、英文或符号）：",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"cc:back:{cid}")]
+        ])
+    )
+
+@router.message(LZFSM.waiting_for_title)
+async def on_title_input(message: Message, state: FSMContext):
+    data = await state.get_data()
+    cid = int(data.get("collection_id"))
+    anchor_chat_id = data.get("anchor_chat_id")
+    anchor_msg_id  = data.get("anchor_msg_id")
+
+    text = (message.text or "").strip()
+    if len(text) == 0 or len(text) > 255:
+        # 直接提示一条轻量回复也可以改为 alert；这里按需求删输入，所以给个轻提示再删。
+        await message.reply("⚠️ 标题长度需为 1~255，请重新输入。")
+        return
+
+    # 1) 删除用户输入的这条消息
+    try:
+        await lz_var.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        print(f"⚠️ 删除用户输入失败: {e}", flush=True)
+
+    # 2) 更新数据库
+    await MySQLPool.update_user_collection(collection_id=cid, title=text)
+
+    # 3) 刷新锚点消息的文本与按钮
+    rec = await MySQLPool.get_user_collection_by_id(cid)
+    title = rec.get("title") if rec else text
+    desc  = rec.get("description") if rec else ""
+    pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+
+    new_text = (
+        f"当前设置：\n"
+        f"• ID：{cid}\n"
+        f"• 标题：{title}\n"
+        f"• 公开：{pub}\n"
+        f"• 简介：{_short(desc,120)}\n\n"
+        f"请选择要设置的项目："
+    )
+    try:
+        await lz_var.bot.edit_message_text(
+            chat_id=anchor_chat_id,
+            message_id=anchor_msg_id,
+            text=new_text,
+            reply_markup=create_collection_menu_keyboard(cid)
+        )
+    except Exception as e:
+        print(f"❌ 编辑锚点消息失败: {e}", flush=True)
+
+    await state.clear()
+
+# ===== 简介 =====
+
+@router.callback_query(F.data.regexp(r"^cc:description:\d+$"))
+async def handle_cc_description(callback: CallbackQuery, state: FSMContext):
+    _, _, cid = callback.data.split(":")
+    await state.update_data({
+        "collection_id": int(cid),
+        "anchor_chat_id": callback.message.chat.id,
+        "anchor_msg_id": callback.message.message_id,
+    })
+    await state.set_state(LZFSM.waiting_for_description)
+    await callback.message.edit_text(
+        "🧾 请输入这个合集的介绍：",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"cc:back:{cid}")]
+        ])
+    )
+
+@router.message(LZFSM.waiting_for_description)
+async def on_description_input(message: Message, state: FSMContext):
+    data = await state.get_data()
+    cid = int(data.get("collection_id"))
+    anchor_chat_id = data.get("anchor_chat_id")
+    anchor_msg_id  = data.get("anchor_msg_id")
+
+    text = (message.text or "").strip()
+    if len(text) == 0:
+        await message.reply("⚠️ 介绍不能为空，请重新输入。")
+        return
+
+    # 1) 删除用户输入消息
+    try:
+        await lz_var.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        print(f"⚠️ 删除用户输入失败: {e}", flush=True)
+
+    # 2) 更新数据库
+    await MySQLPool.update_user_collection(collection_id=cid, description=text)
+
+    # 3) 刷新锚点消息
+    rec = await MySQLPool.get_user_collection_by_id(cid)
+    title = rec.get("title") if rec else "未命名合集"
+    desc  = rec.get("description") if rec else ""
+    pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+
+    new_text = (
+        f"当前设置：\n"
+        f"• ID：{cid}\n"
+        f"• 标题：{title}\n"
+        f"• 公开：{pub}\n"
+        f"• 简介：{_short(desc,120)}\n\n"
+        f"请选择要设置的项目："
+    )
+    try:
+        await lz_var.bot.edit_message_text(
+            chat_id=anchor_chat_id,
+            message_id=anchor_msg_id,
+            text=new_text,
+            reply_markup=create_collection_menu_keyboard(cid)
+        )
+    except Exception as e:
+        print(f"❌ 编辑锚点消息失败: {e}", flush=True)
+
+    await state.clear()
+
+
+# ========= 是否公开 =========
+
+@router.callback_query(F.data.regexp(r"^cc:is_public:\d+$"))
+async def handle_cc_is_public(callback: CallbackQuery):
+    _, _, cid = callback.data.split(":")
+    cid = int(cid)
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    is_public = rec.get("is_public") if rec else None
+    await callback.message.edit_text(
+        "👁 请选择这个合集是否可以公开：",
+        reply_markup=is_public_keyboard(cid, is_public)
+    )
+
+@router.callback_query(F.data.regexp(r"^cc:public:\d+:(0|1)$"))
+async def handle_cc_public_set(callback: CallbackQuery):
+    _, _, cid, val = callback.data.split(":")
+    cid, is_public = int(cid), int(val)
+    await MySQLPool.update_user_collection(collection_id=cid, is_public=is_public)
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    await callback.message.edit_reply_markup(reply_markup=is_public_keyboard(cid, rec.get("is_public")))
+    await callback.answer("✅ 已更新可见性设置")
+
+# ========= 返回（从输入页回设置菜单 / 从“我的合集”回合集主菜单） =========
+
+@router.callback_query(F.data.regexp(r"^cc:back:\d+$"))
+async def handle_cc_back(callback: CallbackQuery):
+    _, _, cid = callback.data.split(":")
+    cid = int(cid)
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    title = rec.get("title") if rec else "未命名合集"
+    desc  = rec.get("description") if rec else ""
+    pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+
+    await callback.message.edit_text(
+        f"当前设置：\n• ID：{cid}\n• 标题：{title}\n• 公开：{pub}\n• 简介：{_short(desc,120)}\n\n请选择要设置的项目：",
+        reply_markup=create_collection_menu_keyboard(cid)
+    )
+
+
 
 # == 历史菜单 ==
 def history_menu_keyboard():
@@ -322,14 +550,210 @@ async def handle_hot_resource_ranking(callback: CallbackQuery):
 async def handle_hot_uploader_ranking(callback: CallbackQuery):
     await callback.message.answer("👑 当前上传者排行榜如下：...")
 
-# == 合集选项响应 ==
+
+
+
+# ====== 通用：分页列表键盘（mine / fav）======
+
+async def _load_collections_rows(user_id: int, page: int, mode: str):
+    PAGE_SIZE = 6
+    offset = page * PAGE_SIZE
+    if mode == "mine":
+        rows = await MySQLPool.list_user_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
+    elif mode == "fav":
+        rows = await MySQLPool.list_user_favorite_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
+    else:
+        rows = []
+    has_next = len(rows) > PAGE_SIZE
+    return rows[:PAGE_SIZE], has_next
+
+def _collection_btn_text(row: dict) -> str:
+    cid   = row.get("id")
+    title = (row.get("title") or "未命名合集")[:30]
+    pub   = "公开" if (row.get("is_public") == 1) else "不公开"
+    return f"〈{title}〉（{pub}）#ID{cid}"
+
+async def build_collections_keyboard(user_id: int, page: int, mode: str) -> InlineKeyboardMarkup:
+    """
+    mode: 'mine'（我的合集）| 'fav'（我收藏的合集）
+    每页 6 行合集按钮；第 7 行：上一页 | [创建，仅 mine] | 下一页（上一/下一按需显示）
+    最后一行：🔙 返回上页
+    """
+    PAGE_SIZE = 6
+    display, has_next = await _load_collections_rows(user_id, page, mode)
+
+    list_prefix = "cc:mlist" if mode == "mine" else "cc:flist"
+    edit_prefix = "cc:edit"  if mode == "mine" else "cc:fedit"
+
+    kb_rows: list[list[InlineKeyboardButton]] = []
+
+    if not display:
+        # 空列表：mine 显示创建，fav 不显示创建
+        if mode == "mine":
+            kb_rows.append([InlineKeyboardButton(text="➕ 创建合集", callback_data="create_collection")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回上页", callback_data="collection")])
+        return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    # 6 行合集按钮
+    for r in display:
+        cid = r.get("id")
+        btn_text = _collection_btn_text(r)
+        kb_rows.append([InlineKeyboardButton(text=btn_text, callback_data=f"{edit_prefix}:{cid}:{page}")])
+
+    # 第 7 行：上一页 | [创建，仅 mine] | 下一页
+    nav_row: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="⬅️ 上一页", callback_data=f"{list_prefix}:{page-1}"))
+
+    if mode == "mine":
+        nav_row.append(InlineKeyboardButton(text="➕ 创建", callback_data="create_collection"))
+
+    if has_next:
+        nav_row.append(InlineKeyboardButton(text="下一页 ➡️", callback_data=f"{list_prefix}:{page+1}"))
+
+    # 有可能出现只有“上一页/下一页”而中间没有“创建”的情况（fav 模式）
+    if nav_row:
+        kb_rows.append(nav_row)
+
+    # 返回上页
+    kb_rows.append([InlineKeyboardButton(text="🔙 返回上页", callback_data="collection")])
+
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+
+# ====== “我的合集”入口用通用键盘（保持既有行为）======
+
 @router.callback_query(F.data == "my_collections")
 async def handle_my_collections(callback: CallbackQuery):
-    await callback.message.answer("📦 这里是你创建的合集：...")
+    user_id = callback.from_user.id
+    kb = await build_collections_keyboard(user_id=user_id, page=0, mode="mine")
+    # “我的合集”之前是只换按钮；为了统一体验，也可以换 text，但你要求按钮呈现，因此只换按钮：
+    await callback.message.edit_reply_markup(reply_markup=kb)
+
+@router.callback_query(F.data.regexp(r"^cc:mlist:\d+$"))
+async def handle_my_collections_pager(callback: CallbackQuery):
+    _, _, page_str = callback.data.split(":")
+    user_id = callback.from_user.id
+    kb = await build_collections_keyboard(user_id=user_id, page=int(page_str), mode="mine")
+    await callback.message.edit_reply_markup(reply_markup=kb)
+
+@router.callback_query(F.data.regexp(r"^cc:edit:\d+:\d+$"))
+async def handle_my_collections_edit(callback: CallbackQuery):
+    _, _, cid_str, page_str = callback.data.split(":")
+    cid = int(cid_str)
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    title = rec.get("title") if rec else "未命名合集"
+    desc  = rec.get("description") if rec else ""
+    pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+
+    text = (
+        f"当前设置：\n"
+        f"• ID：{cid}\n"
+        f"• 标题：{title}\n"
+        f"• 公开：{pub}\n"
+        f"• 简介：{_short(desc, 120)}\n\n"
+        f"请选择要设置的项目："
+    )
+    await callback.message.edit_text(text, reply_markup=create_collection_menu_keyboard(cid))
+
+
+# ====== “我收藏的合集”入口（复用通用键盘，mode='fav'）======
+
+@router.callback_query(F.data == "create_collection")
+async def handle_create_collection(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    ret = await MySQLPool.create_user_collection(user_id=user_id)  # 默认：未命名合集、公开
+    cid = ret.get("id")
+    await state.update_data({"collection_id": cid})
+
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    title = rec.get("title") if rec else "未命名合集"
+    desc  = rec.get("description") if rec else ""
+    pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+
+    text = (
+        f"🆕 已创建合集：\n"
+        f"• ID：{cid}\n"
+        f"• 标题：{title}\n"
+        f"• 公开：{pub}\n"
+        f"• 简介：{_short(desc, 120)}\n\n"
+        f"请选择要设置的项目："
+    )
+    await callback.message.edit_text(text, reply_markup=create_collection_menu_keyboard(cid))
+
 
 @router.callback_query(F.data == "my_favorite_collections")
 async def handle_my_favorite_collections(callback: CallbackQuery):
-    await callback.message.answer("❤️ 这里是你收藏的他人合集：...")
+    user_id = callback.from_user.id
+    kb = await build_collections_keyboard(user_id=user_id, page=0, mode="fav")
+    await callback.message.edit_reply_markup(reply_markup=kb)
+
+@router.callback_query(F.data.regexp(r"^cc:flist:\d+$"))
+async def handle_my_favorite_collections_pager(callback: CallbackQuery):
+    _, _, page_str = callback.data.split(":")
+    user_id = callback.from_user.id
+    kb = await build_collections_keyboard(user_id=user_id, page=int(page_str), mode="fav")
+    await callback.message.edit_reply_markup(reply_markup=kb)
+
+# 收藏列表点击 → 详情（只读，无“标题/简介/公开”按钮）
+def favorite_detail_keyboard(page: int):
+    # 只提供返回收藏列表与回合集主菜单
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 返回收藏列表", callback_data=f"cc:flist:{page}")],
+        [InlineKeyboardButton(text="📦 回合集菜单", callback_data="collection")],
+    ])
+
+@router.callback_query(F.data.regexp(r"^cc:fedit:\d+:\d+$"))
+async def handle_my_favorite_collections_view(callback: CallbackQuery):
+    _, _, cid_str, page_str = callback.data.split(":")
+    cid = int(cid_str)
+    page = int(page_str)
+
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    if not rec:
+        await callback.answer("⚠️ 未找到该合集", show_alert=True)
+        return
+
+    title = rec.get("title") or "未命名合集"
+    desc  = rec.get("description") or ""
+    pub   = "公开" if (rec.get("is_public") == 1) else "不公开"
+
+    text = (
+        f"📌 合集详情（只读）\n"
+        f"• ID：{cid}\n"
+        f"• 标题：{title}\n"
+        f"• 公开：{pub}\n"
+        f"• 简介：{_short(desc, 600)}"
+    )
+    await callback.message.edit_text(text, reply_markup=favorite_detail_keyboard(page))
+
+
+
+# ====== “我收藏的合集”入口（复用通用键盘，mode='fav'）======
+
+
+    _, _, cid_str, page_str = callback.data.split(":")
+    cid = int(cid_str)
+    page = int(page_str)
+
+    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    if not rec:
+        await callback.answer("⚠️ 未找到该合集", show_alert=True)
+        return
+
+    title = rec.get("title") or "未命名合集"
+    desc  = rec.get("description") or ""
+    pub   = "公开" if (rec.get("is_public") == 1) else "不公开"
+
+    text = (
+        f"📌 合集详情（只读）\n"
+        f"• ID：{cid}\n"
+        f"• 标题：{title}\n"
+        f"• 公开：{pub}\n"
+        f"• 简介：{_short(desc, 600)}"
+    )
+    await callback.message.edit_text(text, reply_markup=favorite_detail_keyboard(page))
 
 @router.callback_query(F.data == "explore_marketplace")
 async def handle_explore_marketplace(callback: CallbackQuery):

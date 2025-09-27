@@ -9,8 +9,7 @@ from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, Telegram
 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton,InputMediaPhoto
 from utils.unit_converter import UnitConverter
 from utils.aes_crypto import AESCrypto
 from utils.media_utils import Media
@@ -139,12 +138,6 @@ def _short(text: str | None, n: int = 60) -> str:
 # ========= 创建合集：先新建记录，进入设置菜单 =========
 
 # ====== 我的合集：按钮+分页 ======
-
-
-
-
-
-
 
 
 
@@ -642,20 +635,38 @@ async def handle_my_collections_pager(callback: CallbackQuery):
 async def handle_my_collections_edit(callback: CallbackQuery):
     _, _, cid_str, page_str = callback.data.split(":")
     cid = int(cid_str)
-    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
-    title = rec.get("title") if rec else "未命名合集"
-    desc  = rec.get("description") if rec else ""
-    pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+    user_id = callback.from_user.id
+    collection_info  = await _show_collection_detail(callback.message,cid=cid, user_id=user_id, mode='edit')
+    if collection_info.get("success") is False:
+        await callback.answer(collection_info.get("message"), show_alert=True)
+        return
+    elif collection_info.get("photo"):
+        # await callback.message.edit_media(media=collection_info.get("photo"), caption=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
+        
+        await callback.message.edit_media(
+            media=InputMediaPhoto(media=collection_info.get("photo"), caption=collection_info.get("caption"), parse_mode="HTML"),
+            reply_markup=collection_info.get("reply_markup")
+        )
+        
+        return
+    else:
+        await callback.message.edit_text(text=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
 
-    text = (
-        f"当前设置：\n"
-        f"• ID：{cid}\n"
-        f"• 标题：{title}\n"
-        f"• 公开：{pub}\n"
-        f"• 简介：{_short(desc, 120)}\n\n"
-        f"请选择要设置的项目："
-    )
-    await callback.message.edit_text(text, reply_markup=create_collection_menu_keyboard(cid))
+    # cid = int(cid_str)
+    # rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    # title = rec.get("title") if rec else "未命名合集"
+    # desc  = rec.get("description") if rec else ""
+    # pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
+
+    # text = (
+    #     f"当前设置：\n"
+    #     f"• ID：{cid}\n"
+    #     f"• 标题：{title}\n"
+    #     f"• 公开：{pub}\n"
+    #     f"• 简介：{_short(desc, 120)}\n\n"
+    #     f"请选择要设置的项目："
+    # )
+    # await callback.message.edit_text(text, reply_markup=create_collection_menu_keyboard(cid))
 
 
 # ====== “我收藏的合集”入口（复用通用键盘，mode='fav'）======
@@ -754,6 +765,237 @@ async def handle_my_favorite_collections_view(callback: CallbackQuery):
         f"• 简介：{_short(desc, 600)}"
     )
     await callback.message.edit_text(text, reply_markup=favorite_detail_keyboard(page))
+
+
+
+# ============ /set [id]：合集信息/列表/收藏切换 ============
+
+SET_PAGE_SIZE = 6
+
+def _uc_info_caption(rec: dict) -> str:
+    return (
+        f"收藏 ID: {rec.get('id')}\n"
+        f"合集作者: {rec.get('user_id')}\n"
+        f"名称: {rec.get('title') or '未命名合集'}\n"
+        f"描述: {rec.get('description') or ''}"
+    )
+
+def _uc_info_keyboard(cid: int, is_fav: bool, mode: str) -> InlineKeyboardMarkup:
+    nav_row: list[InlineKeyboardButton] = []
+    nav_row.append(InlineKeyboardButton(text="🗂️ 显示列表", callback_data=f"uc:list:{cid}:0"))
+
+    if mode == 'edit':
+        nav_row.append(InlineKeyboardButton(text="🔧 编辑合集", callback_data=f"cc:edit:{cid}:0"))
+    else:
+        fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
+        nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
+        
+
+    return InlineKeyboardMarkup(inline_keyboard=nav_row)
+
+def _uc_info_keyboard(cid: int, is_fav: bool, mode: str = 'view') -> InlineKeyboardMarkup:
+    nav_row: list[InlineKeyboardButton] = []
+    nav_row.append(InlineKeyboardButton(text="🗂️ 显示列表", callback_data=f"uc:list:{cid}:0"))
+
+    if mode == 'edit':
+        nav_row.append(InlineKeyboardButton(text="🔧 编辑合集", callback_data=f"cc:edit:{cid}:0"))
+    else:
+        fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
+        nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
+
+    # 关键点：需要二维数组（每个子列表是一行按钮）
+    return InlineKeyboardMarkup(inline_keyboard=[nav_row])
+
+
+
+def _uc_list_keyboard(cid: int, page: int, has_prev: bool, has_next: bool, is_fav: bool) -> InlineKeyboardMarkup:
+    nav_row: list[InlineKeyboardButton] = []
+    if has_prev:
+        nav_row.append(InlineKeyboardButton(text="上一页", callback_data=f"uc:list:{cid}:{page-1}"))
+    if has_next:
+        nav_row.append(InlineKeyboardButton(text="下一页", callback_data=f"uc:list:{cid}:{page+1}"))
+
+    fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
+
+    rows = []
+    if nav_row: rows.append(nav_row)
+    rows.append([InlineKeyboardButton(text="ℹ️ 合集信息", callback_data=f"uc:info:{cid}")])
+    rows.append([InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+async def _edit_caption_or_text(msg, *, text: str, reply_markup: InlineKeyboardMarkup | None):
+    """
+    统一编辑：若原消息有照片 -> edit_caption；否则 -> edit_text
+    """
+    try:
+        if getattr(msg, "photo", None):
+            await lz_var.bot.edit_message_caption(
+                chat_id=msg.chat.id,
+                message_id=msg.message_id,
+                caption=text,
+                reply_markup=reply_markup
+            )
+        else:
+            await lz_var.bot.edit_message_text(
+                chat_id=msg.chat.id,
+                message_id=msg.message_id,
+                text=text,
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        print(f"❌ 编辑消息失败: {e}", flush=True)
+
+# /set [数字]
+@router.message(Command("set"))
+async def handle_set_collection(message: Message):
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2 or not args[1].strip().isdigit():
+        await message.answer("用法：/set [合集ID]")
+        return
+
+    cid = int(args[1].strip())
+    user_id = message.from_user.id
+    retCollect = await _show_collection_detail(message,cid=cid, user_id=user_id)
+
+async def _show_collection_detail(message: Message, cid: int, user_id: int, mode: str = 'view') -> dict:
+    bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
+    # 查询合集 + 封面 file_id（遵循你给的 SQL）
+    rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
+    if not rec:
+        # return await message.answer("⚠️ 未找到该收藏")
+        return {"success": False, "message": "未找到该收藏"}
+        
+    
+    # 是否已收藏（用于按钮文案）
+   
+    is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+
+    caption = _uc_info_caption(rec)
+
+    # 有封面 -> sendPhoto；无封面 -> sendMessage
+    cover_file_id = rec.get("cover_file_id")
+    cover_file_id = "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ" #TODO
+    kb = _uc_info_keyboard(cid, is_fav, mode)
+    try:
+        if cover_file_id:
+            # return await message.answer_photo(photo=cover_file_id, caption=caption, reply_markup=kb)
+            return {"success": True, "photo": cover_file_id, "caption": caption, "reply_markup": kb}
+           
+        else:
+            # return await message.answer(text=caption, reply_markup=kb)
+            return {"success": True,  "caption": caption, "reply_markup": kb}
+           
+    except Exception as e:
+        print(f"❌ 发送合集信息失败: {e}", flush=True)
+        # return await message.answer("⚠️ 发送合集信息失败")
+        return {"success": False,  "caption": caption, "reply_markup": kb}
+        
+
+
+# 「显示列表」：分页展示前 6 个文件的 file_id
+@router.callback_query(F.data.regexp(r"^uc:list:\d+:\d+$"))
+async def handle_uc_list(callback: CallbackQuery):
+    _, _, cid_str, page_str = callback.data.split(":")
+    cid, page = int(cid_str), int(page_str)
+    user_id = callback.from_user.id
+
+    # 拉取本页数据（返回 file_id list 与 has_next）
+    files, has_next = await MySQLPool.list_collection_files_file_id(collection_id=cid, limit=SET_PAGE_SIZE+1, offset=page*SET_PAGE_SIZE)
+    display = files[:SET_PAGE_SIZE]
+    has_prev = page > 0
+    is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+
+    if not display:
+        await callback.answer("这个合集暂时没有收录文件", show_alert=True)
+        # 回到信息视图
+        rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=getattr(lz_var, "bot_username", None) or "luzaitestbot")
+        if not rec:
+            await callback.answer("未找到该收藏", show_alert=True); return
+        await _edit_caption_or_text(callback.message, text=_uc_info_caption(rec), reply_markup=_uc_info_keyboard(cid, is_fav))
+        return
+
+    # 组装列表 caption：仅列 file_id
+    lines = [f"合集 #{cid} 文件列表（第 {page+1} 页）", ""]
+    for idx, f in enumerate(display, start=1):
+        fid = f.get("content") or "(无 file_id)"
+        lines.append(f"{idx}. {fid}")
+    caption = "\n".join(lines)
+
+    await _edit_caption_or_text(
+        callback.message,
+        text=caption,
+        reply_markup=_uc_list_keyboard(cid, page, has_prev, has_next, is_fav)
+    )
+    await callback.answer()
+
+# 「合集信息」：恢复信息视图
+@router.callback_query(F.data.regexp(r"^uc:info:\d+$"))
+async def handle_uc_info(callback: CallbackQuery):
+    _, _, cid_str = callback.data.split(":")
+    cid = int(cid_str)
+    bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
+    rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
+    if not rec:
+        await callback.answer("未找到该收藏", show_alert=True); return
+    is_fav = await MySQLPool.is_collection_favorited(user_id=callback.from_user.id, collection_id=cid)
+    await _edit_caption_or_text(callback.message, text=_uc_info_caption(rec), reply_markup=_uc_info_keyboard(cid, is_fav))
+    await callback.answer()
+
+# 「收藏 / 取消收藏」：落 DB 并刷新按钮
+@router.callback_query(F.data.regexp(r"^uc:fav:\d+$"))
+async def handle_uc_fav(callback: CallbackQuery):
+    _, _, cid_str = callback.data.split(":")
+    cid = int(cid_str)
+    user_id = callback.from_user.id
+
+    already = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+    if already:
+        ok = await MySQLPool.remove_collection_favorite(user_id=user_id, collection_id=cid)
+        tip = "已取消收藏" if ok else "取消收藏失败"
+    else:
+        ok = await MySQLPool.add_collection_favorite(user_id=user_id, collection_id=cid)
+        tip = "已加入收藏" if ok else "收藏失败"
+
+    # 依据当前视图（信息 or 列表）刷新正确的按钮
+    is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+
+    # 判断当前是否列表视图：看 caption 文本是否包含“文件列表”
+    is_list_view = False
+    try:
+        cur_caption = (callback.message.caption or callback.message.text or "") if callback.message else ""
+        is_list_view = "文件列表" in cur_caption
+    except Exception:
+        pass
+
+    if is_list_view:
+        # 提取当前页号（从 callback.data 不好取，尝试从 caption 无法拿页码则回 0）
+        page = 0
+        if cur_caption:
+            # 简单解析 “第 X 页”
+            import re
+            m = re.search(r"第\s*(\d+)\s*页", cur_caption)
+            if m:
+                page = max(int(m.group(1)) - 1, 0)
+
+        # 检查是否还有翻页（重新查一次以确保 nav 正确）
+        files, has_next = await MySQLPool.list_collection_files_file_id(collection_id=cid, limit=SET_PAGE_SIZE+1, offset=page*SET_PAGE_SIZE)
+        has_prev = page > 0
+        kb = _uc_list_keyboard(cid, page, has_prev, has_next, is_fav)
+    else:
+        kb = _uc_info_keyboard(cid, is_fav)
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=kb)
+    except Exception as e:
+        print(f"❌ 刷新收藏按钮失败: {e}", flush=True)
+
+    await callback.answer(tip, show_alert=False)
+
+
+
+
+
 
 @router.callback_query(F.data == "explore_marketplace")
 async def handle_explore_marketplace(callback: CallbackQuery):

@@ -2465,7 +2465,7 @@ async def send_to_review_group(content_id: int, state: FSMContext):
     # 合并更新 product content
     spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
 
-    
+    # [InlineKeyboardButton(text="🆖 回报同步失败", callback_data=f"reportfail:{content_id}")]
 
     try:
         await bot.send_message(
@@ -2539,6 +2539,57 @@ async def _rename_review_button_to_in_progress(callback_query: CallbackQuery, co
 
 
 
+@dp.callback_query(F.data.startswith("reportfail:"))
+async def handle_review_button(callback_query: CallbackQuery, state: FSMContext):
+    """
+    群内有人点击“回报同步失效”按钮后，将对应 content_id 的商品卡片贴到当前群/话题
+    """
+    try:
+        _, cid = callback_query.data.split(":")
+        content_id = int(cid)
+    except Exception:
+        return await callback_query.answer("⚠️ 参数错误", show_alert=True)
+    user_id = callback_query.from_user.id
+    bot_username = await get_bot_username()
+
+    # 取得预览卡片（沿用你现成的函数）
+    product_row = await get_product_info(content_id)
+    product_info = product_row.get("product_info") or {}
+    file_id = product_info.get("m_file_id") or ""
+
+    if file_id:
+        return await callback_query.answer(f"⚠️ 请点选审核", show_alert=True)
+    
+    if product_info.get("review_status") in (2,4):
+        guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
+        if not guild_row:
+            return await callback_query.answer(f"⚠️ 这个资源正在审核状态(需要撸馆社团干部权限才能审核)", show_alert=True)
+    elif product_info.get("review_status") in (3, 5):
+        guild_row = await AnanBOTPool.check_guild_role(user_id,'owner')
+        if not guild_row:
+            return await callback_query.answer(f"⚠️ 这个资源正在上架中(需要撸馆社长权限才能审核)", show_alert=True)
+    else:
+        pass
+
+    await AnanBOTPool.set_product_review_status(content_id, 11)  # 11 同步失败
+
+    result_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=f"🆖 同步失效", callback_data="a=nothing")]]
+    )
+                
+    await bot.edit_message_reply_markup(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id,
+        reply_markup=result_kb
+    )
+
+    return await callback_query.answer(
+        f"🆖 这个资源已经回报为同步失效 {product_info.get('review_status')}",
+        show_alert=True
+    )
+
+
+
 @dp.callback_query(F.data.startswith("review:"))
 async def handle_review_button(callback_query: CallbackQuery, state: FSMContext):
     """
@@ -2578,11 +2629,11 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     if product_info.get("review_status") in (2,4):
         guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
         if not guild_row:
-            return await callback_query.answer(f"⚠️ 这个资源正在审核状态(撸馆社团干部审核中)", show_alert=True)
+            return await callback_query.answer(f"⚠️ 这个资源正在审核状态(需要撸馆社团干部权限才能审核)", show_alert=True)
     elif product_info.get("review_status") in (3, 5):
         guild_row = await AnanBOTPool.check_guild_role(user_id,'owner')
         if not guild_row:
-            return await callback_query.answer(f"⚠️ 这个资源正在上架中(撸馆社长审核中)", show_alert=True)
+            return await callback_query.answer(f"⚠️ 这个资源正在上架中(需要撸馆社长权限才能审核)", show_alert=True)
     else:
         result_kb = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]
@@ -2641,6 +2692,19 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
+    msg = callback_query.message
+    target_cb = f"reportfail:{content_id}"
+    markup = msg.reply_markup  # InlineKeyboardMarkup 或 None
+
+    def has_reportfail(m: InlineKeyboardMarkup | None) -> bool:
+        if not m or not m.inline_keyboard:
+            return False
+        for row in m.inline_keyboard:
+            for btn in row:
+                # 有些按钮可能是 url 按钮（没有 callback_data），做个防御
+                if getattr(btn, "callback_data", None) == target_cb:
+                    return True
+        return False
 
     # #先发资源
     if not file_id:
@@ -2649,9 +2713,51 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         await Media.fetch_file_by_file_id_from_x(state, source_id, 10)
         #TODO: 应该在发送到审核区时就会做一次了
         spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+        
+        # 2) 检查并补上“🆖 回报同步失败”按钮
+        try:
+          
 
-        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 \r\n\r\n(若一直无法同步，请到群里反应)", show_alert=True)
+
+
+            if not has_reportfail(markup):
+                new_rows = []
+                if markup and markup.inline_keyboard:
+                    # 复制原有按钮，不破坏现有的“审核/机器人/…”布局
+                    for row in markup.inline_keyboard:
+                        new_rows.append(list(row))
+                # 追加一行“回报同步失败”按钮
+                new_rows.append([
+                    InlineKeyboardButton(text="🆖 回报同步失败", callback_data=target_cb)
+                ])
+                await bot.edit_message_reply_markup(
+                    chat_id=msg.chat.id,
+                    message_id=msg.message_id,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows),
+                )
+        except Exception as e:
+            # 不要影响主流程；这里仅记日志即可
+            logging.exception(f"补回报按钮失败: content_id={content_id}, err={e}")
+
+        # 3) 给用户弹窗提示
+        return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 \r\n\r\n(若一直无法同步，请点击🆖无法同步按钮)", show_alert=True)
     
+    else:
+        # 如果 file_id 已经有了，则检查并移除按钮
+        if has_reportfail(markup):
+            new_rows = []
+            for row in markup.inline_keyboard:
+                filtered_row = [
+                    btn for btn in row if getattr(btn, "callback_data", None) != target_cb
+                ]
+                if filtered_row:
+                    new_rows.append(filtered_row)
+            await bot.edit_message_reply_markup(
+                chat_id=msg.chat.id,
+                message_id=msg.message_id,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows) if new_rows else None,
+            )
+
     # TODO
 
     spawn_once(f"refine:{content_id}", AnanBOTPool.sync_bid_product())

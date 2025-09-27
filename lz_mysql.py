@@ -424,3 +424,102 @@ class MySQLPool:
             return [{k: v for k, v in zip(cols, r)} for r in rows]
         finally:
             await cls.release(conn, cur)
+
+
+
+    @classmethod
+    async def get_collection_detail_with_cover(cls, collection_id: int, bot_name: str = "luzaitestbot") -> dict | None:
+        """
+        返回 user_collection 全字段 + cover 对应的 file_id（若有）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            SELECT uc.*, fe.file_id AS cover_file_id
+            FROM user_collection uc
+            LEFT JOIN file_extension fe
+              ON uc.cover_file_unique_id = fe.file_unique_id
+             AND fe.bot = %s
+            WHERE uc.id = %s
+            LIMIT 1
+            """
+            await cur.execute(sql, (bot_name, collection_id))
+            row = await cur.fetchone()
+            return dict(row) if row else None
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def list_collection_files_file_id(cls, collection_id: int, limit: int, offset: int) -> tuple[list[dict], bool]:
+        """
+        列出合集里文件的 file_id 列表（按 sort 排序）。
+        这里演示通过 sora_content.id = user_collection_file.content_id 来取 file_id。
+        若你的 file_id 存在别的表，请据实替换 JOIN。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 先取 limit+1 判断 has_next
+            sql = """
+            SELECT sc.content
+            FROM user_collection_file ucf
+            LEFT JOIN sora_content sc
+              ON sc.id = ucf.content_id
+            WHERE ucf.collection_id = %s
+            ORDER BY ucf.sort ASC
+            LIMIT %s OFFSET %s
+            """
+            await cur.execute(sql, (collection_id, limit, offset))
+            rows = await cur.fetchall()
+            items = [dict(r) for r in rows]
+            has_next = len(items) > 0 and len(items) == limit  # 外层调用已传入 limit=PAGE_SIZE+1
+            return items, has_next
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def is_collection_favorited(cls, user_id: int, collection_id: int) -> bool:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            SELECT 1 FROM user_collection_favorite
+            WHERE user_id = %s AND user_collection_id = %s
+            LIMIT 1
+            """
+            await cur.execute(sql, (user_id, collection_id))
+            row = await cur.fetchone()
+            return bool(row)
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def add_collection_favorite(cls, user_id: int, collection_id: int) -> bool:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            INSERT INTO user_collection_favorite (user_collection_id, user_id)
+            VALUES (%s, %s)
+            """
+            await cur.execute(sql, (collection_id, user_id))
+            return True
+        except Exception as e:
+            # 可能需要唯一约束避免重复；无唯一约束时重复插入会多条，这里简单忽略异常或加逻辑
+            print(f"⚠️ add_collection_favorite 失败: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def remove_collection_favorite(cls, user_id: int, collection_id: int) -> bool:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            DELETE FROM user_collection_favorite
+            WHERE user_id = %s AND user_collection_id = %s
+            """
+            await cur.execute(sql, (user_id, collection_id))
+            return True
+        except Exception as e:
+            print(f"⚠️ remove_collection_favorite 失败: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)

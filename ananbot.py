@@ -2514,6 +2514,11 @@ async def _rename_review_button_to_in_progress(callback_query: CallbackQuery, co
     changed = False
     new_rows: list[list[InlineKeyboardButton]] = []
 
+
+
+    
+
+
     for row in kb.inline_keyboard:
         new_row: list[InlineKeyboardButton] = []
         for btn in row:
@@ -2527,9 +2532,12 @@ async def _rename_review_button_to_in_progress(callback_query: CallbackQuery, co
                     changed = True
                 else:
                     new_row.append(btn)
+            elif getattr(btn, "callback_data", None) == f"reportfail:{content_id}":
+                pass
             else:
                 new_row.append(btn)
         new_rows.append(new_row)
+
 
     if changed:
         try:
@@ -2595,6 +2603,17 @@ async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMCont
         show_alert=True
     )
 
+
+
+def has_reportfail(m: InlineKeyboardMarkup | None) -> bool:
+    if not m or not m.inline_keyboard:
+        return False
+    for row in m.inline_keyboard:
+        for btn in row:
+            # 有些按钮可能是 url 按钮（没有 callback_data），做个防御
+            if getattr(btn, "callback_data", None) == target_cb:
+                return True
+    return False
 
 
 @dp.callback_query(F.data.startswith("review:"))
@@ -2703,15 +2722,6 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     target_cb = f"reportfail:{content_id}"
     markup = msg.reply_markup  # InlineKeyboardMarkup 或 None
 
-    def has_reportfail(m: InlineKeyboardMarkup | None) -> bool:
-        if not m or not m.inline_keyboard:
-            return False
-        for row in m.inline_keyboard:
-            for btn in row:
-                # 有些按钮可能是 url 按钮（没有 callback_data），做个防御
-                if getattr(btn, "callback_data", None) == target_cb:
-                    return True
-        return False
 
     # #先发资源
     if not file_id:
@@ -2749,21 +2759,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         # 3) 给用户弹窗提示
         return await callback_query.answer(f"👉 资源正在同步中，请1分钟后再试 \r\n\r\n(若一直无法同步，请点击🆖无法同步按钮)", show_alert=True)
     
-    else:
-        # 如果 file_id 已经有了，则检查并移除按钮
-        if has_reportfail(markup):
-            new_rows = []
-            for row in markup.inline_keyboard:
-                filtered_row = [
-                    btn for btn in row if getattr(btn, "callback_data", None) != target_cb
-                ]
-                if filtered_row:
-                    new_rows.append(filtered_row)
-            await bot.edit_message_reply_markup(
-                chat_id=msg.chat.id,
-                message_id=msg.message_id,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows) if new_rows else None,
-            )
+
 
     # TODO
 

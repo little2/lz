@@ -1878,6 +1878,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     spawn_once(f"_review_next_product:{content_id}",_review_next_product(state) )
 
+# 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
     ids = await AnanBOTPool.fetch_review_status_content_ids(2,1)
     if not ids:
@@ -2540,7 +2541,7 @@ async def _rename_review_button_to_in_progress(callback_query: CallbackQuery, co
 
 
 @dp.callback_query(F.data.startswith("reportfail:"))
-async def handle_review_button(callback_query: CallbackQuery, state: FSMContext):
+async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMContext):
     """
     群内有人点击“回报同步失效”按钮后，将对应 content_id 的商品卡片贴到当前群/话题
     """
@@ -2572,6 +2573,8 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         pass
 
     await AnanBOTPool.set_product_review_status(content_id, 11)  # 11 同步失败
+
+    spawn_once(f"_review_next_product:{content_id}",_review_next_product(state) )
 
     result_kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=f"🆖 同步失效", callback_data="a=nothing")]]

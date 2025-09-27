@@ -2605,7 +2605,8 @@ async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMCont
 
 
 
-def has_reportfail(m: InlineKeyboardMarkup | None) -> bool:
+def has_reportfail(m: InlineKeyboardMarkup | None, content_id: int) -> bool:
+    target_cb = f"reportfail:{content_id}"
     if not m or not m.inline_keyboard:
         return False
     for row in m.inline_keyboard:
@@ -2733,11 +2734,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         
         # 2) 检查并补上“🆖 回报同步失败”按钮
         try:
-          
-
-
-
-            if not has_reportfail(markup):
+            if not has_reportfail(markup,content_id):
                 new_rows = []
                 if markup and markup.inline_keyboard:
                     # 复制原有按钮，不破坏现有的“审核/机器人/…”布局

@@ -305,6 +305,9 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
 
 async def get_product_info(content_id: int):
     
+    # 统一初始化，避免未赋值
+    buttons: list[list[InlineKeyboardButton]] = []
+
     # 统一从工具函数取
     cached = get_cached_product(content_id)
     if cached is not None:
@@ -493,7 +496,8 @@ async def get_product_info(content_id: int):
         buttons = [[InlineKeyboardButton(text="通过审核,已上架", callback_data=f"none")]]
     elif review_status == 10:
         buttons = [[InlineKeyboardButton(text="资源已失效", callback_data=f"none")]]
-
+    elif review_status == 11:
+        buttons = [[InlineKeyboardButton(text="资源已失效(同步)", callback_data=f"none")]]
 
     return_url = product_review_url_cache.get(content_id)
     if return_url:

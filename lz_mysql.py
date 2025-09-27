@@ -523,3 +523,55 @@ class MySQLPool:
             return False
         finally:
             await cls.release(conn, cur)
+
+
+    @classmethod
+    async def upsert_news_content(cls, tpl_data: dict) -> dict:
+        """
+        插入或更新 news_content。
+        - tpl_data 应包含至少: title, text, file_type, button_str,
+          bot_name, business_type, content_id, thumb_file_unique_id
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+                INSERT INTO news_content
+                    (title, text, file_type, button_str,
+                     created_at, bot_name, business_type, content_id, thumb_file_unique_id)
+                VALUES
+                    (%s, %s, %s, %s,
+                     NOW(), %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    title = VALUES(title),
+                    text = VALUES(text),
+                    file_type = VALUES(file_type),
+                    button_str = VALUES(button_str),
+                    created_at = NOW(),
+                    business_type = VALUES(business_type),
+                    thumb_file_unique_id = VALUES(thumb_file_unique_id)
+            """
+            params = (
+                tpl_data.get("title"),
+                tpl_data.get("text"),
+                tpl_data.get("file_type"),
+                tpl_data.get("button_str"),
+                tpl_data.get("bot_name", "salai"),
+                tpl_data.get("business_type"),
+                tpl_data.get("content_id"),
+                tpl_data.get("thumb_file_unique_id"),
+            )
+            await cur.execute(sql, params)
+            await conn.commit()
+
+            return {"ok": "1", "status": "upserted", "content_id": tpl_data.get("content_id")}
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            print(f"⚠️ upsert_news_content 出错: {e}", flush=True)
+            return {"ok": "", "status": "error", "error": str(e)}
+        finally:
+            await cls.release(conn, cur)
+
+    

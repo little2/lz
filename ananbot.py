@@ -74,7 +74,7 @@ REPORT_TYPES: dict[int, str] = {
     90: "其他",
 }
 
-INPUT_TIMEOUT = 180
+INPUT_TIMEOUT = 300
 
 COLLECTION_PROMPT_DELAY = 2
 TAG_REFRESH_DELAY = 0.7
@@ -1884,7 +1884,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
 # 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
-    ids = await AnanBOTPool.fetch_review_status_content_ids(2,1)
+    ids = await AnanBOTPool.fetch_review_status_content_ids(2,2)
     if not ids:
        return
     for content_id in ids:
@@ -3695,10 +3695,7 @@ async def clear_removetag_timeout(state: FSMContext, chat_id: int):
 
 @dp.message(F.chat.type == "private", F.text)
 async def handle_text(message: Message):
-    await message.answer("hi")
-
-
-
+    await message.answer("哥哥，我在呢，输入视频参数或描述，会有时间限制，时间过了，请哥哥记得再一次点击按钮，再输入")
 
 @dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO}))
 async def handle_media(message: Message, state: FSMContext):

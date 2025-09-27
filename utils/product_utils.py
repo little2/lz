@@ -38,6 +38,8 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     content = None
     kb = None
 
+
+
     try:
         
         # print(f"tpl_data: {tpl_data}", flush=True)
@@ -76,6 +78,23 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     except Exception as e:
         print(f"❌ 发送资源失败1: {e}", flush=True)
 
+    await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+    try:
+        print(f"准备发送到推播频道 {tpl_data}", flush=True)
+        fee = tpl_data.get("fee", 60)
+
+        tpl_data["text"] = content
+        tpl_data["button_str"] = f"💎 兑换 ( {fee} ) - https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
+        tpl_data["bot_name"] = 'luzai06bot'
+        tpl_data["business_type"] = 'salai'
+        tpl_data["content_id"] = tpl_data.get("id")
+        r = await MySQLPool.upsert_news_content(tpl_data)
+        print(f"✅ 发送到推播频道 {r}", flush=True)
+    except Exception as e:
+        print(f"❌ 发送资源失败0: {e}", flush=True)
+    finally:
+        await MySQLPool.close()
+
 
     try:
         # 发送到资源频道
@@ -97,7 +116,10 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     except Exception as e:
         print(f"❌ 发送资源失败2: {e}", flush=True)
     
-   
+
+    
+
+    
         
         
 

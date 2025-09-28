@@ -826,7 +826,9 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
     chat_id = callback_query.message.chat.id
     message_id = callback_query.message.message_id
     content_list = await get_list(content_id)  # 获取合集列表，更新状态
-    caption_text = f"{content_list}\n\n📥 请直接传送资源"
+    caption_text = f"{content_list}\n\n⚠️ 注意\r\n📂 文件夹 ( Folder ) 是一个最小完整单位，里面的文件必须成组存在，不能拆开。\r\n\r\n常见场景：\r\n(1)压缩包分卷 + 预览图 : <i>例如 许昌棋社.zip ,许昌棋社.z01 , 许昌棋社.z02</i>\r\n(2)同一场次的拍摄内容（套图/视频）<i>例如: IMG_0001.JPG , IMG_0002.JPG, IMG_0003.MOV , 这三个文档都是 06/19 日九哥和红领巾激战拍摄的视频及照片</i>\r\n\r\n 如果你要整理跨场次、相同主题的作品，请使用 📚 合集 (Collection)。\r\n\r\n📥 请直接传送资源"
+
+   
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📤添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]

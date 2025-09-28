@@ -1886,7 +1886,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
 # 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
-    ids = await AnanBOTPool.fetch_review_status_content_ids(2,2)
+    ids = await AnanBOTPool.fetch_review_status_content_ids(2,1)
     if not ids:
        return
     for content_id in ids:

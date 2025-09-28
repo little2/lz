@@ -1494,11 +1494,11 @@ class AnanBOTPool(LYBase):
             # 1) 抓取最多 10 笔候选
             await cur.execute("""
                 SELECT b.file_unique_id,
-                    COALESCE(b.type, '')      AS file_type,
-                    s.id                       AS content_id
+                    COALESCE(b.type, '') AS file_type,
+                    s.id AS content_id
                 FROM bid b
                 LEFT JOIN sora_content s ON b.file_unique_id = s.source_id
-                WHERE b.content_id IS NULL
+                WHERE b.content_id IS NULL AND CHAR_LENGTH(s.content) > 30
                 AND b.file_unique_id IS NOT NULL
                 AND s.id IS NOT NULL
                 LIMIT 10

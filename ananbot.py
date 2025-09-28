@@ -1778,7 +1778,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
    
     
-    reviewer = callback_query.from_user.username or callback_query.from_user.full_name
+    reviewer =  callback_query.from_user.full_name or callback_query.from_user.username
 
 
     # === 先尝试从当前卡片上找到『🔙 返回审核』的 URL，并解析出 chat/thread/message ===
@@ -1865,7 +1865,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         await callback_query.answer("❌ 已拒绝审核，审核人 +3 活跃值", show_alert=True)
         
 
-
+    extra_info = f"<code>{product_info.get('id','')}</code> #<code>{product_info.get('source_id','')}</code>"
 
     if review_status == 6:
         spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
@@ -1880,7 +1880,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     spawn_once(f"update_today_contribute:{content_id}", AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3))
      # 处理审核区的按钮  
     # await _reset_review_zone_button(button_str,ret_chat,ret_msg) 
-    spawn_once(f"_reset_review_zone_button:{content_id}", _reset_review_zone_button(button_str,ret_chat,ret_msg) )
+    spawn_once(f"_reset_review_zone_button:{content_id}", _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info) )
 
     spawn_once(f"_review_next_product:{content_id}",_review_next_product(state) )
 
@@ -1930,7 +1930,7 @@ async def _reset_review_bot_button(callback_query: CallbackQuery,content_id:int,
         except Exception:
             pass
 
-async def _reset_review_zone_button(button_str,ret_chat,ret_msg):
+async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
     # # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
     try:
        
@@ -1940,12 +1940,20 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg):
 
         # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
         if ret_chat is not None and ret_msg is not None:
-            # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
-            await bot.edit_message_reply_markup(
-                chat_id=ret_chat,
-                message_id=ret_msg,
-                reply_markup=result_kb
-            )
+
+            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=REVIEW_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
+
+
+            # # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
+            # await bot.edit_message_reply_markup(
+            #     chat_id=ret_chat,
+            #     message_id=ret_msg,
+            #     reply_markup=result_kb
+            # )
+
+            await bot.delete_message(chat_id=ret_chat, message_id=ret_msg)
+
+           
             
             print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
 
@@ -2473,6 +2481,8 @@ async def send_to_review_group(content_id: int, state: FSMContext):
     spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
 
     # [InlineKeyboardButton(text="🆖 回报同步失败", callback_data=f"reportfail:{content_id}")]
+
+    preview_text = f"{preview_text} #未审核"
 
     try:
         await bot.send_message(

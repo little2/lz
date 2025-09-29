@@ -1941,8 +1941,7 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
         # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
         if ret_chat is not None and ret_msg is not None:
 
-            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
-
+            
 
             # # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
             # await bot.edit_message_reply_markup(
@@ -1952,6 +1951,8 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
             # )
 
             await bot.delete_message(chat_id=ret_chat, message_id=ret_msg)
+
+            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
 
            
             

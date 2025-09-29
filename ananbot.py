@@ -26,7 +26,7 @@ import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media
-from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN
+from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN
 import lz_var
 from lz_config import AES_KEY
 
@@ -1941,7 +1941,7 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
         # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
         if ret_chat is not None and ret_msg is not None:
 
-            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=REVIEW_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
+            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
 
 
             # # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
@@ -2588,11 +2588,11 @@ async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMCont
     if product_info.get("review_status") in (2,4):
         guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
         if not guild_row:
-            return await callback_query.answer(f"⚠️ 这个资源正在审核状态(需要撸馆社团干部权限才能审核)", show_alert=True)
+            return await callback_query.answer(f"⚠️ 需要撸馆社团干部权限才能审核", show_alert=True)
     elif product_info.get("review_status") in (3, 5):
         guild_row = await AnanBOTPool.check_guild_role(user_id,'owner')
         if not guild_row:
-            return await callback_query.answer(f"⚠️ 这个资源正在上架中(需要撸馆社长权限才能审核)", show_alert=True)
+            return await callback_query.answer(f"⚠️ 需要撸馆社长权限才能审核", show_alert=True)
     else:
         pass
 
@@ -2604,10 +2604,16 @@ async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMCont
         inline_keyboard=[[InlineKeyboardButton(text=f"🆖 同步失效", callback_data="a=nothing")]]
     )
                 
-    await bot.edit_message_reply_markup(
-        chat_id=callback_query.message.chat.id,
-        message_id=callback_query.message.message_id,
-        reply_markup=result_kb
+    # await bot.edit_message_reply_markup(
+    #     chat_id=callback_query.message.chat.id,
+    #     message_id=callback_query.message.message_id,
+    #     reply_markup=result_kb
+    # )
+
+    await bot.delete_message(chat_id=callback_query.message.chat.id, message_id=callback_query.message.message_id)
+
+    await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,
+        text=f"🆖 资源同步失效 {content_id}，已更新状态同步失效", parse_mode="HTML"
     )
 
     return await callback_query.answer(

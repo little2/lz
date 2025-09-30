@@ -354,7 +354,6 @@ class DB:
             )
             return row["id"] if row else None
 
-
     async def get_keyword_by_id(self, keyword_id: int) -> str | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -368,5 +367,80 @@ class DB:
             if row:
                 return row["keyword"]
             return None
+
+
+    async def get_latest_membership_expire(self, user_id: str | int) -> int | None:
+        """
+        查询 membership 表中该 user_id 的最新有效期（expire_timestamp 最大值）。
+        返回值:
+          - int (UNIX 时间戳, 秒)
+          - None (未找到记录)
+        """
+        await self._ensure_pool()
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT expire_timestamp
+                FROM membership
+                WHERE user_id = $1
+                ORDER BY expire_timestamp DESC NULLS LAST
+                LIMIT 1
+                """,
+                str(user_id)  # membership.user_id 是 varchar
+            )
+            if row and row["expire_timestamp"] is not None:
+                return int(row["expire_timestamp"])
+            return None
+
+    
+    async def upsert_membership_bulk(self, rows: list[dict]) -> dict:
+        """
+        批量把 MySQL 的 membership 行同步到 PostgreSQL。
+        冲突键： (membership_id)  ← 只按 membership_id 冲突
+        更新策略：
+          - course_code, user_id     ← 以 MySQL 行为准（EXCLUDED）
+          - create_timestamp         ← 取 LEAST(现有, 新值)
+          - expire_timestamp         ← 取 GREATEST(现有, 新值)
+
+        注意：你的表里仍有 unique_course_user 约束，
+        如果同一用户同一课程存在多条不同 membership_id 的历史记录，
+        可能会触发唯一冲突。通常建议你保证一人一课唯一一条记录；
+        若确需多条，请考虑移除或改造该唯一索引。
+        """
+        if not rows:
+            return {"ok": "1", "count": 0}
+
+        await self._ensure_pool()
+        sql = """
+        INSERT INTO membership (membership_id, course_code, user_id, create_timestamp, expire_timestamp)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (membership_id)
+        DO UPDATE SET
+            course_code      = EXCLUDED.course_code,
+            user_id          = EXCLUDED.user_id,
+            create_timestamp = LEAST(membership.create_timestamp, EXCLUDED.create_timestamp),
+            expire_timestamp = GREATEST(membership.expire_timestamp, EXCLUDED.expire_timestamp)
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.executemany(
+                        sql,
+                        [
+                            (
+                                int(r["membership_id"]),
+                                str(r["course_code"]),
+                                str(r["user_id"]),
+                                int(r["create_timestamp"]),
+                                int(r["expire_timestamp"]),
+                            )
+                            for r in rows
+                        ],
+                    )
+            return {"ok": "1", "count": len(rows)}
+        except Exception as e:
+            return {"ok": "", "error": str(e)}
+
+
 
 db = DB()

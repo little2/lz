@@ -14,7 +14,7 @@ from utils.unit_converter import UnitConverter
 from utils.aes_crypto import AESCrypto
 from utils.media_utils import Media
 
-
+from datetime import datetime, timezone, timedelta
 
 import asyncio
 
@@ -1129,6 +1129,81 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     
     # 若有,则回覆消息
     from_user_id = callback.from_user.id
+
+    # ===== 小懒觉会员判断（SQL 已移至 lz_db.py）=====
+    def _fmt_ts(ts: int | None) -> str:
+        if not ts:
+            return "未开通"
+        tz = timezone(timedelta(hours=8))  # Asia/Singapore/UTC+8
+        try:
+            return datetime.fromtimestamp(int(ts), tz).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(ts)
+
+    expire_ts = await db.get_latest_membership_expire(from_user_id)
+    now_utc = int(datetime.now(timezone.utc).timestamp())
+
+    if not expire_ts:
+        # 未开通/找不到记录 → 用原价，提示并给两个按钮，直接返回
+        human_ts = _fmt_ts(None)
+        text = (
+            f"你目前不是小懒觉会员，或是会员已过期。将以原价 {fee} 兑换此资源\r\n\r\n"
+            f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="更新小懒觉会员期", callback_data="xlj:update")],
+            [InlineKeyboardButton(
+                text="兑换小懒觉会员 ( 💎 800 )",
+                url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
+            )],
+        ])
+        await callback.message.reply(text, reply_markup=kb)
+        
+
+    elif int(expire_ts) < now_utc:
+        # 已开通但过期 → 用原价，提示并给两个按钮，直接返回
+        human_ts = _fmt_ts(expire_ts)
+        text = (
+            "你的小懒觉会员过期或未更新会员限期(会有时间差)。\r\n\r\n"
+            f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="更新小懒觉会员期", callback_data="xlj:update")],
+            [InlineKeyboardButton(
+                text="兑换小懒觉会员 ( 💎 800 )",
+                url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
+            )],
+        ])
+        await callback.message.reply(text, reply_markup=kb)
+    
+    elif int(expire_ts) >= now_utc:
+        fee = 10
+        try:
+            await callback.answer(
+                f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个视频只要 {fee} 积分。\r\n\r\n"
+                f"目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}",
+                show_alert=True
+            )
+        except Exception:
+            pass
+    # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
+    
+
+    # 统一在会员判断之后再计算费用
+    sender_fee = int(fee) * (-1)
+    receiver_fee = int(fee) * (0.4)
+
+    result = await MySQLPool.transaction_log({
+        'sender_id': from_user_id,
+        'receiver_id': owner_user_id or 0,
+        'transaction_type': 'confirm_buy',
+        'transaction_description': source_id,
+        'sender_fee': sender_fee,
+        'receiver_fee': receiver_fee
+    })
+
+
+
     sender_fee = int(fee) * (-1)  # ✅ 发送者手续费
     receiver_fee = int(fee) * (0.4)
     result = await MySQLPool.transaction_log({
@@ -1219,6 +1294,55 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         # await callback.message.reply(reply_text, parse_mode="HTML")
         return
         
+
+@router.callback_query(F.data == "xlj:update")
+async def handle_update_xlj(callback: CallbackQuery, state: FSMContext):
+    """
+    同步当前用户在 MySQL 的 xlj 会员记录到 PostgreSQL：
+      1) MySQL: membership where course_code='xlj' AND user_id=? AND expire_timestamp > now
+      2) 写入 PG：ON CONFLICT (membership_id) UPSERT
+    """
+    user_id = callback.from_user.id
+    tz = timezone(timedelta(hours=8))
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    now_human = datetime.fromtimestamp(now_ts, tz).strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1) 从 MySQL 取数据（仅在 lz_mysql.py 内使用 MySQLPool）
+    try:
+        rows = await MySQLPool.fetch_valid_xlj_memberships()
+    except Exception as e:
+        await callback.answer(f"同步碰到问题，请稍后再试 [错误代码 1314 ]", show_alert=True)
+        print(f"Error1314:{e}")
+        return
+
+    if not rows:
+        print(
+            f"目前在 MySQL 没有可同步的有效『小懒觉会员』记录（xlj）。\n"
+            f"当前时间：{now_human}\n\n"
+            f"如已完成兑换，请稍候片刻再尝试更新。"
+        )
+        return
+
+    # 2) 批量写入 PG（仅按 membership_id 冲突）
+    sync_ret = await db.upsert_membership_bulk(rows)
+    if not sync_ret.get("ok"):
+        await callback.answer(f"同步数据库碰到问题，请稍后再试 [错误代码 1329 ]", show_alert=True)
+        print(f"Error1329:写入 PostgreSQL 失败：{sync_ret.get('error')}")
+        return 
+
+    # 3) 只取当前用户的最大 expire_timestamp
+    user_rows = [r for r in rows if str(r.get("user_id")) == str(user_id)]
+    if not user_rows:
+        await callback.message.reply("✅ 已同步，但你目前没有有效的小懒觉会员记录。")
+        return
+
+    max_expire = max(int(r["expire_timestamp"]) for r in user_rows if r.get("expire_timestamp"))
+    human_expire = datetime.fromtimestamp(max_expire, tz).strftime("%Y-%m-%d %H:%M:%S")
+
+    await callback.message.reply(
+        f"✅ 会员信息已更新。\n"
+        f"你的小懒觉会员有效期截至：{human_expire}"
+    )
 
    
 

@@ -575,3 +575,42 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     
+    @classmethod
+    async def fetch_valid_xlj_memberships(cls, user_id: int | str = None) -> list[dict]:
+        """
+        查询 MySQL membership 表，条件：
+          - course_code = 'xlj'
+          - expire_timestamp > 当前时间
+          - 若传入 user_id，则限定 user_id；否则查所有用户
+        返回: list[dict]
+        """
+        now_ts = int(time.time())
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            if user_id is not None:
+                sql = """
+                    SELECT membership_id, course_code, user_id, create_timestamp, expire_timestamp
+                    FROM membership
+                    WHERE course_code = %s
+                      AND user_id = %s
+                      AND expire_timestamp > %s
+                    ORDER BY expire_timestamp DESC
+                """
+                await cur.execute(sql, ("xlj", str(user_id), now_ts))
+            else:
+                sql = """
+                    SELECT membership_id, course_code, user_id, create_timestamp, expire_timestamp
+                    FROM membership
+                    WHERE course_code = %s
+                      AND expire_timestamp > %s
+                    ORDER BY expire_timestamp DESC
+                """
+                await cur.execute(sql, ("xlj", now_ts))
+
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ fetch_valid_xlj_memberships 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)

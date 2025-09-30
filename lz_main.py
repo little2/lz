@@ -45,11 +45,11 @@ class LzFSM(StatesGroup):
 
 
 if SESSION_STRING:
-    # print("【Telethon】使用 StringSession 登录。",flush=True)
+    print("【Telethon】使用 StringSession 登录。",flush=True)
     user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
     
 else:
-    # print("【Telethon】使用 USER_SESSION 登录。",flush=True)
+    print("【Telethon】使用 USER_SESSION 登录。",flush=True)
     user_client = TelegramClient(USER_SESSION, API_ID, API_HASH)
 
 lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引用

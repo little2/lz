@@ -835,7 +835,7 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
     ])
 
     try:
-        await callback_query.message.edit_caption(caption=caption_text, reply_markup=keyboard)
+        await callback_query.message.edit_caption(caption=caption_text, reply_markup=keyboard, parse_mode="HTML")
     except Exception as e:
         print(f"⚠️ 编辑添加资源 caption 失败: {e}", flush=True)
 

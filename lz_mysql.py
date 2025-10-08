@@ -12,6 +12,7 @@ class MySQLPool:
     @classmethod
     async def init_pool(cls):
         if cls._pool is None:
+
             cls._pool = await aiomysql.create_pool(
                 host=MYSQL_HOST,
                 user=MYSQL_USER,
@@ -20,9 +21,10 @@ class MySQLPool:
                 port=MYSQL_DB_PORT,
                 charset="utf8mb4",
                 autocommit=True,
-                minsize=1,
-                maxsize=5, 
-                pool_recycle=3600
+                minsize=2,
+                maxsize=32,       # 建议调高到 32 并配合并发限制
+                pool_recycle=1800,  # 每半小时自动重连
+                connect_timeout=10,
             )
             print("✅ MySQL 连接池初始化完成")
 
@@ -460,7 +462,7 @@ class MySQLPool:
         try:
             # 先取 limit+1 判断 has_next
             sql = """
-            SELECT sc.content
+            SELECT sc.content,sc.id,sc.file_type 
             FROM user_collection_file ucf
             LEFT JOIN sora_content sc
               ON sc.id = ucf.content_id
@@ -614,3 +616,178 @@ class MySQLPool:
             return []
         finally:
             await cls.release(conn, cur)
+
+
+
+    @classmethod
+    async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
+        """
+        返回 (合集数量, 第一条合集ID或None)。
+        只查一次：LIMIT 2 即可区分 0/1/多，并顺便拿到第一条ID。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            SELECT id
+            FROM user_collection
+            WHERE user_id = %s
+            ORDER BY id ASC
+            LIMIT 2
+            """
+            await cur.execute(sql, (user_id,))
+            rows = await cur.fetchall()
+            cnt = len(rows)
+            first_id = rows[0]["id"] if cnt >= 1 else None
+            return cnt, first_id
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def create_default_collection(cls, user_id: int, title: str = "未命名合集") -> int | None:
+        """
+        创建默认合集并返回新建ID；失败返回 None。
+        首选 lastrowid；极少数情况下取不到时，兜底再查一次。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            insert_sql = """
+            INSERT INTO user_collection (user_id, title, is_public)
+            VALUES (%s, %s, 1)
+            """
+            await cur.execute(insert_sql, (user_id, title))
+            await conn.commit()
+            new_id = cur.lastrowid
+            if new_id:
+                return int(new_id)
+
+            # 兜底：再查最新一条
+            await cur.execute(
+                "SELECT id FROM user_collection WHERE user_id=%s ORDER BY id DESC LIMIT 1",
+                (user_id,)
+            )
+            row = await cur.fetchone()
+            return int(row["id"]) if row else None
+        except Exception as e:
+            print(f"❌ create_default_collection error: {e}", flush=True)
+            return None
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
+        """
+        把 content_id 加入某个合集。已存在则不报错（联合主键去重）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            INSERT INTO user_collection_file (collection_id, content_id, sort)
+            VALUES (%s, %s, 0)
+            ON DUPLICATE KEY UPDATE sort = VALUES(sort)
+            """
+            # content_id 列是 varchar(100)，统一转成字符串
+            await cur.execute(sql, (int(collection_id), str(content_id)))
+            await conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ add_content_to_user_collection error: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def remove_content_from_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
+        """
+        把 content_id 移出
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            DELETE FROM user_collection_file WHERE collection_id = %s AND content_id = %s
+            """
+            # content_id 列是 varchar(100)，统一转成字符串
+            await cur.execute(sql, (int(collection_id), str(content_id)))
+            await conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ remove_content_from_user_collection error: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
+        """
+        返回 (合集数量, 第一条合集ID或None)。
+        只查一次：LIMIT 2 即可区分 0/1/多，并顺便拿到第一条ID。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            SELECT id
+            FROM user_collection
+            WHERE user_id = %s
+            ORDER BY id ASC
+            LIMIT 2
+            """
+            await cur.execute(sql, (user_id,))
+            rows = await cur.fetchall()
+            cnt = len(rows)
+            first_id = rows[0]["id"] if cnt >= 1 else None
+            return cnt, first_id
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def create_default_collection(cls, user_id: int, title: str = "未命名合集") -> int | None:
+        """
+        创建默认合集并返回新建ID；失败返回 None。
+        首选 lastrowid；极少数情况下取不到时，兜底再查一次。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            insert_sql = """
+            INSERT INTO user_collection (user_id, title, is_public)
+            VALUES (%s, %s, 1)
+            """
+            await cur.execute(insert_sql, (user_id, title))
+            await conn.commit()
+            new_id = cur.lastrowid
+            if new_id:
+                return int(new_id)
+
+            # 兜底：再查最新一条
+            await cur.execute(
+                "SELECT id FROM user_collection WHERE user_id=%s ORDER BY id DESC LIMIT 1",
+                (user_id,)
+            )
+            row = await cur.fetchone()
+            return int(row["id"]) if row else None
+        except Exception as e:
+            print(f"❌ create_default_collection error: {e}", flush=True)
+            return None
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
+        """
+        把 content_id 加入某个合集。已存在则不报错（联合主键去重）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            INSERT INTO user_collection_file (collection_id, content_id, sort)
+            VALUES (%s, %s, 0)
+            ON DUPLICATE KEY UPDATE sort = VALUES(sort)
+            """
+            # content_id 列是 varchar(100)，统一转成字符串
+            await cur.execute(sql, (int(collection_id), str(content_id)))
+            await conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ add_content_to_user_collection error: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+

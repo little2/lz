@@ -1835,7 +1835,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     except (TypeError, ValueError):
         user_point = 0
 
-
+    print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
 
     if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
 
@@ -1843,6 +1843,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             reply_text = f"✅ 你已经兑换过此资源，不需要扣除积分"
             if user_point > 0:
                 reply_text += f"，当前积分余额: {user_point}。"
+
+            print(f"💬 回复内容: {reply_text}", flush=True)
         elif result.get('status') == 'insert':
             
             reply_text = f"✅ 兑换成功，已扣除 {sender_fee} 积分"
@@ -2209,7 +2211,10 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         file_id = record.get('file_id', '')
         thumb_file_unique_id = record.get('thumb_file_unique_id', '')
         thumb_file_id = record.get('thumb_file_id', '')
-        product_type = record.get('product_type', file_type)  # free, paid, vip
+        product_type = record.get('product_type')  # free, paid, vip
+        if product_type is None:
+            product_type = file_type  # 默认付费
+    
         purchase_condition = record.get('purchase_condition', '')  
         # print(f"{record}")
 

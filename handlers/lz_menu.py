@@ -1806,7 +1806,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
     # 统一在会员判断之后再计算费用
     sender_fee = int(fee) * (-1)
-    receiver_fee = int(fee) * (0.4)
+    receiver_fee = int(int(fee) * (0.4))
 
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,

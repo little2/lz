@@ -2694,19 +2694,24 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         if not guild_row:
             return await callback_query.answer(f"⚠️ 这个资源正在上架中(需要撸馆社长权限才能审核)", show_alert=True)
     else:
-        # result_kb = InlineKeyboardMarkup(
-        #     inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]
-        # )
+        result_kb = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]
+        )
 
 
                     
-        # await bot.edit_message_reply_markup(
-        #     chat_id=callback_query.message.chat.id,
-        #     message_id=callback_query.message.message_id,
-        #     reply_markup=result_kb
-        # )
+        await bot.edit_message_reply_markup(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id,
+            reply_markup=result_kb
+        )
 
-        await callback_query.message.delete()
+        await bot.delete_message(
+            chat_id=callback_query.message.chat.id,
+            message_id=callback_query.message.message_id
+        )
+
+        
 
         return await callback_query.answer(
             f"⚠️ 这个资源已经不是审核的状态 {product_info.get('review_status')}",

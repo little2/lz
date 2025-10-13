@@ -3,7 +3,7 @@ from datetime import datetime
 import asyncio
 import time
 from typing import Optional, Coroutine, Tuple
-
+import re
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message,
@@ -71,6 +71,7 @@ REPORT_TYPES: dict[int, str] = {
     31: "无解密密码",
     32: "密码错误",
     33: "分包",
+    41: "不是正太片",
     90: "其他",
 }
 
@@ -1797,10 +1798,17 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     product_row = await get_product_info(content_id)
     product_info = product_row.get("product_info") or {}
     print(f"🔍 product_info = {product_info}", flush=True)
+
+
+
+
+
     check_result,check_error_message =  await _check_product_policy(product_row)
     if check_result is not True:
         return await callback_query.answer(check_error_message, show_alert=True)
     
+
+
     # 1) 更新 bid_status=1
     try:
         if review_status == 2:
@@ -1868,10 +1876,15 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     extra_info = f"<code>{product_info.get('id','')}</code> #<code>{product_info.get('source_id','')}</code>"
 
     if review_status == 6:
-        spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
-        # ⬇️ 改为后台执行，不阻塞当前回调
-        spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
-        # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
+        # 如果callback_query.message.caption 包含 "户外拍摄"或"不是正太片"，则打印相关信息
+        if caption := getattr(callback_query.message, "caption", ""):
+            if re.search(r"(#不是正太片|#爆菊)", caption):
+                await callback_query.answer("这不是正太片，审核结束后，将不再上架\r\n\r\n🎈如果有你觉得审核后不该再上架的资源，请在讨论区说明", show_alert=True)
+            else:
+                spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))
+                # ⬇️ 改为后台执行，不阻塞当前回调
+                spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
+                # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
 
         # await _send_to_topic(content_id)
     # await _reset_review_bot_button(callback_query,content_id,button_str)
@@ -2681,15 +2694,20 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
         if not guild_row:
             return await callback_query.answer(f"⚠️ 这个资源正在上架中(需要撸馆社长权限才能审核)", show_alert=True)
     else:
-        result_kb = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]
-        )
+        # result_kb = InlineKeyboardMarkup(
+        #     inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]
+        # )
+
+
                     
-        await bot.edit_message_reply_markup(
-            chat_id=callback_query.message.chat.id,
-            message_id=callback_query.message.message_id,
-            reply_markup=result_kb
-        )
+        # await bot.edit_message_reply_markup(
+        #     chat_id=callback_query.message.chat.id,
+        #     message_id=callback_query.message.message_id,
+        #     reply_markup=result_kb
+        # )
+
+        await callback_query.message.delete()
+
         return await callback_query.answer(
             f"⚠️ 这个资源已经不是审核的状态 {product_info.get('review_status')}",
             show_alert=True

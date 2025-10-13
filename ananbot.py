@@ -2698,25 +2698,34 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
             inline_keyboard=[[InlineKeyboardButton(text=f"✅ Checked", callback_data="a=nothing")]]
         )
 
-
+        print(f"{content_id} 状态异常 {product_info.get('review_status')}", flush=True)
                     
-        await bot.edit_message_reply_markup(
+        ret1=await bot.edit_message_reply_markup(
             chat_id=callback_query.message.chat.id,
             message_id=callback_query.message.message_id,
             reply_markup=result_kb
         )
 
-        await bot.delete_message(
+        print(f"{ret1}", flush=True)
+       
+
+        await callback_query.answer(
+            f"⚠️ 这个资源已经不是审核的状态 {product_info.get('review_status')}",
+            show_alert=True
+        )
+
+
+        ret2= await bot.delete_message(
             chat_id=callback_query.message.chat.id,
             message_id=callback_query.message.message_id
         )
 
+        print(f"{ret2}", flush=True)
+
+        return
         
 
-        return await callback_query.answer(
-            f"⚠️ 这个资源已经不是审核的状态 {product_info.get('review_status')}",
-            show_alert=True
-        )
+
 
     
     # 群/话题定位：沿用当前消息所在的 chat & thread（若存在）

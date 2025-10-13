@@ -1878,7 +1878,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     if review_status == 6:
         # 如果callback_query.message.caption 包含 "户外拍摄"或"不是正太片"，则打印相关信息
         if caption := getattr(callback_query.message, "caption", ""):
-            if re.search(r"(#不是正太片|#爆菊)", caption):
+            if re.search(r"(#不是正太片|#不是正太片爆菊)", caption):
                 await callback_query.answer("这不是正太片，审核结束后，将不再上架\r\n\r\n🎈如果有你觉得审核后不该再上架的资源，请在讨论区说明", show_alert=True)
             else:
                 spawn_once(f"_send_to_topic:{content_id}", _send_to_topic(content_id))

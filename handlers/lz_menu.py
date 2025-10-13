@@ -1523,8 +1523,11 @@ async def _get_clti_list(cid,page,user_id,mode):
         elif mode == 'flist':
             fix_href = ''
             stag = "cf"
+        lines.append(
+            f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{cid}_{encoded}'>{f.get('id')} {content}</a> {fix_href}"
+        )
 
-        lines.append(f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{cid}_{encoded}'>{f.get("id")} {content}</a> {fix_href}")
+        # lines.append(f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{cid}_{encoded}'>{f.get("id")} {content}</a> {fix_href}")
     caption = "\n".join(lines)
 
 

@@ -503,12 +503,12 @@ class AnanBOTPool(LYBase):
 
 
     @classmethod
-    async def insert_collection_item(cls, content_id: int, member_content_id: int, file_unique_id: str, file_type: str, position: int = 0):
+    async def insert_album_item(cls, content_id: int, member_content_id: int, file_unique_id: str, file_type: str, position: int = 0):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
                 """
-                INSERT IGNORE INTO collection_items (
+                INSERT IGNORE INTO album_items (
                     content_id, member_content_id, file_unique_id, file_type, position, created_at
                 )
                 VALUES (%s, %s, %s, %s, %s, NOW())
@@ -519,11 +519,11 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
     @classmethod
-    async def get_collect_list(cls, content_id: int, bot_name: str):
+    async def get_album_list(cls, content_id: int, bot_name: str):
         sql = """
             SELECT s.source_id, c.file_type, s.content, s.file_size, s.duration,
                    m.source_bot_name, m.thumb_file_id, m.file_id
-            FROM collection_items c
+            FROM album_items c
             LEFT JOIN sora_content s ON c.member_content_id = s.id
             LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
             WHERE c.content_id = %s

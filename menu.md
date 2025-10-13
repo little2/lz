@@ -58,6 +58,13 @@
     [kb] _build_clt_edit_keyboard
 //cc:description
 
+[1-2-3]
+    [data] clti:add
+    [handle] handle_clti_add
+    [kb] 
+    _get_clti_list
+    _clti_list_keyboard
+
 # 合集 Partal > 合集列表 CollectionList > [单一合集页 clt:info] > 显示合集内容 CollectItemList 或 编辑合集 CollectionEdit
 [1-3] 合集 - 收藏合集 - 指定的合集
 [data] clt:fav [单一合集页 ]

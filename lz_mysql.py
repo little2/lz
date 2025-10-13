@@ -617,7 +617,10 @@ class MySQLPool:
         finally:
             await cls.release(conn, cur)
 
-
+    ''''
+    Collection 内容管理相关方法
+    '''
+ 
 
     @classmethod
     async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
@@ -639,6 +642,31 @@ class MySQLPool:
             cnt = len(rows)
             first_id = rows[0]["id"] if cnt >= 1 else None
             return cnt, first_id
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def get_clt_files_by_clt_id(cls, collection_id: int) -> list[dict]:
+        """
+        查询某个合集的所有文件
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # id, source_id, file_type, content
+            sql = """
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM user_collection_file ucf
+            LEFT JOIN sora_content sc ON ucf.content_id = sc.id
+            WHERE ucf.collection_id = %s
+            ORDER BY ucf.sort ASC
+            """
+            await cur.execute(sql, (collection_id,))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ get_clt_files_by_clt_id 出错: {e}", flush=True)
+            return []
         finally:
             await cls.release(conn, cur)
 
@@ -716,78 +744,76 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
-    async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
+    async def search_history_upload(cls, user_id: int) -> list[dict]:
         """
-        返回 (合集数量, 第一条合集ID或None)。
-        只查一次：LIMIT 2 即可区分 0/1/多，并顺便拿到第一条ID。
+        查询某个用户的所有上传历史
         """
         conn, cur = await cls.get_conn_cursor()
         try:
+            # id, source_id, file_type, content
             sql = """
-            SELECT id
-            FROM user_collection
-            WHERE user_id = %s
-            ORDER BY id ASC
-            LIMIT 2
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM product p
+            LEFT JOIN sora_content sc ON p.content_id = sc.id
+            WHERE p.owner_user_id = %s
+            ORDER BY sc.id ASC
             """
             await cur.execute(sql, (user_id,))
             rows = await cur.fetchall()
-            cnt = len(rows)
-            first_id = rows[0]["id"] if cnt >= 1 else None
-            return cnt, first_id
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ search_history_upload 出错: {e}", flush=True)
+            return []
         finally:
             await cls.release(conn, cur)
 
     @classmethod
-    async def create_default_collection(cls, user_id: int, title: str = "未命名合集") -> int | None:
+    async def search_history_redeem(cls, user_id: int) -> list[dict]:
         """
-        创建默认合集并返回新建ID；失败返回 None。
-        首选 lastrowid；极少数情况下取不到时，兜底再查一次。
+        查询某个用户的所有兑换历史
         """
         conn, cur = await cls.get_conn_cursor()
         try:
-            insert_sql = """
-            INSERT INTO user_collection (user_id, title, is_public)
-            VALUES (%s, %s, 1)
+            # id, source_id, file_type, content
+            sql = """
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM transaction t
+            LEFT JOIN sora_content sc ON t.transaction_description = sc.source_id
+            WHERE t.sender_id = %s and t.transaction_type='confirm_buy'
+            ORDER BY t.transaction_id DESC
             """
-            await cur.execute(insert_sql, (user_id, title))
-            await conn.commit()
-            new_id = cur.lastrowid
-            if new_id:
-                return int(new_id)
-
-            # 兜底：再查最新一条
-            await cur.execute(
-                "SELECT id FROM user_collection WHERE user_id=%s ORDER BY id DESC LIMIT 1",
-                (user_id,)
-            )
-            row = await cur.fetchone()
-            return int(row["id"]) if row else None
+            await cur.execute(sql, (user_id,))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
         except Exception as e:
-            print(f"❌ create_default_collection error: {e}", flush=True)
-            return None
+            print(f"⚠️ search_history_upload 出错: {e}", flush=True)
+            return []
         finally:
             await cls.release(conn, cur)
+            #
 
     @classmethod
-    async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
+    async def get_album_list(cls, content_id: int, bot_name: str) -> dict:
         """
-        把 content_id 加入某个合集。已存在则不报错（联合主键去重）。
+        查询某个 album 下的所有成员文件，并生成文本列表。
+        - 对应 PHP 版的 get_album_list()
         """
         conn, cur = await cls.get_conn_cursor()
         try:
             sql = """
-            INSERT INTO user_collection_file (collection_id, content_id, sort)
-            VALUES (%s, %s, 0)
-            ON DUPLICATE KEY UPDATE sort = VALUES(sort)
+                SELECT s.source_id, c.file_type, s.content, s.file_size, s.duration,
+                       m.source_bot_name, m.thumb_file_id, m.file_id
+                FROM album_items c
+                LEFT JOIN sora_content s ON c.member_content_id = s.id
+                LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
+                WHERE c.content_id = %s
+                ORDER BY c.file_type;
             """
-            # content_id 列是 varchar(100)，统一转成字符串
-            await cur.execute(sql, (int(collection_id), str(content_id)))
-            await conn.commit()
-            return True
+            await cur.execute(sql, (bot_name, content_id))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
         except Exception as e:
-            print(f"❌ add_content_to_user_collection error: {e}", flush=True)
-            return False
+            print(f"⚠️ get_album_list 出错: {e}", flush=True)
+            return []
         finally:
             await cls.release(conn, cur)
-

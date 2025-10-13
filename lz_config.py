@@ -16,6 +16,8 @@ AES_KEY = os.getenv("AES_KEY", "")
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "prd").lower()
 
+RESULTS_PER_PAGE = 6
+
 config = {}
 # 嘗試載入 JSON 並合併參數
 try:

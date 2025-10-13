@@ -140,7 +140,7 @@ class DB:
 
         # print(f"Executing SQL:\n{sql.strip()}")
         # print(f"With params: {file_type}, {file_unique_id}, {file_id}, {bot}, {user_id}, {now}")
-
+        await self._ensure_pool()
         async with self.pool.acquire() as conn:
             result = await conn.fetchrow(sql, file_type, file_unique_id, file_id, bot, user_id, now)
 
@@ -167,10 +167,13 @@ class DB:
     #要和 ananbot_utils.py 作整合
     async def search_sora_content_by_id(self, content_id: int):
         cache_key = f"sora_content_id:{content_id}"
+        # print(f"Searching sora_content by id {content_id} with cache key {cache_key}")
         cached = self.cache.get(cache_key)
         if cached:
-            print(f"\r\n\r\nCache hit for {cache_key}")
+            print(f"\r\n\r\n173:Cache hit for {cache_key}")
             return cached
+        
+        # print(f"\r\n\r\nCache miss for {cache_key}, querying database...")
     
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -188,7 +191,9 @@ class DB:
             )
             
             if not row:
+                # print(f"\r\n\r\nNo sora_content found for id {content_id}"  )
                 return None  # 未找到内容
+            # print(f"\r\n\r\nDatabase returned row for content_id {content_id}: {row}")
 
             row = dict(row)
 
@@ -227,7 +232,7 @@ class DB:
 
             # 如果两个都有值，就 upsert 写入 sora_media
             if file_id and thumb_file_id:
-                print(f"\r\n\r\n>>>Upserting sora_media for content_id {content_id} with file_id {file_id} and thumb_file_id {thumb_file_id}")
+                # print(f"\r\n\r\n>>>Upserting sora_media for content_id {content_id} with file_id {file_id} and thumb_file_id {thumb_file_id}")
                 await conn.execute(
                     '''
                     INSERT INTO sora_media (content_id, file_id, thumb_file_id, source_bot_name)
@@ -257,10 +262,11 @@ class DB:
                 "purchase_condition": row.get("purchase_condition")
             }
 
-           
+            # print(f"\r\n\r\nFinal result for content_id {content_id}: {result}")
 
             # self.cache.set(cache_key, result, ttl=3600)
             self.cache.set(cache_key, result, ttl=3600)
+            # print(f"Cache set for {cache_key}")
             return result
 
             # 返回 asyncpg Record 或 None
@@ -440,6 +446,84 @@ class DB:
             return {"ok": "1", "count": len(rows)}
         except Exception as e:
             return {"ok": "", "error": str(e)}
+
+
+    
+    async def get_album_list(self, content_id: int, bot_name: str) -> list[dict]:
+        """
+        查询某个 album 下的所有成员文件（PostgreSQL 版）
+        - 对应 PHP 的 get_album_list()
+        - 使用 asyncpg，占位符 $1/$2
+        - 若 m.file_id 为空且从 file_extension 匹配到 ext_file_id，则回写/新增到 sora_media.file_id
+        - 返回值：list[dict]
+        """
+        await self._ensure_pool()
+
+        sql = """
+            SELECT
+                c.member_content_id,           -- 用于回写 sora_media.content_id
+                s.source_id,
+                c.file_type,
+                s.content,
+                s.file_size,
+                s.duration,
+                m.source_bot_name,
+                m.thumb_file_id,
+                m.file_id,
+                fe.file_id AS ext_file_id
+            FROM album_items AS c
+            LEFT JOIN sora_content AS s
+                ON c.member_content_id = s.id
+            LEFT JOIN sora_media   AS m
+                ON c.member_content_id = m.content_id
+                AND m.source_bot_name   = $1
+            LEFT JOIN file_extension AS fe
+                ON fe.file_unique_id = s.source_id
+                AND fe.bot            = $1
+            WHERE c.content_id = $2
+            ORDER BY c.file_type;
+        """
+
+        upsert_sql = """
+            INSERT INTO sora_media (content_id, source_bot_name, file_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (content_id, source_bot_name)
+            DO UPDATE SET file_id = EXCLUDED.file_id
+        """
+
+        try:
+            async with self.pool.acquire() as conn:
+                rows = await conn.fetch(sql, bot_name, content_id)
+
+                # 先把记录转成可变 dict，并收集需要回写的条目
+                dict_rows: list[dict] = []
+                to_upsert: list[tuple[int, str, str]] = []  # (content_id, bot_name, file_id)
+
+                for rec in rows or []:
+                    d = dict(rec)
+                    # 用 ext_file_id 填充返回值
+                    if d.get("file_id") is None and d.get("ext_file_id") is not None:
+                        d["file_id"] = d["ext_file_id"]
+                        # 准备回写/新增到 sora_media
+                        if d.get("member_content_id") is not None:
+                            to_upsert.append((
+                                int(d["member_content_id"]),
+                                bot_name,
+                                str(d["ext_file_id"]),
+                            ))
+                    dict_rows.append(d)
+
+                # 批量 UPSERT 回写 sora_media（只处理确实需要写入的）
+                if to_upsert:
+                    async with conn.transaction():
+                        for cid, bn, fid in to_upsert:
+                            await conn.execute(upsert_sql, cid, bn, fid)
+
+                return dict_rows
+        except Exception as e:
+            print(f"⚠️ get_album_list 出错: {e}", flush=True)
+            return []
+
 
 
 

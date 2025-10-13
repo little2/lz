@@ -108,7 +108,7 @@ dp = Dispatcher(storage=MemoryStorage())
 class ProductPreviewFSM(StatesGroup):
     waiting_for_preview_photo = State(state="product_preview:waiting_for_preview_photo")
     waiting_for_price_input = State(state="product_preview:waiting_for_price_input")
-    waiting_for_collection_media = State(state="product_preview:waiting_for_collection_media")
+    waiting_for_album_media = State(state="product_preview:waiting_for_album_media")
     waiting_for_removetag_source = State(state="product_preview:waiting_for_removetag_source")  
     waiting_for_content_input = State(state="product_preview:waiting_for_content_input")  
     waiting_for_thumb_reply = State(state="product_preview:waiting_for_thumb_reply")  
@@ -227,15 +227,15 @@ async def get_list(content_id):
 
     list_text = ''
     bot_username = await get_bot_username()
-    results = await AnanBOTPool.get_collect_list(content_id, bot_username)
+    results = await AnanBOTPool.get_album_list(content_id, bot_username)
     list_text = await list_template(results)
     return list_text
 
 
 
 async def list_template(results):
-    collect_list_text = ''
-    collect_cont_list_text = ''
+    album_list_text = ''
+    album_cont_list_text = ''
     list_text = ''
     video_count = document_count = photo_count = 0
 
@@ -246,25 +246,25 @@ async def list_template(results):
 
         if file_type == "v":
             video_count += 1
-            collect_list_text += f"　🎬 {format_bytes(file_size)} | {format_seconds(duration)}\n"
+            album_list_text += f"　🎬 {format_bytes(file_size)} | {format_seconds(duration)}\n"
         elif file_type == "d":
             document_count += 1
-            collect_list_text += f"　📄 {format_bytes(file_size)}\n"
+            album_list_text += f"　📄 {format_bytes(file_size)}\n"
         elif file_type == "p":
             photo_count += 1
-            collect_list_text += f"　🖼️ {format_bytes(file_size)}\n"
+            album_list_text += f"　🖼️ {format_bytes(file_size)}\n"
 
     if video_count:
-        collect_cont_list_text += f"🎬 x{video_count} 　"
+        album_cont_list_text += f"🎬 x{video_count} 　"
     if document_count:
-        collect_cont_list_text += f"📄 x{document_count} 　"
+        album_cont_list_text += f"📄 x{document_count} 　"
     if photo_count:
-        collect_cont_list_text += f"🖼️ x{photo_count}"
+        album_cont_list_text += f"🖼️ x{photo_count}"
 
-    if collect_list_text:
-        list_text += "\n📦 文件列表：\n" + collect_list_text.rstrip()
-    if collect_cont_list_text:
-        list_text += "\n\n📊 本合集包含：" + collect_cont_list_text
+    if album_list_text:
+        list_text += "\n📦 文件列表：\n" + album_list_text.rstrip()
+    if album_cont_list_text:
+        list_text += "\n\n📊 本合集包含：" + album_cont_list_text
 
     return list_text
 
@@ -420,7 +420,7 @@ async def get_product_info(content_id: int):
                 ]
             ]
 
-        if product_info['file_type'] in ['document', 'collection']:
+        if product_info['file_type'] in ['document', 'album']:
             buttons.append([
                 InlineKeyboardButton(text="🔒 密码", callback_data=f"set_password:{content_id}")
             ])
@@ -840,7 +840,7 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
         print(f"⚠️ 编辑添加资源 caption 失败: {e}", flush=True)
 
     await state.clear()  # 👈 强制清除旧的 preview 状态
-    await state.set_state(ProductPreviewFSM.waiting_for_collection_media)
+    await state.set_state(ProductPreviewFSM.waiting_for_album_media)
     await state.set_data({
         "content_id": content_id,
         "chat_id": chat_id,
@@ -864,8 +864,8 @@ async def _ensure_placeholder_once(message: Message, state: FSMContext):
 
 @dp.message(F.chat.type == "private", F.content_type.in_({
     ContentType.PHOTO, ContentType.VIDEO, ContentType.DOCUMENT
-}), ProductPreviewFSM.waiting_for_collection_media)
-async def receive_collection_media(message: Message, state: FSMContext):
+}), ProductPreviewFSM.waiting_for_album_media)
+async def receive_album_media(message: Message, state: FSMContext):
     data = await state.get_data()
     content_id = int(data["content_id"])
     chat_id = data["chat_id"]
@@ -955,7 +955,7 @@ async def receive_collection_media(message: Message, state: FSMContext):
         try:
             await asyncio.sleep(COLLECTION_PROMPT_DELAY)
             current_state = await state.get_state()
-            if current_state == ProductPreviewFSM.waiting_for_collection_media and not has_prompt_sent.get(key, False):
+            if current_state == ProductPreviewFSM.waiting_for_album_media and not has_prompt_sent.get(key, False):
                 has_prompt_sent[key] = True  # ✅ 设置为已发送，防止重复
 
                 try:
@@ -975,7 +975,7 @@ async def receive_collection_media(message: Message, state: FSMContext):
                     print(f"删除占位消息结果: {r} {placeholder_msg_id}", flush=True)
 
                     await state.clear()  # 👈 强制清除旧的 preview 状态
-                    await state.set_state(ProductPreviewFSM.waiting_for_collection_media)
+                    await state.set_state(ProductPreviewFSM.waiting_for_album_media)
                     await state.set_data({
                         "content_id": content_id,
                         "chat_id": send_message.chat.id,
@@ -1043,7 +1043,7 @@ async def _process_add_item_async(message: Message, state: FSMContext, meta: dic
     content_id = meta.get("content_id")
     file_id = meta.get("file_id")
     type_code = file_type[0]  # "v", "d", "p"
-    await AnanBOTPool.update_product_file_type(content_id, "collection")
+    await AnanBOTPool.update_product_file_type(content_id, "album")
     await AnanBOTPool.upsert_media(file_type, {
             "file_unique_id": file_unique_id,
             "file_size": file_size,
@@ -1057,8 +1057,8 @@ async def _process_add_item_async(message: Message, state: FSMContext, meta: dic
     member_content_row = await AnanBOTPool.insert_sora_content_media(file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username)
     member_content_id = member_content_row["id"]
 
-    # 插入到 collection_items 表
-    await AnanBOTPool.insert_collection_item(
+    # 插入到 album_items 表
+    await AnanBOTPool.insert_album_item(
         content_id=content_id,
         member_content_id=member_content_id,
         file_unique_id=file_unique_id,

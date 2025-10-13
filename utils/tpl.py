@@ -43,17 +43,17 @@ class Tplate:
         else:
             tpl_data['tag_string'] = ""
 
-        if 'collection' in tpl_data and tpl_data['collection'] is not None:
-            tpl_data['collection_string'] = tpl_data['collection'] + "\r\n\r\n"
+        if 'album' in tpl_data and tpl_data['album'] is not None:
+            tpl_data['album_string'] = tpl_data['album'] + "\r\n\r\n"
         else:
-            tpl_data['collection_string'] = ""
+            tpl_data['album_string'] = ""
 
 
         template_str = textwrap.dedent("""\
             <blockquote>ㅤ
             $file_icon $content
             ㅤ</blockquote>
-            $collection_string$tag_string
+            $album_string$tag_string
             $fee_string $file_size_string$duration_string$create_timestamp_string
         """)
 

@@ -7,10 +7,10 @@ from lz_db import db
 import lz_var
 from keyboards.lz_paginator import build_pagination_keyboard
 from utils.aes_crypto import AESCrypto
-from lz_config import AES_KEY, ENVIRONMENT
+from lz_config import AES_KEY, ENVIRONMENT, RESULTS_PER_PAGE
 
 router = Router()
-RESULTS_PER_PAGE = 20
+
 
 def render_results_highlighted(results: list[dict], page: int, total: int, per_page: int = 10) -> str:
     total_pages = (total + per_page - 1) // per_page  # 向上取整
@@ -146,6 +146,6 @@ async def handle_pagination(callback: CallbackQuery):
 
     await callback.message.edit_text(
         text=text, parse_mode=ParseMode.HTML,
-        reply_markup=build_pagination_keyboard(keyword_id, page, has_next, has_prev)
+        reply_markup=build_pagination_keyboard(keyword_id, page, has_next, has_prev, callback_function)
     )
     await callback.answer()

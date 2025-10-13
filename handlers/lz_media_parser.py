@@ -32,8 +32,8 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     """
     仅在等待态才处理；把 file_unique_id 写到 FSM。
     """
-    if await state.get_state() != ProductPreviewFSM.waiting_for_x_media.state:
-        return  # 非等待态，跳过
+    # if await state.get_state() != ProductPreviewFSM.waiting_for_x_media.state:
+        # return  # 非等待态，跳过
 
 
     file_unique_id = None

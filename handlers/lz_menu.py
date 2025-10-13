@@ -773,7 +773,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
             [
                 InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
-                        [
+            [
                 InlineKeyboardButton(text=f"💎 34 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}")
             ],
             [

@@ -1786,7 +1786,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         await callback.message.reply(text, reply_markup=kb)
     
     elif int(expire_ts) >= now_utc:
-        fee = 10
+        fee = 34
         try:
             await callback.answer(
                 f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个视频只要 {fee} 积分。\r\n\r\n"

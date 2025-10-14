@@ -774,7 +774,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
             [
-                InlineKeyboardButton(text=f"💎 34 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}")
+                InlineKeyboardButton(text=f"💎 17 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}")
             ],
             [
                 InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
@@ -1792,7 +1792,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         await callback.message.reply(text, reply_markup=kb)
     
     elif int(expire_ts) >= now_utc:
-        fee = 34
+        fee = 17
         try:
             await callback.answer(
                 f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个视频只要 {fee} 积分。\r\n\r\n"
@@ -2214,7 +2214,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         product_type = record.get('product_type')  # free, paid, vip
         if product_type is None:
             product_type = file_type  # 默认付费
-    
+
         purchase_condition = record.get('purchase_condition', '')  
         # print(f"{record}")
 

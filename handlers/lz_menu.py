@@ -737,7 +737,10 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
                 InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}"),
                 InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-            ]
+            ],
+            [
+                InlineKeyboardButton(text=f"💎 17 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+            ],
         ])
 
     
@@ -774,7 +777,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
             [
-                InlineKeyboardButton(text=f"💎 17 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}")
+                InlineKeyboardButton(text=f"💎 17 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
             [
                 InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
@@ -1717,6 +1720,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     content_id = callback.data.split(":")[1]
+    redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None
 
     result = await load_sora_content_by_id(int(content_id), state)
     # print("Returned==>:", result)
@@ -1774,6 +1778,9 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         ])
         await callback.message.reply(text, reply_markup=kb)
         
+        if( redeem_type == 'xlj'):
+            await callback.answer()
+            return
 
     elif int(expire_ts) < now_utc:
         # 已开通但过期 → 用原价，提示并给两个按钮，直接返回
@@ -1790,7 +1797,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             )],
         ])
         await callback.message.reply(text, reply_markup=kb)
-    
+        if( redeem_type == 'xlj'):
+            await callback.answer()
+            return
+
+
     elif int(expire_ts) >= now_utc:
         fee = 17
         try:

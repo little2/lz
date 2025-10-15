@@ -4483,7 +4483,20 @@ async def main():
 
         # ✅ Render 环境用 PORT，否则本地用 8080
         await web._run_app(app, host="0.0.0.0", port=8080)
+
+
+
+
+
+        
     else:
+        await bot.send_video(
+            chat_id=7496113118,
+            video="BAACAgQAAxkBAAIhr2juVsrwHeEO5RJuMy4kGdenavjkAAJUGAACkXUwUyIVLBfHIQQ_NgQ",
+            duration=6569,                   # 可选：覆盖 Telegram 记忆的时长
+            supports_streaming=True,
+            caption="🎬 拍摄时间：2025-10-08 13:00"
+        )
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询
 

@@ -13,6 +13,13 @@
 [handle] handle_clt_my
 [kb] build_collections_keyboard *
 
+    await _edit_caption_or_text(
+        photo=lz_var.skins['clt_my']['file_id'],
+        msg=callback.message,
+        text=text, 
+        reply_markup=await build_collections_keyboard(user_id=user_id, page=0, mode="mine")
+    )
+
 [2]
 [data] clt_favorite
 [handle] handle_clt_favorite
@@ -27,7 +34,7 @@
 # 合集 Partal > 合集列表 CollectionList > [单一合集页 clt:info] > 显示合集内容 CollectItemList 或 编辑合集 CollectionEdit
 [1-2]  合集 - 我的合集 - 指定的合集
 [data] clt:my [单一合集页 ]   //f"clt:my:{cid}:0:tk")
-[handle] handle_clt_my
+[handle] _build_clt_info
 [kb] _build_clt_info *显示合集的面板 (显示合集内容/收藏或编辑/返回)
         _build_clt_info_caption
         _build_clt_info_keyboard

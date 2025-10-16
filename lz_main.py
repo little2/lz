@@ -55,7 +55,7 @@ else:
     user_client = TelegramClient(USER_SESSION, API_ID, API_HASH)
 
 lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引用
-
+lz_var.skins = {}  # 皮肤配置
 
 
 # ================= 9. 私聊媒体处理：人类账号 =================
@@ -115,14 +115,22 @@ async def load_or_create_skins(config_path: str = "skins.json") -> dict:
     """
     启动时加载皮肤配置（不依赖 YAML）。
     - 若文件存在则载入。
-    - 若不存在则从 default_skins 生成：
-        若有 file_unique_id 但 file_id 为空，会调用 x-man 获取。
+    - 若不存在则从 default_skins 生成。
+    - 若有 file_unique_id 但 file_id 为空，会调用 get_file_id_by_file_unique_id() 取得。
     """
     import lz_var
+    from lz_db import db
 
     default_skins = {
-        "clt_my":  {"file_id": "", "file_unique_id": "AQADVwtrG_BwgEd-"},
-        "clt_fav": {"file_id": "", "file_unique_id": "AQADVwtrG_BwgEd-"},
+        "home":    {"file_id": "", "file_unique_id": "AQAD0gtrG-sSiUd-"},  # Luzai02bot 的默认封面
+        "clt_menu":     {"file_id": "", "file_unique_id": "AQAD2wtrG-sSiUd-"},  # Luzai01bot 的默认封面
+        "clt_my":  {"file_id": "", "file_unique_id": "AQADzAtrG-sSiUd-"},
+        "clt_fav": {"file_id": "", "file_unique_id": "AQAD1wtrG-sSiUd-"},
+        "clt_cover": {"file_id": "", "file_unique_id": "AQADVwtrG_BwgEd-"},
+        "clt_market": {"file_id": "", "file_unique_id": "AQAD2AtrG-sSiUd-"},  # Luzai03bot 的默认封面
+        "history": {"file_id": "", "file_unique_id": "AQAD6AtrG-sSiUd-"},
+        "history_update": {"file_id": "", "file_unique_id": "AQAD4wtrG-sSiUd-"},
+        "history_redeem": {"file_id": "", "file_unique_id": "AQAD5wtrG-sSiUd-"},
     }
 
     # --- 若已有文件，直接载入 ---
@@ -131,42 +139,44 @@ async def load_or_create_skins(config_path: str = "skins.json") -> dict:
             with open(config_path, "r", encoding="utf-8") as f:
                 skins = json.load(f)
             print(f"✅ 已载入 {config_path}（共 {len(skins)} 项）")
-            return skins
         except Exception as e:
             print(f"⚠️ 无法读取 {config_path}，将重新生成：{e}")
+            skins = default_skins.copy()
+    else:
+        skins = default_skins.copy()
 
-    # --- 无文件：开始生成 ---
-    skins = default_skins.copy()
+    # --- 若 file_id 为空，尝试用数据库补齐 ---
+    for name, obj in skins.items():
+        if not obj.get("file_id") and obj.get("file_unique_id"):
+            fu = obj["file_unique_id"]
+            print(f"🔍 {name}: file_id 为空，尝试从数据库查询…（{fu}）")
+            try:
+                file_ids = await db.get_file_id_by_file_unique_id([fu])
+                if file_ids:
+                    obj["file_id"] = file_ids[0]
+                    print(f"✅ 已从数据库补齐 {name}: {obj['file_id']}")
+                else:
+                    print(f"⚠️ 数据库未找到 {fu} 对应的 file_id")
+            except Exception as e:
+                print(f"❌ 查询 file_id 出错：{e}")
+
+    # --- 若仍有 file_id 为空，尝试向 x-man 询问 ---
     need_fix = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]
-
     for name, obj in need_fix:
         fu = obj["file_unique_id"]
-        print(f"🔍 {name}: 缺少 file_id，向 x-man 请求中…（{fu}）")
-        await lz_var.bot.send_message(
-            chat_id=lz_var.x_man_bot_id,
-            text=f"{fu}"
-        )
+        print(f"🧾 {name}: 向 x-man 请求 file_id…（{fu}）")
+        try:
+            msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
+            print(f"📨 已请求 {fu}，并已接收返回")
+        except Exception as e:
+            print(f"⚠️ 向 x-man 请求失败：{e}")
 
-        r=await lz_var.bot.send_message(
-            chat_id=lz_var.x_man_bot_id,
-            text=f"{fu}"
-        )
-        print(f"result={r}", flush=True)
-        
-
-    # --- 检查是否全补齐 ---
-    missing = [k for k, v in skins.items() if not v.get("file_id")]
-    if missing:
-        print(f"⚠️ 仍有未补齐的皮肤：{missing}，暂不写入文件。")
-        return skins
-
-    # --- 全补齐：写入文件 ---
+    # --- 写入文件（即便有缺） ---
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(skins, f, ensure_ascii=False, indent=4)
-    print(f"💾 已写入 {config_path}（含完整 file_id）")
+    print(f"💾 已写入 {config_path}")
 
     return skins
-
 
 
 
@@ -289,7 +299,7 @@ async def main():
         except Exception as e:
             print(f"[shutdown] PG disconnect error: {e}")
         try:
-            await MySQLPool.close_pool()
+            await MySQLPool.close()
         except Exception as e:
             print(f"[shutdown] MySQL close error: {e}")
         try:
@@ -319,15 +329,18 @@ async def main():
             setup_application(app, dp, bot=bot)
 
             # ✅ Render 环境用 PORT，否则本地用 8080
-            await load_or_create_skins()
+            lz_var.skins = await load_or_create_skins()
+            print(f"Skin {lz_var.skins}")
             port = int(os.environ.get("PORT", 8080))
             await web._run_app(app, host="0.0.0.0", port=port)
             
         else:
             print("🚀 啟動 Polling 模式")
-            await load_or_create_skins()
+            lz_var.skins = await load_or_create_skins()
+            print(f"Skin {lz_var.skins}")
             await dp.start_polling(bot, polling_timeout=10.0)
-            
+        
+        
     finally:
          # 双保险：若没走到 @dp.shutdown（例如异常中断），也清理资源
         try:
@@ -335,7 +348,7 @@ async def main():
         except Exception:
             pass
         try:
-            await MySQLPool.close_pool()
+            await MySQLPool.close()
         except Exception:
             pass
         try:

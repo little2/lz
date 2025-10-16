@@ -74,7 +74,7 @@ def _short(text: str | None, n: int = 60) -> str:
     text = text.replace("\r", " ").replace("\n", " ")
     return text[:n] + ("..." if len(text) > n else "")
 
-async def _edit_caption_or_text(msg : Message | None = None, *,  text: str, reply_markup: InlineKeyboardMarkup | None, chat_id: int|None = None, message_id:int|None = None):
+async def _edit_caption_or_text(msg : Message | None = None, *,  text: str, reply_markup: InlineKeyboardMarkup | None, chat_id: int|None = None, message_id:int|None = None, photo: str|None = None):
     """
     统一编辑：若原消息有照片 -> edit_caption；否则 -> edit_text
     """
@@ -86,12 +86,28 @@ async def _edit_caption_or_text(msg : Message | None = None, *,  text: str, repl
             message_id = msg.message_id
 
         if getattr(msg, "photo", None):
-            await lz_var.bot.edit_message_caption(
-                chat_id=chat_id,
-                message_id=message_id,
-                caption=text,
-                reply_markup=reply_markup
-            )
+   
+
+            if(photo!=None and lz_var.skins.get('home') and lz_var.skins['home'].get('file_id')):
+                await lz_var.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=InputMediaPhoto(
+                        media=photo,
+                        caption=text,
+                        parse_mode="HTML"
+                    ),
+                    reply_markup=reply_markup
+                )
+            else:
+                await lz_var.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    caption=text,
+                    reply_markup=reply_markup
+                )
+
+
         else:
             await lz_var.bot.edit_message_text(
                 chat_id=chat_id,
@@ -340,7 +356,7 @@ def history_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📜 我的上传", callback_data="history_update")],
         [InlineKeyboardButton(text="💎 我的兑换", callback_data="history_redeem")],
-        [InlineKeyboardButton(text="🗑️ 我的收藏", callback_data="clt_my")],
+        [InlineKeyboardButton(text="🗑️ 收藏合集", callback_data="clt_my")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -349,16 +365,18 @@ def history_menu_keyboard():
 # == 历史记录选项响应 ==
 @router.callback_query(F.data.in_(["history_update", "history_redeem"]))
 async def handle_history_update(callback: CallbackQuery):
-    await callback.message.answer("📜 这是你的浏览历史：...")
+    
     user_id = callback.from_user.id
     page = 0
     if callback.data == "history_update":
         callback_function = 'ul_pid'
         keyword_id = user_id
+        photo = lz_var.skins['history_update']['file_id']
        
     elif callback.data == "history_redeem":
         callback_function = 'fd_pid'
         keyword_id = user_id
+        photo = lz_var.skins['history_redeem']['file_id']
    
    
 
@@ -367,10 +385,17 @@ async def handle_history_update(callback: CallbackQuery):
         await callback.answer(pg_result.get("message"), show_alert=True)
         return
 
-    await callback.message.reply(
-        text=pg_result.get("text"), parse_mode=ParseMode.HTML,
+    await _edit_caption_or_text(
+        photo=photo,
+        msg=callback.message,
+        text=pg_result.get("text"), 
         reply_markup =pg_result.get("reply_markup")
     )
+
+    # await callback.message.reply(
+    #     text=pg_result.get("text"), parse_mode=ParseMode.HTML,
+    #     reply_markup =pg_result.get("reply_markup")
+    # )
 
     await callback.answer()
 
@@ -685,7 +710,13 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
     else:
         if ENVIRONMENT != "dev":
             return
-        await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+
+        await message.answer_photo(
+                photo=lz_var.skins['home']['file_id'],
+                caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+                parse_mode="HTML",
+                reply_markup=main_menu_keyboard())   
+        # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         
 
 
@@ -947,11 +978,41 @@ async def handle_ranking(callback: CallbackQuery):
 
 @router.callback_query(F.data == "collection")
 async def handle_collection(callback: CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=collection_menu_keyboard())
+
+
+    await lz_var.bot.edit_message_media(
+        chat_id=callback.message.chat.id,
+        message_id=callback.message.message_id,
+        media=InputMediaPhoto(
+            media=lz_var.skins['clt_menu']['file_id'],
+            caption="👋 合集菜单！请选择操作：",
+            parse_mode="HTML"
+        ),
+        reply_markup=collection_menu_keyboard()
+    )
+
+
+    # await callback.message.answer_photo(
+    #     photo=lz_var.skins['clt_menu']['file_id'],
+    #     caption="👋 合集菜单！请选择操作：",
+    #     parse_mode="HTML",
+    #     reply_markup=collection_menu_keyboard())   
+
+
+    # await callback.message.edit_reply_markup(reply_markup=collection_menu_keyboard())
 
 @router.callback_query(F.data == "my_history")
 async def handle_my_history(callback: CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=history_menu_keyboard())
+    
+    await _edit_caption_or_text(
+        photo=lz_var.skins['history']['file_id'],
+        msg=callback.message,
+        text="👋 这是你的历史记录菜单！请选择操作：", 
+        reply_markup=history_menu_keyboard()
+    )
+
+
+   
 
 @router.callback_query(F.data == "guess_you_like")
 async def handle_guess_you_like(callback: CallbackQuery):
@@ -1062,10 +1123,14 @@ async def handle_clt_my(callback: CallbackQuery):
     text = f'这是你的合集'
 
     await _edit_caption_or_text(
+        photo=lz_var.skins['clt_my']['file_id'],
         msg=callback.message,
         text=text, 
         reply_markup=await build_collections_keyboard(user_id=user_id, page=0, mode="mine")
     )
+
+
+
 
 
     # await callback.message.edit_reply_markup(reply_markup=kb)
@@ -1223,7 +1288,15 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
 async def handle_clt_favorite(callback: CallbackQuery):
     user_id = callback.from_user.id
     kb = await build_collections_keyboard(user_id=user_id, page=0, mode="fav")
-    await callback.message.edit_reply_markup(reply_markup=kb)
+    await _edit_caption_or_text(
+        photo=lz_var.skins['clt_fav']['file_id'],
+        msg=callback.message,
+        text="这是你收藏的合集", 
+        reply_markup=kb
+    )
+
+
+    # await callback.message.edit_reply_markup(reply_markup=kb)
 
 @router.callback_query(F.data.regexp(r"^cc:flist:\d+$"))
 async def handle_clt_favorite_pager(callback: CallbackQuery):
@@ -1336,7 +1409,7 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
     if ops == 'handle_clt_my':
         kb_rows.append([InlineKeyboardButton(text="🔙 返回我的合集", callback_data="clt_my")])
     elif ops == 'handle_clt_fav':
-        kb_rows.append([InlineKeyboardButton(text="🔙 返回我的收藏", callback_data="clt_favorite")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的合集", callback_data="clt_favorite")])
     else:
         kb_rows.append([InlineKeyboardButton(text="🔙 返回", callback_data="clt_my")])
 
@@ -1354,7 +1427,7 @@ def _clti_list_keyboard(cid: int, page: int, has_prev: bool, has_next: bool, is_
         title = "🔙 返回我的合集主页"
     elif mode == 'flist':
         callback_function = 'fav' 
-        title = "🔙 返回我的收藏主页"
+        title = "🔙 返回收藏的合集主页"
 
 
     if has_prev:
@@ -1409,27 +1482,18 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
     caption = _build_clt_info_caption(rec)
 
     # 有封面 -> sendPhoto；无封面 -> sendMessage
-    cover_file_id = rec.get("cover_file_id")
+    cover_file_id = rec.get("cover_file_id") or lz_var.skins['clt_cover']['file_id']
     # cover_file_id = "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ" #TODO
-    cover_set = {
-        "clt_my" : {
-            "file_id" : "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ",
-            "file_unique_id" : "AQADPgtrG5aXmEZ4"
-        },
-        "clt_fav": {
-            "file_id" : "AgACAgEAAxkDAAIChWjgjOuRviHSQODZeEiY03tJ1ekiAAI-C2sblpeYRiQXZv8N-OgzAQADAgADcwADNgQ",
-            "file_unique_id" : "AQADQcwxG67JAAFTeA"
-        }
-    }
+   
     kb = _build_clt_info_keyboard(cid, is_fav, mode, ops)
     try:
        
        
       
-        if ops == 'handle_clt_my':
-            cover_file_id = cover_set['clt_my']['file_id']
-        elif ops == 'handle_clt_fav':
-            cover_file_id = cover_set['clt_fav']['file_id']
+        # if ops == 'handle_clt_my':
+        #     cover_file_id = lz_var.skins['clt_my']['file_id']
+        # elif ops == 'handle_clt_fav':
+        #     cover_file_id = lz_var.skins['clt_fav']['file_id']
 
 
 
@@ -1633,7 +1697,24 @@ async def handle_do_upload_resource(callback: CallbackQuery):
 # == 通用返回首页 ==
 @router.callback_query(F.data == "go_home")
 async def handle_go_home(callback: CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=main_menu_keyboard())
+    # await callback.answer_photo(
+    #     photo=lz_var.skins['home']['file_id'],
+    #     caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+    #     parse_mode="HTML",
+    #     reply_markup=main_menu_keyboard())
+
+    await lz_var.bot.edit_message_media(
+        chat_id=callback.message.chat.id,
+        message_id=callback.message.message_id,
+        media=InputMediaPhoto(
+            media=lz_var.skins['home']['file_id'],
+            caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+            parse_mode="HTML"
+        ),
+        reply_markup=main_menu_keyboard()
+    )
+
+    # await callback.message.edit_reply_markup(reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(F.data.startswith("sora_page:"))

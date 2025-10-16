@@ -13,6 +13,7 @@ default_thumb_unique_file_ids: list[str] = [
     "AQADMq0xG4g4QEV-",
     "AQADMa0xG4g4QEV-",
 ]
+skins: dict = {}  # 皮肤配置
 bot = None  # 预留 bot 全局变量
 user_client = None  # Telethon 用户客户端
 redis_manager = None  # Redis client

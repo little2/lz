@@ -2,6 +2,7 @@ import asyncio
 import os
 import time
 import aiogram
+import json
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
@@ -22,6 +23,7 @@ from handlers import lz_menu
 
 import lz_var
 import re
+
 
 from lz_redis import RedisManager
 lz_var.redis_manager = RedisManager()
@@ -99,6 +101,71 @@ async def handle_user_private_media(event):
     
     
     await event.delete()
+
+
+
+
+
+FILE_ID_REGEX = re.compile(
+    r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
+)
+
+
+async def load_or_create_skins(config_path: str = "skins.json") -> dict:
+    """
+    启动时加载皮肤配置（不依赖 YAML）。
+    - 若文件存在则载入。
+    - 若不存在则从 default_skins 生成：
+        若有 file_unique_id 但 file_id 为空，会调用 x-man 获取。
+    """
+    import lz_var
+
+    default_skins = {
+        "clt_my":  {"file_id": "", "file_unique_id": "AQADVwtrG_BwgEd-"},
+        "clt_fav": {"file_id": "", "file_unique_id": "AQADVwtrG_BwgEd-"},
+    }
+
+    # --- 若已有文件，直接载入 ---
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                skins = json.load(f)
+            print(f"✅ 已载入 {config_path}（共 {len(skins)} 项）")
+            return skins
+        except Exception as e:
+            print(f"⚠️ 无法读取 {config_path}，将重新生成：{e}")
+
+    # --- 无文件：开始生成 ---
+    skins = default_skins.copy()
+    need_fix = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]
+
+    for name, obj in need_fix:
+        fu = obj["file_unique_id"]
+        print(f"🔍 {name}: 缺少 file_id，向 x-man 请求中…（{fu}）")
+        await lz_var.bot.send_message(
+            chat_id=lz_var.x_man_bot_id,
+            text=f"{fu}"
+        )
+
+        r=await lz_var.bot.send_message(
+            chat_id=lz_var.x_man_bot_id,
+            text=f"{fu}"
+        )
+        print(f"result={r}", flush=True)
+        
+
+    # --- 检查是否全补齐 ---
+    missing = [k for k, v in skins.items() if not v.get("file_id")]
+    if missing:
+        print(f"⚠️ 仍有未补齐的皮肤：{missing}，暂不写入文件。")
+        return skins
+
+    # --- 全补齐：写入文件 ---
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(skins, f, ensure_ascii=False, indent=4)
+    print(f"💾 已写入 {config_path}（含完整 file_id）")
+
+    return skins
 
 
 
@@ -212,6 +279,8 @@ async def main():
     await db.connect()
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
 
+   
+
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
     @dp.shutdown()
     async def _on_shutdown():
@@ -250,11 +319,15 @@ async def main():
             setup_application(app, dp, bot=bot)
 
             # ✅ Render 环境用 PORT，否则本地用 8080
+            await load_or_create_skins()
             port = int(os.environ.get("PORT", 8080))
             await web._run_app(app, host="0.0.0.0", port=port)
+            
         else:
             print("🚀 啟動 Polling 模式")
+            await load_or_create_skins()
             await dp.start_polling(bot, polling_timeout=10.0)
+            
     finally:
          # 双保险：若没走到 @dp.shutdown（例如异常中断），也清理资源
         try:

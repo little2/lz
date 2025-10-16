@@ -1410,13 +1410,13 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
 
     # 有封面 -> sendPhoto；无封面 -> sendMessage
     cover_file_id = rec.get("cover_file_id")
-    cover_file_id = "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ" #TODO
+    # cover_file_id = "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ" #TODO
     cover_set = {
-        "set" : {
+        "clt_my" : {
             "file_id" : "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ",
             "file_unique_id" : "AQADPgtrG5aXmEZ4"
         },
-        "favorite": {
+        "clt_fav": {
             "file_id" : "AgACAgEAAxkDAAIChWjgjOuRviHSQODZeEiY03tJ1ekiAAI-C2sblpeYRiQXZv8N-OgzAQADAgADcwADNgQ",
             "file_unique_id" : "AQADQcwxG67JAAFTeA"
         }
@@ -1427,9 +1427,9 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
        
       
         if ops == 'handle_clt_my':
-            cover_file_id = cover_set['set']['file_id']
+            cover_file_id = cover_set['clt_my']['file_id']
         elif ops == 'handle_clt_fav':
-            cover_file_id = cover_set['favorite']['file_id']
+            cover_file_id = cover_set['clt_fav']['file_id']
 
 
 

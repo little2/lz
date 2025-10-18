@@ -27,7 +27,7 @@ from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE
 import lz_var
 import traceback
 import random
-
+from lz_main import load_or_create_skins
 from handlers.lz_search_highlighted import build_pagination_keyboard
 
 from utils.media_utils import Media
@@ -566,6 +566,11 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
             await MySQLPool.fetch_file_by_file_id(file_id)
             print(f"🔍 完成",flush=True)
 
+
+@router.message(Command("reload"))
+async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
+    await load_or_create_skins(if_del=True)
+    await message.answer("🔄 皮肤配置已重新加载。")
 
 # == 启动指令 ==
 @router.message(Command("start"))

@@ -110,8 +110,11 @@ FILE_ID_REGEX = re.compile(
     r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
 )
 
+from aiogram import Router, F
+router = Router()
 
-async def load_or_create_skins(config_path: str = "skins.json") -> dict:
+
+async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.json") -> dict:
     """
     启动时加载皮肤配置（不依赖 YAML）。
     - 若文件存在则载入。
@@ -120,6 +123,7 @@ async def load_or_create_skins(config_path: str = "skins.json") -> dict:
     """
     import lz_var
     from lz_db import db
+
 
     default_skins = {
         "home":    {"file_id": "", "file_unique_id": "AQAD0gtrG-sSiUd-"},  # Luzai02bot 的默认封面
@@ -133,12 +137,16 @@ async def load_or_create_skins(config_path: str = "skins.json") -> dict:
         "history_redeem": {"file_id": "", "file_unique_id": "AQAD5wtrG-sSiUd-"},
     }
 
+    # 移除文件 config_path
+    if os.path.exists(config_path) and if_del:
+        os.remove(config_path)
+
     # --- 若已有文件，直接载入 ---
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 skins = json.load(f)
-            print(f"✅ 已载入 {config_path}（共 {len(skins)} 项）")
+            # print(f"✅ 已载入 {config_path}（共 {len(skins)} 项）")
         except Exception as e:
             print(f"⚠️ 无法读取 {config_path}，将重新生成：{e}")
             skins = default_skins.copy()
@@ -174,7 +182,7 @@ async def load_or_create_skins(config_path: str = "skins.json") -> dict:
     # --- 写入文件（即便有缺） ---
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(skins, f, ensure_ascii=False, indent=4)
-    print(f"💾 已写入 {config_path}")
+    # print(f"💾 已写入 {config_path}")
 
     return skins
 
@@ -330,14 +338,14 @@ async def main():
 
             # ✅ Render 环境用 PORT，否则本地用 8080
             lz_var.skins = await load_or_create_skins()
-            print(f"Skin {lz_var.skins}")
+            # print(f"Skin {lz_var.skins}")
             port = int(os.environ.get("PORT", 8080))
             await web._run_app(app, host="0.0.0.0", port=port)
             
         else:
             print("🚀 啟動 Polling 模式")
             lz_var.skins = await load_or_create_skins()
-            print(f"Skin {lz_var.skins}")
+            # print(f"Skin {lz_var.skins}")
             await dp.start_polling(bot, polling_timeout=10.0)
         
         

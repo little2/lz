@@ -21,7 +21,7 @@ import textwrap
 from datetime import datetime, timezone, timedelta
 
 import asyncio
-
+import os
 from lz_db import db
 from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE
 import lz_var
@@ -1098,9 +1098,58 @@ async def handle_search_tag(callback: CallbackQuery):
     # await callback.message.answer("🏷️ 请选择标签进行筛选...")
 
 # == 排行选项响应 ==
+
+# == 排行选项响应 ==
 @router.callback_query(F.data == "hot_resource_ranking")
 async def handle_hot_resource_ranking(callback: CallbackQuery):
-    await callback.message.answer("🔥 当前资源排行榜如下：...")
+    """
+    - 若 hot_resource_ranking.html 不存在或 mtime > 24.5h：从 MySQL task_rec 读取 task_title='salai_hot' 的 task_value 并覆盖写入
+    - 否则直接读取文件
+    - 最终以 HTML 方式发送
+    """
+    FILE_PATH = getattr(lz_var, "HOT_RANKING_HTML_PATH", "hot_resource_ranking.html")
+    MAX_AGE = timedelta(hours=24, minutes=30)
+
+    def file_is_fresh(path: str) -> bool:
+        try:
+            mtime = os.path.getmtime(path)
+        except FileNotFoundError:
+            return False
+        except Exception:
+            return False
+        # 用已载入的 datetime 计算年龄
+        now = datetime.now(timezone.utc)
+        mdt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        return (now - mdt) <= MAX_AGE
+
+    html_text: str | None = None
+    if not file_is_fresh(FILE_PATH):
+        # 过期或不存在 -> DB 拉最新快照
+        html_text = await MySQLPool.fetch_task_value_by_title("salai_hot")
+        if html_text:
+            try:
+                folder = os.path.dirname(FILE_PATH) or "."
+                os.makedirs(folder, exist_ok=True)
+                with open(FILE_PATH, "w", encoding="utf-8") as f:
+                    f.write(html_text)
+            except Exception as e:
+                print(f"⚠️ 写入 {FILE_PATH} 失败: {e}", flush=True)
+
+    # 若没拉到（或原本就新鲜），则从文件读
+    if html_text is None:
+        try:
+            with open(FILE_PATH, "r", encoding="utf-8") as f:
+                html_text = f.read()
+        except Exception as e:
+            print(f"⚠️ 读取 {FILE_PATH} 失败: {e}", flush=True)
+            html_text = "<b>暂时没有可显示的排行榜内容。</b>"
+
+    await callback.message.answer(
+        html_text,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True
+    )
+    await callback.answer()
 
 @router.callback_query(F.data == "hot_uploader_ranking")
 async def handle_hot_uploader_ranking(callback: CallbackQuery):

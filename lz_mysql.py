@@ -2,7 +2,7 @@ import aiomysql
 import time
 from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT
 from typing import Optional, Dict, Any, List, Tuple
-
+from lz_memory_cache import MemoryCache
 import lz_var
 
 
@@ -11,6 +11,7 @@ class MySQLPool:
 
     @classmethod
     async def init_pool(cls):
+        cls.cache = MemoryCache()
         if cls._pool is None:
 
             cls._pool = await aiomysql.create_pool(
@@ -372,6 +373,13 @@ class MySQLPool:
     async def list_user_collections(
         cls, user_id: int, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
+        
+        cache_key = f"user:clt:{user_id}:{limit}:{offset}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
@@ -388,9 +396,13 @@ class MySQLPool:
             if not rows:
                 return []
             if isinstance(rows[0], dict):
+                cls.cache.set(cache_key, rows, ttl=300)
                 return rows
             cols = ["id", "title", "description", "is_public", "created_at"]
-            return [{k: v for k, v in zip(cols, r)} for r in rows]
+            result= [{k: v for k, v in zip(cols, r)} for r in rows]
+            cls.cache.set(cache_key, result, ttl=300)
+            print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
+            return result
         finally:
             await cls.release(conn, cur)
 
@@ -403,6 +415,13 @@ class MySQLPool:
         列出用户收藏的合集（基于 user_collection_favorite.user_collection_id 关联）。
         按收藏记录 id 倒序（最新收藏在前）。
         """
+        cache_key = f"fav:clt:{user_id}:{limit}:{offset}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
@@ -421,9 +440,13 @@ class MySQLPool:
             if not rows:
                 return []
             if isinstance(rows[0], dict):
+                cls.cache.set(cache_key, rows, ttl=300)
                 return rows
             cols = ["id", "title", "description", "is_public", "created_at"]
-            return [{k: v for k, v in zip(cols, r)} for r in rows]
+            result = [{k: v for k, v in zip(cols, r)} for r in rows]
+            cls.cache.set(cache_key, result, ttl=300)
+            print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
+            return result
         finally:
             await cls.release(conn, cur)
 
@@ -748,6 +771,14 @@ class MySQLPool:
         """
         查询某个用户的所有上传历史
         """
+
+        cache_key = f"history:upload:{user_id}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+
         conn, cur = await cls.get_conn_cursor()
         try:
             # id, source_id, file_type, content
@@ -760,7 +791,11 @@ class MySQLPool:
             """
             await cur.execute(sql, (user_id,))
             rows = await cur.fetchall()
-            return [dict(r) for r in rows] if rows else []
+            result = [dict(r) for r in rows] if rows else []
+            cls.cache.set(cache_key, result, ttl=300)
+            print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
+            return result
+
         except Exception as e:
             print(f"⚠️ search_history_upload 出错: {e}", flush=True)
             return []
@@ -772,6 +807,13 @@ class MySQLPool:
         """
         查询某个用户的所有兑换历史
         """
+
+        cache_key = f"history:redeem:{user_id}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached        
+        
         conn, cur = await cls.get_conn_cursor()
         try:
             # id, source_id, file_type, content
@@ -784,7 +826,10 @@ class MySQLPool:
             """
             await cur.execute(sql, (user_id,))
             rows = await cur.fetchall()
-            return [dict(r) for r in rows] if rows else []
+            result = [dict(r) for r in rows] if rows else []
+            cls.cache.set(cache_key, result, ttl=300)
+            print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
+            return result
         except Exception as e:
             print(f"⚠️ search_history_upload 出错: {e}", flush=True)
             return []
@@ -817,3 +862,39 @@ class MySQLPool:
             return []
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def fetch_task_value_by_title(cls, title: str) -> str | None:
+        """
+        读取 task_rec 中 task_title=title 的最新一笔 task_value
+        返回: str | None
+        """
+        conn = cur = None
+        try:
+            conn, cur = await cls.get_conn_cursor()
+            await cur.execute(
+                """
+                SELECT task_value
+                FROM task_rec
+                WHERE task_title = %s
+                ORDER BY task_id DESC
+                LIMIT 1
+                """,
+                (title,),
+            )
+            row = await cur.fetchone()
+            if not row:
+                return None
+
+            # 兼容 dict cursor 与 tuple cursor
+            if isinstance(row, dict):
+                return row.get("task_value")
+            else:
+                # 假设 task_value 是第一列
+                return row[0] if len(row) > 0 else None
+        except Exception as e:
+            print(f"[MySQLPool] fetch_task_value_by_title error: {e}", flush=True)
+            return None
+        finally:
+            if conn and cur:
+                await cls.release(conn, cur)

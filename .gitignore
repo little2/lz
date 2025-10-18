@@ -15,3 +15,5 @@ venv/*
 .ananbot.env
 *.env
 *.session
+hot_resource_ranking.html
+hot_uploader_ranking.html

@@ -146,6 +146,6 @@ async def handle_pagination(callback: CallbackQuery):
 
     await callback.message.edit_text(
         text=text, parse_mode=ParseMode.HTML,
-        reply_markup=build_pagination_keyboard(keyword_id, page, has_next, has_prev, callback_function)
+        reply_markup=build_pagination_keyboard(keyword_id, page, has_next, has_prev)
     )
     await callback.answer()

@@ -17,7 +17,7 @@ from aiogram.enums import ParseMode
 from utils.unit_converter import UnitConverter
 from utils.aes_crypto import AESCrypto
 from utils.media_utils import Media
-
+import textwrap
 from datetime import datetime, timezone, timedelta
 
 import asyncio
@@ -130,7 +130,7 @@ def main_menu_keyboard():
             InlineKeyboardButton(text="📂 合集", callback_data="collection"),
             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
         ],
-        [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
+        # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
         [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{META_BOT}?start=upload")],
        
     ])
@@ -138,8 +138,8 @@ def main_menu_keyboard():
 # == 搜索菜单 ==
 def search_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔑 关键字搜索", callback_data="keyword_search")],
-        [InlineKeyboardButton(text="🏷️ 标签筛选", callback_data="tag_filter")],
+        [InlineKeyboardButton(text="🔑 关键字搜索", callback_data="search_keyword")],
+        [InlineKeyboardButton(text="🏷️ 标签筛选", callback_data="search_tag")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -160,10 +160,9 @@ def collection_menu_keyboard():
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
+
+
 # ========= 菜单构建 =========
-
-
-
 def _build_clt_edit_keyboard(collection_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📌 合集主题", callback_data=f"clt:edit_title:{collection_id}")],
@@ -446,16 +445,32 @@ async def handle_pagination(callback: CallbackQuery):
     keyword_id = int(keyword_id_str) 
     page = int(page_str)
 
+    print(f"Pagination: {callback_function}, {keyword_id}, {page}", flush=True)
+
+    if callback_function == "ul_pid":
+        photo = lz_var.skins['history_update']['file_id']
+    elif callback_function == "fd_pid":
+        photo = lz_var.skins['history_redeem']['file_id']
+    else:
+        photo = lz_var.skins['home']['file_id']
+
+
     pg_result = await _build_pagination(callback_function, keyword_id, page)
     if not pg_result.get("ok"):
         await callback.answer(pg_result.get("message"), show_alert=True)
         return
 
-
-    await callback.message.edit_text(
-        text=pg_result.get("text"), parse_mode=ParseMode.HTML,
+    await _edit_caption_or_text(
+        photo=photo,
+        msg=callback.message,
+        text=pg_result.get("text"),
         reply_markup=pg_result.get("reply_markup")
     )
+
+    # await callback.message.edit_text(
+    #     text=pg_result.get("text"), parse_mode=ParseMode.HTML,
+    #     reply_markup=pg_result.get("reply_markup")
+    # )
     await callback.answer()
 
     # 用 keyword_id 查回 keyword 文本
@@ -486,16 +501,19 @@ async def _build_pagination(callback_function, keyword_id, page):
     if callback_function in {"pageid"}:
         # 用 keyword_id 查回 keyword 文本
         keyword = await db.get_keyword_by_id(keyword_id)
+      
         if not keyword:
             return {"ok": False, "message": "⚠️ 无法找到对应关键词"}
             
         result = await db.search_keyword_page_plain(keyword)
 
     elif callback_function in {"fd_pid"}:
+        
         result = await MySQLPool.search_history_redeem(keyword_id)
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何结果"}
     elif callback_function in {"ul_pid"}:
+       
         result = await MySQLPool.search_history_upload(keyword_id)
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何结果"}            
@@ -569,7 +587,7 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
 
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
-    await load_or_create_skins(if_del=True)
+    lz_var.skins = await load_or_create_skins(if_del=True)
     await message.answer("🔄 皮肤配置已重新加载。")
 
 # == 启动指令 ==
@@ -975,8 +993,19 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
 # == 主菜单选项响应 ==
 @router.callback_query(F.data == "search")
 async def handle_search(callback: CallbackQuery):
-    await callback.message.edit_reply_markup(reply_markup=search_menu_keyboard())
+    await _edit_caption_or_text(
+        photo=lz_var.skins['search']['file_id'],
+        msg=callback.message,
+        text="👋 请选择操作：", 
+        reply_markup=search_menu_keyboard()
+    )
 
+def back_search_menu_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 返回搜索", callback_data="search")],
+    ])
+
+    
 @router.callback_query(F.data == "ranking")
 async def handle_ranking(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=ranking_menu_keyboard())
@@ -1028,13 +1057,45 @@ async def handle_upload_resource(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=upload_menu_keyboard())
 
 # == 搜索选项响应 ==
-@router.callback_query(F.data == "keyword_search")
-async def handle_keyword_search(callback: CallbackQuery):
-    await callback.message.answer("🔑 请输入你要搜索的关键字...")
+@router.callback_query(F.data == "search_keyword")
+async def handle_search_keyword(callback: CallbackQuery):
+#     搜索使用方法
+# /s + 关键词1 + 关键词2
 
-@router.callback_query(F.data == "tag_filter")
-async def handle_tag_filter(callback: CallbackQuery):
-    await callback.message.answer("🏷️ 请选择标签进行筛选...")
+# ⚠️ 注意:
+# • /s 与关键词之间需要空格
+# • 多个关键词之间需要空格
+# • 最多支持10个字符
+
+    text = textwrap.dedent('''\
+        <b>搜索使用方法</b>
+        /s + 关键词1 + 关键词2
+
+        <b>⚠️ 注意</b>:
+        • /s 与关键词之间需要空格
+        • 多个关键词之间需要空格
+        • 最多支持10个字符
+    ''')
+    await _edit_caption_or_text(
+        photo=lz_var.skins['search_keyword']['file_id'],
+        msg=callback.message,
+        text=text, 
+        reply_markup=back_search_menu_keyboard()
+    )
+
+   
+
+@router.callback_query(F.data == "search_tag")
+async def handle_search_tag(callback: CallbackQuery):
+    await _edit_caption_or_text(
+        photo=lz_var.skins['search_tag']['file_id'],
+        msg=callback.message,
+        text="🏷️ 请选择标签进行筛选...", 
+        reply_markup=back_search_menu_keyboard()
+    )
+
+
+    # await callback.message.answer("🏷️ 请选择标签进行筛选...")
 
 # == 排行选项响应 ==
 @router.callback_query(F.data == "hot_resource_ranking")

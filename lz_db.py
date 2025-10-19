@@ -1,15 +1,20 @@
 # lz_db.py
 import asyncpg
+import asyncio
 import os
 from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 from datetime import datetime
 import lz_var
 
+
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
 DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
 ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
 COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
+CONNECT_TIMEOUT = float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))  # 新增
+
+
 
 class DB:
     def __init__(self):
@@ -17,7 +22,38 @@ class DB:
         self.pool: asyncpg.Pool | None = None
         self.cache = MemoryCache()
 
+
     async def connect(self):
+        if self.pool is not None:
+            return
+        # （可选）重试 2-3 次，避免临时网络波动
+        retries = int(os.getenv("POSTGRES_CONNECT_RETRIES", "2"))
+        last_exc = None
+        for attempt in range(retries + 1):
+            try:
+                self.pool = await asyncpg.create_pool(
+                    dsn=self.dsn,
+                    min_size=DEFAULT_MIN,
+                    max_size=DEFAULT_MAX,
+                    max_inactive_connection_lifetime=300,
+                    command_timeout=COMMAND_TIMEOUT,
+                    timeout=CONNECT_TIMEOUT,            # 新增：连接级超时
+                    statement_cache_size=1024,          # 稳态优化
+                )
+                # 预热：设置时区/应用名
+                async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+                    await conn.execute("SET SESSION TIME ZONE 'UTC'")
+                    await conn.execute("SET application_name = 'lz_app'")
+                print("✅ PostgreSQL 连接池初始化完成")
+                return
+            except Exception as e:
+                last_exc = e
+                if attempt < retries:
+                    await asyncio.sleep(1.0 * (attempt + 1))
+                else:
+                    raise
+
+    async def connect_bk(self):
         """幂等连接 + 小连接池，避免 TooManyConnections。"""
         if self.pool is not None:
             return
@@ -32,6 +68,7 @@ class DB:
         async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             await conn.execute("SET SESSION TIME ZONE 'UTC'")
             await conn.execute("SET application_name = 'lz_app'")
+        print("✅ PostgreSQL 连接池初始化完成")
 
     async def disconnect(self):
         """优雅断线，给主程序 shutdown/finally 调用。"""
@@ -329,7 +366,7 @@ class DB:
 
     async def upsert_search_keyword_stat(self, keyword: str):
         async with self.pool.acquire() as conn:
-            await conn.execute(
+            result = await conn.execute(
                  """
                 INSERT INTO search_keyword_stat (keyword, search_count, last_search_time)
                 VALUES ($1, 1, CURRENT_TIMESTAMP)
@@ -340,6 +377,7 @@ class DB:
                 """,
                 keyword
             )
+            return result
 
     async def get_search_keyword_id(self, keyword: str) -> int | None:
         async with self.pool.acquire() as conn:
@@ -361,6 +399,12 @@ class DB:
             return row["id"] if row else None
 
     async def get_keyword_by_id(self, keyword_id: int) -> str | None:
+        
+        cache_key = f"keyword:id:{keyword_id}"
+        cached = self.cache.get(cache_key)
+        if cached:
+            return cached
+        
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -371,6 +415,7 @@ class DB:
                 keyword_id
             )
             if row:
+                self.cache.set(cache_key, row["keyword"], ttl=300)
                 return row["keyword"]
             return None
 

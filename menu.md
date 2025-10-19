@@ -87,3 +87,48 @@
 [data] explore_marketplace
 
 [data] go_home
+
+
+
+-------
+[1]历史 
+
+[1-1]我的上传 | history_update
+    [handle] handle_history_update
+        _build_pagination ( callback_function = ul_pid)
+            result=search_history_redeem
+            text=render_results ( stag = ul )
+            kb=build_pagination_keyboard
+        _edit_caption_or_text
+
+[1-2]我的兑换 | history_redeem
+    [handle] handle_history_update
+        _build_pagination ( callback_function = fd_pid)
+            result=search_history_redeem
+            text=render_results ( stag = fd )
+            kb=build_pagination_keyboard
+                handle_sora_page (上下页, search_from= fd, MYSQL:search_history_redeem)
+        _edit_caption_or_text
+
+
+[1-3]收藏合集 | clt_my
+
+[1-4]回历史 
+
+
+[A]商品展示页 
+    product_info = _build_product_info ( search_from )
+        caption
+        reply_markup
+    _edit_caption_or_text
+
+
+    data = await state.get_data()
+    cid = int(data.get("collection_id"))
+
+    await state.update_data({
+    "collection_id": int(cid),
+    "anchor_message": callback.message,
+    "anchor_chat_id": callback.message.chat.id,
+    "anchor_msg_id": callback.message.message_id,
+})

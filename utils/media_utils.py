@@ -27,8 +27,6 @@ class Media:
         - 不负责发送“召唤消息”，仅负责等待与取值；召唤逻辑由业务处发送后再调用本函数
         """
 
-
-
         bot = lz_var.bot
         storage = state.storage  # 与全局 Dispatcher 共享的同一个 storage
 
@@ -37,7 +35,7 @@ class Media:
         key = StorageKey(bot_id=lz_var.bot.id, chat_id=x_chat_id, user_id=x_uid)
 
         await storage.set_state(key, ProductPreviewFSM.waiting_for_x_media.state)
-        await storage.set_data(key, {})  # 清空
+        # await storage.set_data(key, {})  # 清空
 
         # 可选：你想把召唤语塞给状态，方便对方检查 reply_to（不必须）
         if ask_file_unique_id:
@@ -62,19 +60,25 @@ class Media:
             x_file_id = data.get("x_file_id")
             x_file_unique_id = data.get("x_file_unique_id")
             if x_file_id:
-                # 清掉对方上下文的等待态
+                # 清掉对方上下文的等待态 
                 await storage.set_state(key, None)
-                await storage.set_data(key, {})
-                print(f"  ✅ [X-MEDIA] 收到 file_id={x_file_id} | {ask_file_unique_id}", flush=True)
+                data["x_file_id"] = None
+                data["x_file_unique_id"] = None
+                await storage.set_data(key, data)
+                # print(f"  ✅ (fetch_file_by_file_id_from_x) [X-MEDIA] 收到 file_id={x_file_id} | {ask_file_unique_id}", flush=True)
                 return x_file_id
             await asyncio.sleep(0.5)
 
-        if not x_file_id:
-            print(f"❌ [X-MEDIA] 超时未收到 x_file_unique_id {ask_file_unique_id} ，已等待 {timeout_sec} 秒后清理状态", flush=True)
+        # if not x_file_id:
+            # print(f"❌ (fetch_file_by_file_id_from_x)[X-MEDIA] 超时未收到 x_file_unique_id {ask_file_unique_id} ，已等待 {timeout_sec} 秒后清理状态", flush=True)
 
-        # 超时清理
+        # 超时清理 
         await storage.set_state(key, None)
-        await storage.set_data(key, {})
+        data = await storage.get_data(key)
+        data["x_file_id"] = None
+        data["x_file_unique_id"] = None
+        await storage.set_data(key, data)
+        
         return None
 
 

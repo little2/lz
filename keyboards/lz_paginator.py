@@ -11,9 +11,9 @@ def build_pagination_keyboard(keyword_id: int, page: int, has_next: bool, has_pr
     # 第一行：分页按钮
     page_buttons: list[InlineKeyboardButton] = []
     if has_prev:
-        page_buttons.append(InlineKeyboardButton(text="⬅️ 上一页", callback_data=f"{callback_function}|{keyword_id}|{page - 1}"))
+        page_buttons.append(InlineKeyboardButton(text=f"⬅️ 上一页", callback_data=f"{callback_function}|{keyword_id}|{page - 1}"))
     if has_next:
-        page_buttons.append(InlineKeyboardButton(text="➡️ 下一页", callback_data=f"{callback_function}|{keyword_id}|{page + 1}"))
+        page_buttons.append(InlineKeyboardButton(text=f"➡️ 下一页", callback_data=f"{callback_function}|{keyword_id}|{page + 1}"))
     if page_buttons:
         keyboard.append(page_buttons)
 
@@ -21,6 +21,10 @@ def build_pagination_keyboard(keyword_id: int, page: int, has_next: bool, has_pr
     if callback_function in {"ul_pid", "fd_pid"}:
         page_buttons: list[InlineKeyboardButton] = []
         page_buttons.append(InlineKeyboardButton(text="🔙 返回我的历史", callback_data=f"my_history"))
+        keyboard.append(page_buttons)
+    elif callback_function in {"pageid"}:
+        page_buttons: list[InlineKeyboardButton] = []
+        page_buttons.append(InlineKeyboardButton(text="🔙 返回搜寻", callback_data=f"search"))
         keyboard.append(page_buttons)
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)

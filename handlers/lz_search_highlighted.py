@@ -121,7 +121,7 @@ async def handle_search(message: Message):
 
 
 
-@router.callback_query(F.data.startswith("pageid|"))
+@router.callback_query(F.data.startswith("spageid|"))
 async def handle_pagination(callback: CallbackQuery):
     _, keyword_id_str, page_str = callback.data.split("|")
     keyword_id = int(keyword_id_str) 

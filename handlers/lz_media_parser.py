@@ -1,5 +1,8 @@
 from aiogram import Router, F
 from aiogram.types import Message
+
+from aiogram.types import  InputMediaPhoto
+
 from aiogram.fsm.context import FSMContext
 from utils.media_utils import ProductPreviewFSM  # ⬅️ 新增
 import json
@@ -57,6 +60,32 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     print(f"✅ [X-MEDIA] 收到 {file_type}，file_unique_id={file_unique_id} {file_id}，"
           f"from={message.from_user.id}，reply_to_msg_id={reply_to.message_id}", flush=True)
 
+    store_data = await state.get_data()
+
+    menu_message = store_data.get("menu_message")
+    fetch_thumb_file_unique_id = store_data.get("fetch_thumb_file_unique_id")
+
+    
+
+    if fetch_thumb_file_unique_id == file_unique_id:
+        print(f"✅ [X-MEDIA] 发现匹配的 menu_message，准备更新缩略图", flush=True)
+        try:
+            await lz_var.bot.edit_message_media(
+                chat_id=menu_message.chat.id,
+                message_id=menu_message.message_id,
+                media=InputMediaPhoto(
+                    media=file_id,   # 新图的 file_id
+                    caption=menu_message.caption,   # 保留原 caption
+                    parse_mode="HTML",               # 如果原本有 HTML 格式
+                ),
+                reply_markup=menu_message.reply_markup  # 保留原按钮
+            )
+        
+
+            print(f"✅ [X-MEDIA] 成功更新菜单消息的缩略图", flush=True)
+        except Exception as e:
+            print(f"❌ [X-MEDIA] 更新菜单消息缩略图失败: {e}", flush=True)
+
     user_id = str(message.from_user.id) if message.from_user else None
     
     await db.upsert_file_extension(
@@ -69,8 +98,8 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
 
 
     # 把结果写回 FSM
-    await state.update_data({"x_file_unique_id": file_unique_id})
-    await state.update_data({"x_file_id": file_id})
+    await state.update_data({"x_file_unique_id": file_unique_id, "x_file_id": file_id})
+    
 
 @router.message(F.photo)
 async def handle_photo_message(message: Message):

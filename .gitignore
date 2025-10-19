@@ -15,5 +15,6 @@ venv/*
 .ananbot.env
 *.env
 *.session
-hot_resource_ranking.html
-hot_uploader_ranking.html
+ranking_resource.html
+ranking_uploader.html
+skins.json

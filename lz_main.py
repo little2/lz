@@ -138,6 +138,12 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
         "search": {"file_id": "", "file_unique_id": "AQADGgtrG8puoUd-"},
         "search_keyword": {"file_id": "", "file_unique_id": "AQADHAtrG8puoUd-"},
         "search_tag": {"file_id": "", "file_unique_id": "AQADHQtrG8puoUd-"},
+        "ranking": {"file_id": "", "file_unique_id": "AQADCwtrG9iwoUd-"},
+        "ranking_resource": {"file_id": "", "file_unique_id": "AQADDQtrG9iwoUd-"},
+        "ranking_uploader": {"file_id": "", "file_unique_id": "AQADDgtrG9iwoUd-"},
+        "product_cover1": {"file_id": "", "file_unique_id": "AQADMK0xG4g4QEV-"},
+        "product_cover2": {"file_id": "", "file_unique_id": "AQADMq0xG4g4QEV-"},
+        "product_cover3": {"file_id": "", "file_unique_id": "AQADMa0xG4g4QEV-"}
     }
 
     # 移除文件 config_path
@@ -187,11 +193,13 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
         json.dump(skins, f, ensure_ascii=False, indent=4)
     # print(f"💾 已写入 {config_path}")
 
+    lz_var.default_thumb_file_id = [
+       skins.get("product_cover1", {}).get("file_id", ""),
+       skins.get("product_cover2", {}).get("file_id", ""),
+       skins.get("product_cover3", {}).get("file_id", ""), 
+    ]
+    
     return skins
-
-
-
-
 
 async def on_startup(bot: Bot):
     webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -207,8 +215,6 @@ async def health(request):
     if lz_var.cold_start_flag or uptime < 10:
         return web.Response(text="⏳ Bot 正在唤醒，请稍候...", status=503)
     return web.Response(text="✅ Bot 正常运行", status=200)
-
-
 
 async def delete_my_profile_photos(client):
     photos = await client.get_profile_photos('me')
@@ -297,8 +303,13 @@ async def main():
     dp.include_router(lz_menu.router)
 
     # ✅ 统一在这里连一次
-    await db.connect()
-    await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+    # await db.connect()
+    # await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+
+    await asyncio.gather(
+        db.connect(),            # PostgreSQL
+        MySQLPool.init_pool(),   # MySQL
+    )
 
    
 

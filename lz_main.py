@@ -127,6 +127,7 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
 
     default_skins = {
         "home":    {"file_id": "", "file_unique_id": "AQADHwtrG8puoUd-"},  # Luzai02bot 的默认封面
+        "loading": {"file_id": "", "file_unique_id": "AgADcAYAAtiwqUc"},
         "clt_menu":     {"file_id": "", "file_unique_id": "AQAD2wtrG-sSiUd-"},  # Luzai01bot 的默认封面
         "clt_my":  {"file_id": "", "file_unique_id": "AQADzAtrG-sSiUd-"},
         "clt_fav": {"file_id": "", "file_unique_id": "AQAD1wtrG-sSiUd-"},

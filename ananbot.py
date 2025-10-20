@@ -864,7 +864,7 @@ async def _ensure_placeholder_once(message: Message, state: FSMContext):
 
 
 @dp.message(F.chat.type == "private", F.content_type.in_({
-    ContentType.PHOTO, ContentType.VIDEO, ContentType.DOCUMENT
+    ContentType.PHOTO, ContentType.VIDEO, ContentType.DOCUMENT,  ContentType.ANIMATION
 }), ProductPreviewFSM.waiting_for_album_media)
 async def receive_album_media(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -898,6 +898,10 @@ async def receive_album_media(message: Message, state: FSMContext):
         file = message.video
         file_type = "video"
         type_code = "v"
+    elif message.content_type == ContentType.ANIMATION:
+        file = message.animation
+        file_type = "animation"
+        type_code = "n"
     else:
         file = message.document
         file_type = "document"
@@ -1487,7 +1491,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
         # Step 4: 通知处理 bot 生成缩图（或触发缓存）
             storage = state.storage  # 与全局 Dispatcher 共享的同一个 storage
 
-            x_uid = lz_var.x_man_bot_id          # = 7793315433
+            x_uid = lz_var.x_man_bot_id         
             x_chat_id = x_uid                     # 私聊里 chat_id == user_id
             me = await bot.get_me()
             key = StorageKey(bot_id=me.id, chat_id=x_chat_id, user_id=x_uid)
@@ -3748,7 +3752,7 @@ async def clear_removetag_timeout(state: FSMContext, chat_id: int):
 async def handle_text(message: Message):
     await message.answer("哥哥，我在呢，输入视频参数或描述，会有时间限制，时间过了，请哥哥记得再一次点击按钮，再输入")
 
-@dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO}))
+@dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO, ContentType.ANIMATION}))
 async def handle_media(message: Message, state: FSMContext):
 
     timer = SegTimer(
@@ -3795,6 +3799,17 @@ async def handle_media(message: Message, state: FSMContext):
                 "width": message.video.width,
                 "height": message.video.height,
                 "file_name": message.video.file_name or ""
+            }
+        elif file_type == ContentType.ANIMATION:
+            meta = {
+                "file_type": "animation",
+                "file_unique_id": message.animation.file_unique_id,
+                "file_id": message.animation.file_id,
+                "file_size": message.animation.file_size or 0,
+                "duration": message.animation.duration or 0,
+                "width": message.animation.width,
+                "height": message.animation.height,
+                "file_name": message.animation.file_name or ""
             }
         elif file_type == ContentType.DOCUMENT:
             meta = {
@@ -4089,6 +4104,15 @@ async def handle_media_bk(message: Message, state: FSMContext):
             width = 0
             height = 0
             table = "document"
+        elif file_type == ContentType.ANIMATION:
+            file_unique_id = message.animation.file_unique_id
+            file_name = message.animation.file_name or ""
+            file_id = message.animation.file_id
+            file_size = message.animation.file_size
+            duration = message.animation.duration
+            width = message.animation.width
+            height = message.animation.height
+            table = "animation"
         else:
             print(f"⚠️ 不支持的媒体类型: {file_type}", flush=True)
             return

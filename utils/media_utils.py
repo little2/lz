@@ -22,7 +22,7 @@ class Media:
     async def fetch_file_by_file_id_from_x(cls, state: FSMContext, ask_file_unique_id: str | None = None, timeout_sec: float = 10.0):
         """
         进入等待态 -> 清空状态数据 -> 轮询每 0.5 秒看是否收到 file_unique_id
-        - 要求：由 7793315433 以「回覆」的方式把媒体回到你发出的那条 ask 消息
+        - 要求：由 仓库人 以「回覆」的方式把媒体回到你发出的那条 ask 消息
         - lz_media_parser.py 会在满足条件时把 FSM 内容写入 {"x_media_unique_id": "..."} 并打印
         - 不负责发送“召唤消息”，仅负责等待与取值；召唤逻辑由业务处发送后再调用本函数
         """
@@ -30,7 +30,7 @@ class Media:
         bot = lz_var.bot
         storage = state.storage  # 与全局 Dispatcher 共享的同一个 storage
 
-        x_uid = lz_var.x_man_bot_id          # = 7793315433
+        x_uid = lz_var.x_man_bot_id          
         x_chat_id = x_uid                     # 私聊里 chat_id == user_id
         key = StorageKey(bot_id=lz_var.bot.id, chat_id=x_chat_id, user_id=x_uid)
 

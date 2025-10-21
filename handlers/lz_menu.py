@@ -770,7 +770,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         chat_id=clti_message.chat.id,
                         message_id=clti_message.message_id,
                         media=InputMediaAnimation(
-                            media="CgACAgEAAxkBAAIIVmj0hnKZxG9Ti6fHNjIr5Fz5YrmHAAJwBgAC2LCpR2u0VCzFMI5PNgQ",
+                            media=lz_var.skins.get("loading", {}).get("file_id", ""),
                             caption=caption_txt,
                             parse_mode="HTML"
                         )
@@ -780,7 +780,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
                 else:   
                     clti_message = await message.answer_animation(
-                        animation="CgACAgEAAxkBAAIIVmj0hnKZxG9Ti6fHNjIr5Fz5YrmHAAJwBgAC2LCpR2u0VCzFMI5PNgQ",  # 你的 GIF file_id 或 URL
+                        animation=lz_var.skins.get("loading", {}).get("file_id", ""),  # 你的 GIF file_id 或 URL
                         caption=caption_txt,
                         parse_mode="HTML"
                     )

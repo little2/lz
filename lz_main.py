@@ -1,3 +1,5 @@
+
+
 import asyncio
 import os
 import time
@@ -67,7 +69,7 @@ async def handle_user_private_media(event):
     if not msg.is_private:
         return
     
-
+    file_type =''
     media = None
     if msg.document:
         media = msg.document

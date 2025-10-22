@@ -1,3 +1,9 @@
+import inspect
+import functools
+import traceback
+import sys
+from typing import Any, Callable
+from typing import Callable, Awaitable, Any
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from aiogram.filters import Command
@@ -50,37 +56,69 @@ class LZFSM(StatesGroup):
     waiting_for_title = State()
     waiting_for_description = State()
 
-
-
-
-def debug(func):
+def debug(func: Callable[..., Any]):
     """
-    通用装饰器：
     自动捕获异常并打印出函数名、文件名、行号、错误类型、出错代码。
+    同时兼容同步函数与异步函数。
     """
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
+    if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def awrapper(*args, **kwargs):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                exc_type, _, exc_tb = sys.exc_info()
+                tb_last = traceback.extract_tb(exc_tb)[-1]
+                print("⚠️  函数执行异常捕获")
+                print(f"📍 函数名：{func.__name__}")
+                print(f"📄 文件：{tb_last.filename}")
+                print(f"🔢 行号：{tb_last.lineno}")
+                print(f"➡️ 出错代码：{tb_last.line}")
+                print(f"❌ 错误类型：{exc_type.__name__}")
+                print(f"💬 错误信息：{e}")
+                print(f"📜 完整堆栈：\n{traceback.format_exc()}")
+                # raise  # 需要外层捕获时放开
+        return awrapper
+    else:
+        @functools.wraps(func)
+        def swrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                exc_type, _, exc_tb = sys.exc_info()
+                tb_last = traceback.extract_tb(exc_tb)[-1]
+                print("⚠️  函数执行异常捕获")
+                print(f"📍 函数名：{func.__name__}")
+                print(f"📄 文件：{tb_last.filename}")
+                print(f"🔢 行号：{tb_last.lineno}")
+                print(f"➡️ 出错代码：{tb_last.line}")
+                print(f"❌ 错误类型：{exc_type.__name__}")
+                print(f"💬 错误信息：{e}")
+                print(f"📜 完整堆栈：\n{traceback.format_exc()}")
+                # raise
+        return swrapper
+
+
+def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
+    """相同 key 的后台任务只跑一个；结束后自动清理。仅在需要时才创建 coroutine。"""
+    task = _background_tasks.get(key)
+    if task and not task.done():
+        return
+
+    async def _runner():
         try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            exc_type, exc_value, exc_tb = sys.exc_info()
-            tb_last = traceback.extract_tb(exc_tb)[-1]
+            # 到这里才真正创建 coroutine，避免“未 await”警告
+            coro = coro_factory()
+            await asyncio.wait_for(coro, timeout=15)
+        except Exception:
+            print(f"🔥 background task failed for key={key}", flush=True)
 
-            print("⚠️  函数执行异常捕获")
-            print(f"📍 函数名：{func.__name__}")
-            print(f"📄 文件：{tb_last.filename}")
-            print(f"🔢 行号：{tb_last.lineno}")
-            print(f"➡️ 出错代码：{tb_last.line}")
-            print(f"❌ 错误类型：{exc_type.__name__}")
-            print(f"💬 错误信息：{e}")
-            print(f"📜 完整堆栈：\n{traceback.format_exc()}")
-
-            # 若希望继续抛出（让外层捕获），可取消下一行注释
-            # raise
-    return wrapper
+    t = asyncio.create_task(_runner(), name=f"backfill:{key}")
+    _background_tasks[key] = t
+    t.add_done_callback(lambda _: _background_tasks.pop(key, None))
 
 
-def spawn_once(key: str, coro: "Coroutine"):
+def spawn_once1(key: str, coro: "Coroutine"):
     """相同 key 的后台任务只跑一个；结束后自动清理。"""
     task = _background_tasks.get(key)
     if task and not task.done():
@@ -661,7 +699,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
     await message.answer("🔄 皮肤配置已重新加载。")
 
 
-@router.message(Command("ss"))
+@router.message(Command("s"))
 async def handle_search_s(message: Message, state: FSMContext, command: Command = Command("ss")):
     # 删除 /ss 这个消息
     try:
@@ -817,7 +855,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         parse_mode="HTML"
                     )
 
-                    print(f"clti_message={clti_message}",flush=True)
+                    # print(f"clti_message={clti_message}",flush=True)
 
                 
                 
@@ -1453,9 +1491,9 @@ async def handle_clt_my_pager(callback: CallbackQuery):
 
 #查看合集
 @router.callback_query(F.data.regexp(r"^clt:my:(\d+)(?::(\d+)(?::([A-Za-z0-9]+))?)?$"))
-async def handle_clt_my(callback: CallbackQuery):
+async def handle_clt_my_detail(callback: CallbackQuery):
     # ====== “我的合集”入口用通用键盘（保持既有行为）======
-    print(f"handle_clt_my: {callback.data}")
+    print(f"handle_clt_my_detail: {callback.data}")
     _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
     cid = int(cid_str)
     user_id = callback.from_user.id
@@ -2707,8 +2745,11 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 
         if not file_id and source_id:
             # 不阻塞：丢到后台做补拉
-            spawn_once(f"fild_id:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
-
+            # spawn_once(f"fild_id:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
+            spawn_once(
+                f"fild_id:{source_id}",
+                lambda: Media.fetch_file_by_file_id_from_x(state, source_id, 10)
+            )
         # print(f"tag_length {tag_length}")
 
         # 计算可用空间

@@ -80,7 +80,7 @@ def shorten_content(text: str, max_length: int = 30) -> str:
     return text[:max_length] + "..." if len(text) > max_length else text
 
 
-@router.message(Command("s"))
+@router.message(Command("sss"))
 async def handle_search(message: Message):
     if (getattr(message.chat, "type", None) not in {ChatType.GROUP, ChatType.SUPERGROUP}) and ENVIRONMENT != "dev":
         await message.reply("⚠️ 此指令只能在群組中使用。")

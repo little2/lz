@@ -66,7 +66,7 @@ async def handle_user_private_media(event):
     msg = event.message
     if not msg.is_private:
         return
-    print(f"【Telethon】收到私聊消息 {event.message.text}",flush=True)
+    
 
     media = None
     if msg.document:
@@ -82,6 +82,9 @@ async def handle_user_private_media(event):
     #     media = msg.text
     #     file_type = 'text'        
     #     pass
+
+
+    print(f"【Telethon】收到私聊消息 {event.message.text} {file_type}",flush=True)
 
     # 转发到群组，并删除私聊
     if media:

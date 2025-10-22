@@ -38,7 +38,9 @@ from lz_mysql import MySQLPool
 
 from utils.product_utils import submit_resource_to_chat,get_product_material
 
-
+import functools
+import traceback
+import sys
 
 router = Router()
 
@@ -47,6 +49,35 @@ _background_tasks: dict[str, asyncio.Task] = {}
 class LZFSM(StatesGroup):
     waiting_for_title = State()
     waiting_for_description = State()
+
+
+
+
+def debug(func):
+    """
+    通用装饰器：
+    自动捕获异常并打印出函数名、文件名、行号、错误类型、出错代码。
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            exc_type, exc_value, exc_tb = sys.exc_info()
+            tb_last = traceback.extract_tb(exc_tb)[-1]
+
+            print("⚠️  函数执行异常捕获")
+            print(f"📍 函数名：{func.__name__}")
+            print(f"📄 文件：{tb_last.filename}")
+            print(f"🔢 行号：{tb_last.lineno}")
+            print(f"➡️ 出错代码：{tb_last.line}")
+            print(f"❌ 错误类型：{exc_type.__name__}")
+            print(f"💬 错误信息：{e}")
+            print(f"📜 完整堆栈：\n{traceback.format_exc()}")
+
+            # 若希望继续抛出（让外层捕获），可取消下一行注释
+            # raise
+    return wrapper
 
 
 def spawn_once(key: str, coro: "Coroutine"):
@@ -674,6 +705,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
 
 
 # == 启动指令 ==
+@debug
 @router.message(Command("start"))
 async def handle_start(message: Message, state: FSMContext, command: Command = Command("start")):
     # 删除 /start 这个消息
@@ -770,7 +802,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         chat_id=clti_message.chat.id,
                         message_id=clti_message.message_id,
                         media=InputMediaAnimation(
-                            media=lz_var.skins.get("loading", {}).get("file_id", ""),
+                            media=lz_var.skins["loading"]["file_id"],
                             caption=caption_txt,
                             parse_mode="HTML"
                         )
@@ -780,7 +812,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
                 else:   
                     clti_message = await message.answer_animation(
-                        animation=lz_var.skins.get("loading", {}).get("file_id", ""),  # 你的 GIF file_id 或 URL
+                        animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                         caption=caption_txt,
                         parse_mode="HTML"
                     )

@@ -370,6 +370,13 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    async def delete_cache(cls, prefix: str):
+        keys_to_delete = [k for k in cls.cache.keys() if k.startswith(prefix)]
+        for k in keys_to_delete:
+            del cls.cache[k]
+        pass
+
+    @classmethod
     async def list_user_collections(
         cls, user_id: int, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:

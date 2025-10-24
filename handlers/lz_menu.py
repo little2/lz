@@ -135,6 +135,18 @@ def spawn_once1(key: str, coro: "Coroutine"):
     _background_tasks[key] = t
     t.add_done_callback(lambda _: _background_tasks.pop(key, None))
 
+async def set_global_state(state: FSMContext, thumb_file_unique_id: str | None = None, menu_message: Message | None = None):
+    storage = state.storage
+    key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
+    storage_data = await storage.get_data(key)
+    if thumb_file_unique_id:
+        storage_data["fetch_thumb_file_unique_id"] = f"{thumb_file_unique_id}"
+    if menu_message:
+        storage_data["menu_message"] = menu_message
+        await state.update_data({
+            "menu_message": menu_message
+        })
+    await storage.set_data(key, storage_data)
 
 # ========= 工具 =========
 
@@ -144,7 +156,111 @@ def _short(text: str | None, n: int = 60) -> str:
     text = text.replace("\r", " ").replace("\n", " ")
     return text[:n] + ("..." if len(text) > n else "")
 
-async def _edit_caption_or_text(msg : Message | None = None, *,  text: str, reply_markup: InlineKeyboardMarkup | None, chat_id: int|None = None, message_id:int|None = None, photo: str|None = None):
+async def _edit_caption_or_text(
+    msg: Message | None = None,
+    *,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None,
+    chat_id: int | None = None,
+    message_id: int | None = None,
+    photo: str | None = None
+):
+    """
+    统一编辑：
+      - 若原消息有媒体：
+          * 传入 photo → 用 edit_message_media 换图 + caption
+          * 未传 photo → 用 edit_message_caption 仅改文字
+      - 若原消息无媒体：edit_message_text
+    额外规则：
+      - 若要求“换媒体”但未传 photo，则尝试复用原图（仅当原媒体是 photo）
+      - 若原媒体不是 photo，则回退为仅改 caption（避免类型不匹配错误）
+    """
+    try:
+        if msg is None and (chat_id is None or message_id is None):
+            # 没有 msg，也没提供 chat_id/message_id，无法定位消息
+            return
+
+        if chat_id is None:
+            chat_id = msg.chat.id
+        if message_id is None:
+            message_id = msg.message_id
+
+        # 判断是否为媒体消息（按优先顺序找出第一种存在的媒体属性）
+        media_attr = next(
+            (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
+            None
+        )
+
+        if media_attr:
+            # ——————————— 有媒体的情况 ———————————
+            if photo:
+                # 明确要换图：用传入的 photo
+                await lz_var.bot.edit_message_media(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media=InputMediaPhoto(
+                        media=photo,
+                        caption=text,
+                        parse_mode="HTML",
+                    ),
+                    reply_markup=reply_markup,
+                )
+            else:
+                # 未传 photo：尝试“复用原媒体”
+                if media_attr == "photo":
+                    # Aiogram 的 Message.photo 是 PhotoSize 列表，取最后一项（最大尺寸）
+                    try:
+                        orig_photo_id = (msg.photo[-1].file_id) if getattr(msg, "photo", None) else None
+                    except Exception:
+                        orig_photo_id = None
+
+                    if orig_photo_id:
+                        # 用 edit_message_media + 原图，实现“换媒体但沿用原图 + 改 caption”
+                        await lz_var.bot.edit_message_media(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            media=InputMediaPhoto(
+                                media=orig_photo_id,
+                                caption=text,
+                                parse_mode="HTML",
+                            ),
+                            reply_markup=reply_markup,
+                        )
+                    else:
+                        # 兜底：拿不到原图 id，就仅改 caption
+                        await lz_var.bot.edit_message_caption(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            caption=text,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup,
+                        )
+                else:
+                    # 原媒体不是 photo（例如 animation/video/document）：
+                    # 为避免 “can't use file of type ... as Photo” 错误，这里不强行换媒体，改为仅改 caption
+                    await lz_var.bot.edit_message_caption(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        caption=text,
+                        parse_mode="HTML",
+                        reply_markup=reply_markup,
+                    )
+        else:
+            # ——————————— 无媒体的情况 ———————————
+            await lz_var.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+
+    except Exception as e:
+        # 你也可以在这里加上 traceback 打印，或区分 TelegramBadRequest
+        print(f"❌ 编辑消息失败: {e}", flush=True)
+
+
+
+async def _edit_caption_or_text2(msg : Message | None = None, *,  text: str, reply_markup: InlineKeyboardMarkup | None, chat_id: int|None = None, message_id:int|None = None, photo: str|None = None):
     """
     统一编辑：若原消息有照片 -> edit_caption；否则 -> edit_text
     """
@@ -161,7 +277,7 @@ async def _edit_caption_or_text(msg : Message | None = None, *,  text: str, repl
             None
         )
 
-        if media_attr:
+        if media_attr and photo:
             # 取出媒体对象
             media = getattr(msg, media_attr)
 
@@ -733,13 +849,29 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     date = await state.get_data()
     handle_message = date.get("menu_message")
 
-    await _edit_caption_or_text(
+    print(f"handle_message={handle_message}",flush=True)
+
+    if handle_message:
+        try:
+            await _edit_caption_or_text(
+                photo=lz_var.skins['search_keyword']['file_id'],
+                msg=handle_message,
+                text=list_info.get("text"),
+                reply_markup=list_info.get("reply_markup"),
+            )
+            return
+        except Exception as e:
+            print(f"❌ 编辑消息失败: {e}", flush=True)
+            
+    menu_message = await message.answer_photo(
         photo=lz_var.skins['search_keyword']['file_id'],
-        msg=handle_message,
-        text=list_info.get("text"),
+        caption=list_info.get("text"),
+        parse_mode="HTML",
         reply_markup=list_info.get("reply_markup"),
     )
 
+    await set_global_state(state, menu_message=menu_message)
+    
 
 
 # == 启动指令 ==
@@ -918,13 +1050,15 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         if ENVIRONMENT != "dev":
             return
 
-        await message.answer_photo(
+        menu_message = await message.answer_photo(
                 photo=lz_var.skins['home']['file_id'],
                 caption="👋 欢迎使用 LZ 机器人！请选择操作：",
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard())   
         # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
-        
+        await state.update_data({
+            "menu_message": menu_message
+        })
 
 
 async def _build_product_info(content_id :int , search_key_index: str, state: FSMContext, message: Message, search_from : str = 'search', current_pos:int = 0):
@@ -1491,13 +1625,14 @@ async def handle_clt_my_pager(callback: CallbackQuery):
 
 #查看合集
 @router.callback_query(F.data.regexp(r"^clt:my:(\d+)(?::(\d+)(?::([A-Za-z0-9]+))?)?$"))
-async def handle_clt_my_detail(callback: CallbackQuery):
+async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
     # ====== “我的合集”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_my_detail: {callback.data}")
     _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
     cid = int(cid_str)
     user_id = callback.from_user.id
-    
+
+    new_message = callback.message    
 
     if refresh_mode == 'k':
         kb = _build_clt_info_keyboard(cid, is_fav=False, mode='edit', ops='handle_clt_my')
@@ -1512,16 +1647,22 @@ async def handle_clt_my_detail(callback: CallbackQuery):
         elif collection_info.get("photo"):
             # await callback.message.edit_media(media=collection_info.get("photo"), caption=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
             
-            await callback.message.edit_media(
+            new_message = await callback.message.edit_media(
                 media=InputMediaPhoto(media=collection_info.get("photo"), 
                 caption=collection_info.get("caption"), 
                 parse_mode="HTML"),
                 reply_markup=collection_info.get("reply_markup")
             )
             
-            return
+
+
         else:
-            await callback.message.edit_text(text=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
+            new_message = await callback.message.edit_text(text=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
+
+
+    await state.update_data({
+        "menu_message": new_message
+    })
 
 #编辑合集详情
 @router.callback_query(F.data.regexp(r"^clt:edit:\d+:\d+(?::([A-Za-z]+))?$"))
@@ -1545,6 +1686,8 @@ async def handle_clt_edit(callback: CallbackQuery):
             text=caption, 
             reply_markup=kb
         )
+        user_id = callback.from_user.id
+        await MySQLPool.delete_cache(f"user:clt:{user_id}:")
 
 async def _build_clt_edit(cid: int, anchor_message: Message):
     caption = await _build_clt_edit_caption(cid)
@@ -1603,6 +1746,8 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
         text=text,
         reply_markup=_build_clt_edit_keyboard(cid)
     )
+    cache_key = f"collection_info_{cid}"
+    self.cache.delete(cache_key)
 
 
 @router.callback_query(F.data == "clt_favorite")
@@ -2037,7 +2182,7 @@ async def handle_go_home(callback: CallbackQuery):
 
     # await callback.message.edit_reply_markup(reply_markup=main_menu_keyboard())
 
-
+@debug
 @router.callback_query(F.data.startswith("sora_page:"))
 async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
     try:
@@ -2094,9 +2239,9 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         # print(f"➡️ 翻页请求: current_pos={current_pos}, offset={offset}, new_pos={new_pos}, next_content_id={next_content_id}")
 
     
-        await state.update_data({
-            "menu_message": callback.message
-        })
+
+
+        
 
         product_info = await _build_product_info(content_id=next_content_id, search_key_index=search_key_index,  state=state,  message= callback.message, search_from=search_from , current_pos=new_pos)
 
@@ -2124,6 +2269,8 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
                 },
                 reply_markup=reply_markup
             )
+
+            await set_global_state(state=state, menu_message=r)
             
         except Exception as e:
             print(f"❌ edit_media failed: {e}, try edit_text")
@@ -2157,10 +2304,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         print("❌ 没有找到匹配记录 source_id")
         await callback.answer("👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。", show_alert=True)
         # await callback.message.reply("👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。")
-        await lz_var.bot.delete_message(
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id
-        )
+        # await lz_var.bot.delete_message(
+        #     chat_id=callback.message.chat.id,
+        #     message_id=callback.message.message_id
+        # )
         return
     
     # 若有,则回覆消息
@@ -2402,7 +2549,19 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             print(f"❌ 目标 chat 不存在或无法访问: {e}")
 
         await callback.answer(reply_text, show_alert=True)
-        
+        new_message = await lz_var.bot.copy_message(
+            chat_id=callback.message.chat.id,
+            from_chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id,
+            reply_markup=callback.message.reply_markup
+        )
+        await set_global_state(state, menu_message=new_message)
+
+        await lz_var.bot.delete_message(
+            chat_id=callback.message.chat.id,
+            message_id=callback.message.message_id
+        )
+
         return
     elif result.get('status') == 'insufficient_funds':
        
@@ -2654,15 +2813,22 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         # ✅ 若 thumb_file_id 为空，则给默认值
         if not thumb_file_id and thumb_file_unique_id != None:
             print(f"🔍 没有找到 thumb_file_id，背景尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
-            thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
-            # 设置当下要获取的 thumb 是什么,若从背景取得图片时，可以直接更新 (fetch_thumb_file_unique_id 且 menu_message 存在)
-            # storage = state.storage
-            # key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
-            # storage_data = await storage.get_data(key)
-            # storage_data["fetch_thumb_file_unique_id"] = f"{thumb_file_unique_id}"
-            # await storage.set_data(key, storage_data)
-            
+            spawn_once(
+                f"thumb_file_id:{thumb_file_unique_id}",
+                lambda: Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
+            )
 
+
+            # thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
+            # 设置当下要获取的 thumb 是什么,若从背景取得图片时，可以直接更新 (fetch_thumb_file_unique_id 且 menu_message 存在)
+            state_data = await state.get_data()
+            menu_message = state_data.get("menu_message")
+     
+            if menu_message:
+                print(f"🔍 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
+                await set_global_state(state, thumb_file_unique_id=f"{thumb_file_unique_id}", menu_message=menu_message)
+            else:
+                print("❌ menu_message 不存在，无法设置 fetch_thumb_file_unique_id")
             
             # print(f"🔍 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
             # spawn_once(f"thumb_file_unique_id:{thumb_file_unique_id}", Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10))

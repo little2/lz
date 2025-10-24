@@ -61,14 +61,13 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
           f"from={message.from_user.id}，reply_to_msg_id={reply_to.message_id}", flush=True)
 
     store_data = await state.get_data()
-
     menu_message = store_data.get("menu_message")
     fetch_thumb_file_unique_id = store_data.get("fetch_thumb_file_unique_id")
 
     
 
     if fetch_thumb_file_unique_id == file_unique_id:
-        print(f"✅ [X-MEDIA] 发现匹配的 menu_message，准备更新缩略图", flush=True)
+        print(f"✅ [X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)
         try:
             await lz_var.bot.edit_message_media(
                 chat_id=menu_message.chat.id,

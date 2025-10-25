@@ -849,7 +849,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     date = await state.get_data()
     handle_message = date.get("menu_message")
 
-    print(f"handle_message={handle_message}",flush=True)
+    # print(f"handle_message={handle_message}",flush=True)
 
     if handle_message:
         try:

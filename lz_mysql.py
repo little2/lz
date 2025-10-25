@@ -190,7 +190,7 @@ class MySQLPool:
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
                 LEFT JOIN product p ON s.id = p.content_id
                 LEFT JOIN guild g ON p.guild_id = g.guild_id
-                WHERE s.id = %s
+                WHERE s.id = %s AND s.valid_status != 4
                 '''
             , (lz_var.bot_username, content_id))
             row = await cursor.fetchone()
@@ -496,7 +496,7 @@ class MySQLPool:
             FROM user_collection_file ucf
             LEFT JOIN sora_content sc
               ON sc.id = ucf.content_id
-            WHERE ucf.collection_id = %s
+            WHERE ucf.collection_id = %s AND sc.valid_status != 4
             ORDER BY ucf.sort ASC
             LIMIT %s OFFSET %s
             """
@@ -688,7 +688,7 @@ class MySQLPool:
             SELECT sc.id, sc.source_id, sc.file_type, sc.content
             FROM user_collection_file ucf
             LEFT JOIN sora_content sc ON ucf.content_id = sc.id
-            WHERE ucf.collection_id = %s
+            WHERE ucf.collection_id = %s AND sc.valid_status != 4
             ORDER BY ucf.sort ASC
             """
             await cur.execute(sql, (collection_id,))
@@ -793,7 +793,7 @@ class MySQLPool:
             SELECT sc.id, sc.source_id, sc.file_type, sc.content
             FROM product p
             LEFT JOIN sora_content sc ON p.content_id = sc.id
-            WHERE p.owner_user_id = %s
+            WHERE p.owner_user_id = %s AND sc.valid_status != 4
             ORDER BY sc.id ASC
             """
             await cur.execute(sql, (user_id,))
@@ -828,7 +828,7 @@ class MySQLPool:
             SELECT sc.id, sc.source_id, sc.file_type, sc.content
             FROM transaction t
             LEFT JOIN sora_content sc ON t.transaction_description = sc.source_id
-            WHERE t.sender_id = %s and t.transaction_type='confirm_buy'
+            WHERE t.sender_id = %s and t.transaction_type='confirm_buy' AND sc.valid_status != 4
             ORDER BY t.transaction_id DESC
             """
             await cur.execute(sql, (user_id,))
@@ -858,7 +858,7 @@ class MySQLPool:
                 FROM album_items c
                 LEFT JOIN sora_content s ON c.member_content_id = s.id
                 LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
-                WHERE c.content_id = %s
+                WHERE c.content_id = %s AND s.valid_status != 4
                 ORDER BY c.file_type;
             """
             await cur.execute(sql, (bot_name, content_id))

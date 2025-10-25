@@ -939,6 +939,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
                 await lz_var.bot.send_photo(
                     chat_id=user_id,
+                    caption = collection_info.get("caption"),
                     photo=collection_info.get("photo"),
                     reply_markup=collection_info.get("reply_markup"),
                     parse_mode="HTML")
@@ -1838,19 +1839,19 @@ async def handle_clt_fav(callback: CallbackQuery):
 
 def _build_clt_info_caption(rec: dict) -> str:
     return (
-        f"收藏 ID: {rec.get('id')}\n"
-        f"合集作者: {rec.get('user_id')}\n"
-        f"名称: {rec.get('title') or '未命名合集'}\n"
-        f"描述: {rec.get('description') or ''}"
+        f"<blockquote>{rec.get('title') or '未命名合集'}</blockquote>\n"
+        f"{rec.get('description') or ''}\n\n"
+        f"🆔 {rec.get('id')}     👤 {rec.get('user_id')}\n"
     )
 
 
 #collection > 合集 Partal > 合集列表 CollectionList > [单一合集页 CollectionDetail] > 显示合集内容 CollectItemList 或 编辑合集 CollectionEdit
-def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: str = '') -> InlineKeyboardMarkup:
+def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: str = 'handle_clt_fav') -> InlineKeyboardMarkup:
     kb_rows: list[list[InlineKeyboardButton]] = []
 
     print(f"ops={ops}")
 
+    callback_function = ''
     if ops == 'handle_clt_my':
         callback_function = 'clti:list'
     elif ops == 'handle_clt_fav':
@@ -1960,8 +1961,6 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
         #     cover_file_id = lz_var.skins['clt_my']['file_id']
         # elif ops == 'handle_clt_fav':
         #     cover_file_id = lz_var.skins['clt_fav']['file_id']
-
-
 
         if cover_file_id:
             # return await message.answer_photo(photo=cover_file_id, caption=caption, reply_markup=kb)
@@ -2099,16 +2098,20 @@ async def handle_uc_fav(callback: CallbackQuery):
     cid = int(cid_str)
     user_id = callback.from_user.id
 
+    print(f"➡️ 用户 {user_id} 切换合集 {cid} 收藏状态", flush=True)
+
+    is_fav = False
     already = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
     if already:
         ok = await MySQLPool.remove_collection_favorite(user_id=user_id, collection_id=cid)
         tip = "已取消收藏" if ok else "取消收藏失败"
+        is_fav = False
     else:
         ok = await MySQLPool.add_collection_favorite(user_id=user_id, collection_id=cid)
         tip = "已加入收藏" if ok else "收藏失败"
+        is_fav = True
 
-    # 依据当前视图（信息 or 列表）刷新正确的按钮
-    is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+    print(f"➡️ 用户 {user_id} 合集 {cid} 收藏状态切换结果: {tip}", flush=True)
 
     # 判断当前是否列表视图：看 caption 文本是否包含“文件列表”
     is_list_view = False
@@ -2136,7 +2139,7 @@ async def handle_uc_fav(callback: CallbackQuery):
         kb = _build_clt_info_keyboard(cid, is_fav)
 
     try:
-        await callback.message.edit_reply_markup(reply_markup=kb)
+        ret= await callback.message.edit_reply_markup(reply_markup=kb)
     except Exception as e:
         print(f"❌ 刷新收藏按钮失败: {e}", flush=True)
 

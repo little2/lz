@@ -969,15 +969,26 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
                 caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ." 
                 if clti_message:
-                    ret_message = await lz_var.bot.edit_message_media(
-                        chat_id=clti_message.chat.id,
-                        message_id=clti_message.message_id,
-                        media=InputMediaAnimation(
-                            media=lz_var.skins["loading"]["file_id"],
+                    try:
+                        # print(f"clti_message={clti_message}",flush=True)
+                        ret_message = await lz_var.bot.edit_message_media(
+                            chat_id=clti_message.chat.id,
+                            message_id=clti_message.message_id,
+                            media=InputMediaAnimation(
+                                media=lz_var.skins["loading"]["file_id"],
+                                caption=caption_txt,
+                                parse_mode="HTML"
+                            )
+                        )
+                        # return
+                    except Exception as e:
+                        print(f"❌ 编辑消息失败: {e}", flush=True)
+                        clti_message = await message.answer_animation(
+                            animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                             caption=caption_txt,
                             parse_mode="HTML"
                         )
-                    )
+                   
 
 
 

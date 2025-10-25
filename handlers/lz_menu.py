@@ -16,7 +16,17 @@ from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, Telegram
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAnimation
+ 
+from aiogram.types import (
+    Message,
+    BufferedInputFile,
+    InlineKeyboardMarkup, 
+    InlineKeyboardButton, 
+    InputMediaPhoto, 
+    InputMediaVideo, 
+    InputMediaDocument, 
+    InputMediaAnimation
+)
 
 
 from aiogram.enums import ParseMode
@@ -41,12 +51,24 @@ from utils.media_utils import Media
 from utils.tpl import Tplate
 
 from lz_mysql import MySQLPool
+from ananbot_utils import AnanBOTPool 
 
 from utils.product_utils import submit_resource_to_chat,get_product_material
 
 import functools
 import traceback
 import sys
+
+
+
+
+
+print("[DIAG] MySQLPool symbol =", MySQLPool, 
+      " from ", inspect.getmodule(MySQLPool).__file__, flush=True)
+print("[DIAG] set_sora_content_by_id from", 
+      inspect.getmodule(MySQLPool.set_sora_content_by_id).__file__, flush=True)
+
+
 
 router = Router()
 
@@ -341,6 +363,70 @@ async def _edit_caption_or_text2(msg : Message | None = None, *,  text: str, rep
         #     )
     except Exception as e:
         print(f"❌ 编辑消息失败: {e}", flush=True)
+
+
+@debug
+async def handle_update_thumb(content_id, file_id):
+    print(f"✅ [X-MEDIA] 需要为视频创建缩略图，正在处理...{lz_var.man_bot_id}", flush=True)
+    await MySQLPool.init_pool()
+    try:
+        send_video_result = await lz_var.bot.send_video(chat_id=lz_var.man_bot_id, video=file_id)
+        buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
+        if buf and pic:
+            try:
+                buf.seek(0)  # ✅ 防止 read 到空
+
+                # ✅ DB 前确保有池（双保险）
+                await MySQLPool.ensure_pool()
+
+                # 上传给仓库机器人，获取新的 file_id 和 file_unique_id
+                newcover = await lz_var.bot.send_photo(
+                    chat_id=lz_var.x_man_bot_id,
+                    photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg")
+                )
+                    
+                largest = newcover.photo[-1]
+                thumb_file_id = largest.file_id
+                thumb_file_unique_id = largest.file_unique_id
+
+                
+
+
+                # # 更新这个 sora_content 的 thumb_uniuque_id
+                await MySQLPool.set_sora_content_by_id(content_id, {
+                    "thumb_file_unique_id": thumb_file_unique_id,
+                    "stage":"pending"
+                })
+
+                # invalidate_cached_product(content_id)
+                await AnanBOTPool.upsert_product_thumb(
+                    content_id, thumb_file_unique_id, thumb_file_id, lz_var.bot_username
+                )
+
+                print("预览图更新中", flush=True)
+            except Exception as e:
+                print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
+                    
+        
+        else:
+            print(f"...⚠️ 提取缩图失败 for content_id: {content_id}", flush=True)
+
+    except TelegramNotFound as e:
+    
+        await lz_var.user_client.send_message(lz_var.bot_username, "/start")
+        await lz_var.user_client.send_message(lz_var.bot_username, "[~bot~]")
+
+        print(f"...⚠️ chat_id for content_id: {content_id}，错误：ChatNotFound", flush=True)
+
+    except (TelegramForbiddenError) as e:
+        print(f"...⚠️ TelegramForbiddenError for content_id: {content_id}，错误：{e}", flush=True)
+    except (TelegramBadRequest) as e:
+        await lz_var.user_client.send_message(lz_var.bot_username, "/start")
+        await lz_var.user_client.send_message(lz_var.bot_username, "[~bot~]")
+        print(f"...⚠️ TelegramBadRequest for content_id: {content_id}，错误：{e}", flush=True)
+    except Exception as e:
+
+        print(f"...⚠️ 失败 for content_id: {content_id}，错误：{e}", flush=True)
 
 
 # == 主菜单 ==
@@ -803,9 +889,9 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
         )
 
         print(f"🔍 完成，file_id: {file_id}, thumb_file_id: {thumb_file_id}, owner_user_id: {owner_user_id}",flush=True)
-        if not file_id:
+        if not file_id and source_id:
             print("❌ 没有找到 file_id",flush=True)
-            await MySQLPool.fetch_file_by_file_id(file_id)
+            await MySQLPool.fetch_file_by_file_uid(source_id)
             print(f"🔍 完成",flush=True)
 
 
@@ -1759,7 +1845,7 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
         reply_markup=_build_clt_edit_keyboard(cid)
     )
     cache_key = f"collection_info_{cid}"
-    self.cache.delete(cache_key)
+    MySQLPool.cache.delete(cache_key)
 
 
 @router.callback_query(F.data == "clt_favorite")
@@ -2028,16 +2114,6 @@ async def _get_clti_list(cid,page,user_id,mode):
 
     if not display:
         return {"success": False, "message": "这个合集暂时没有收录文件"}
-        await callback.answer("这个合集暂时没有收录文件", show_alert=True)
-        # 回到信息视图
-        rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=getattr(lz_var, "bot_username", None) or "luzaitestbot")
-        if not rec:
-            await callback.answer("未找到该收藏", show_alert=True); return
-        await _edit_caption_or_text(callback.message, text=_build_clt_info_caption(rec), reply_markup=_build_clt_info_keyboard(cid, is_fav))
-        return
-
-
-
    
     # 组装列表 caption：仅列 file_id
     lines = [f"合集 #{cid} 文件列表（第 {page+1} 页）", ""]
@@ -2829,11 +2905,11 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             print(f"🔍 没有找到 thumb_file_id，背景尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
             spawn_once(
                 f"thumb_file_id:{thumb_file_unique_id}",
-                lambda: Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
+                lambda: Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
             )
 
 
-            # thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10)
+            # thumb_file_id = await Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
             # 设置当下要获取的 thumb 是什么,若从背景取得图片时，可以直接更新 (fetch_thumb_file_unique_id 且 menu_message 存在)
             state_data = await state.get_data()
             menu_message = state_data.get("menu_message")
@@ -2845,11 +2921,17 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 print("❌ menu_message 不存在，无法设置 fetch_thumb_file_unique_id")
             
             # print(f"🔍 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
-            # spawn_once(f"thumb_file_unique_id:{thumb_file_unique_id}", Media.fetch_file_by_file_id_from_x(state, thumb_file_unique_id, 10))
+            # spawn_once(f"thumb_file_unique_id:{thumb_file_unique_id}", Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10))
             
         if not thumb_file_id:
             print("❌ 在延展库没有，用预设图")
             
+            if file_id and not thumb_file_unique_id and (file_type == "video" or file_type == "v"):
+                spawn_once(
+                    f"create_thumb_file_id:{file_id}",
+                    lambda: handle_update_thumb(content_id, file_id )
+                )
+
             # default_thumb_file_id: list[str] | None = None  # Python 3.10+
             if lz_var.default_thumb_file_id:
                 # 令 thumb_file_id = lz_var.default_thumb_file_id 中的随机值
@@ -2869,7 +2951,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                     for unique_id in lz_var.default_thumb_unique_file_ids:
                         
                         # 进入等待态（最多 10 秒）
-                        thumb_file_id = await Media.fetch_file_by_file_id_from_x(state, unique_id, 10)
+                        thumb_file_id = await Media.fetch_file_by_file_uid_from_x(state, unique_id, 10)
                         print(f"✅ 取到的 thumb_file_id: {thumb_file_id}")
                     # 处理找不到的情况
                     
@@ -2925,11 +3007,12 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 
         if not file_id and source_id:
             # 不阻塞：丢到后台做补拉
-            # spawn_once(f"fild_id:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
+            # spawn_once(f"fild_id:{source_id}", Media.fetch_file_by_file_uid_from_x(state, source_id, 10))
             spawn_once(
                 f"fild_id:{source_id}",
-                lambda: Media.fetch_file_by_file_id_from_x(state, source_id, 10)
+                lambda: Media.fetch_file_by_file_uid_from_x(state, source_id, 10 )
             )
+        
         # print(f"tag_length {tag_length}")
 
         # 计算可用空间

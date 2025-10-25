@@ -19,7 +19,7 @@ class ProductPreviewFSM(StatesGroup):
 class Media:
 
     @classmethod
-    async def fetch_file_by_file_id_from_x(cls, state: FSMContext, ask_file_unique_id: str | None = None, timeout_sec: float = 10.0):
+    async def fetch_file_by_file_uid_from_x(cls, state: FSMContext, ask_file_unique_id: str | None = None, timeout_sec: float = 10.0):
         """
         进入等待态 -> 清空状态数据 -> 轮询每 0.5 秒看是否收到 file_unique_id
         - 要求：由 仓库人 以「回覆」的方式把媒体回到你发出的那条 ask 消息
@@ -65,12 +65,12 @@ class Media:
                 data["x_file_id"] = None
                 data["x_file_unique_id"] = None
                 await storage.set_data(key, data)
-                # print(f"  ✅ (fetch_file_by_file_id_from_x) [X-MEDIA] 收到 file_id={x_file_id} | {ask_file_unique_id}", flush=True)
+                # print(f"  ✅ (fetch_file_by_file_uid_from_x) [X-MEDIA] 收到 file_id={x_file_id} | {ask_file_unique_id}", flush=True)
                 return x_file_id
             await asyncio.sleep(0.5)
 
         # if not x_file_id:
-            # print(f"❌ (fetch_file_by_file_id_from_x)[X-MEDIA] 超时未收到 x_file_unique_id {ask_file_unique_id} ，已等待 {timeout_sec} 秒后清理状态", flush=True)
+            # print(f"❌ (fetch_file_by_file_uid_from_x)[X-MEDIA] 超时未收到 x_file_unique_id {ask_file_unique_id} ，已等待 {timeout_sec} 秒后清理状态", flush=True)
 
         # 超时清理 
         await storage.set_state(key, None)

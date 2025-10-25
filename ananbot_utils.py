@@ -1473,8 +1473,6 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
-
-
     @classmethod
     async def sync_bid_product(cls) -> dict:
         """

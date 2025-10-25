@@ -253,6 +253,8 @@ async def update_username(client,username):
         print(f"变更失败：{e}")
 
 
+
+
 async def main():
     # 10.2 并行运行 Telethon 与 Aiogram
     await user_client.start(PHONE_NUMBER)
@@ -338,7 +340,6 @@ async def main():
             await user_client.disconnect()
         except Exception as e:
             print(f"[shutdown] Telethon disconnect error: {e}")
-
 
     # ✅ Telegram /ping 指令（aiogram v3 正确写法）
     @dp.message(Command(commands=["ping", "status"]))

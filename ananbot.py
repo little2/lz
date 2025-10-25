@@ -2479,12 +2479,12 @@ async def send_to_review_group(content_id: int, state: FSMContext):
     if not thumb_file_unqiue_id and thumb_file_id:
         print(f"背景搬运缩略图 {source_id} for content_id: {content_id}", flush=True)
         # 不阻塞：丢到后台做补拉
-        spawn_once(f"thumb_file_unqiue_id:{thumb_file_unqiue_id}", Media.fetch_file_by_file_id_from_x(state, thumb_file_unqiue_id, 10))
+        spawn_once(f"thumb_file_unqiue_id:{thumb_file_unqiue_id}", Media.fetch_file_by_file_uid_from_x(state, thumb_file_unqiue_id, 10))
     
     if not file_id and source_id and thumb_file_id:
         print(f"背景搬运 {source_id} for content_id: {content_id}", flush=True)
         # 不阻塞：丢到后台做补拉
-        spawn_once(f"src:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
+        spawn_once(f"src:{source_id}", Media.fetch_file_by_file_uid_from_x(state, source_id, 10))
 
         print(f"创建或更新sora_media {thumb_file_unqiue_id} for content_id: {content_id}", flush=True)
         await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unqiue_id, thumb_file_id, bot_username)
@@ -2783,7 +2783,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     if not file_id:
         invalidate_cached_product(content_id)
         await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
-        await Media.fetch_file_by_file_id_from_x(state, source_id, 10)
+        await Media.fetch_file_by_file_uid_from_x(state, source_id, 10)
         #TODO: 应该在发送到审核区时就会做一次了
         spawn_once(f"refine:{content_id}", AnanBOTPool.refine_product_content(content_id))
         
@@ -2915,7 +2915,7 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
         if not file_id and source_id and thumb_file_id:
             print(f"背景搬运 {source_id} for content_id: {content_id}", flush=True)
             # 不阻塞：丢到后台做补拉
-            spawn_once(f"src:{source_id}", Media.fetch_file_by_file_id_from_x(state, source_id, 10))
+            spawn_once(f"src:{source_id}", Media.fetch_file_by_file_uid_from_x(state, source_id, 10))
 
             print(f"创建或更新sora_media {thumb_file_unqiue_id} for content_id: {content_id}", flush=True)
             await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unqiue_id, thumb_file_id, bot_username)
@@ -4344,7 +4344,7 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
     if thumb_file_id == DEFAULT_THUMB_FILE_ID and cached_thumb_unique:
         async def update_preview_if_arrived():
             try:
-                new_file_id = await Media.fetch_file_by_file_id_from_x(state, cached_thumb_unique, 30)
+                new_file_id = await Media.fetch_file_by_file_uid_from_x(state, cached_thumb_unique, 30)
                 if new_file_id:
                     print(f"[预览图更新] 已获取 thumb_file_id: {new_file_id} - {cached_thumb_unique}")
                     bot_uname = await get_bot_username()

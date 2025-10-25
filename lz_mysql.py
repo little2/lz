@@ -4,52 +4,125 @@ from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB
 from typing import Optional, Dict, Any, List, Tuple
 from lz_memory_cache import MemoryCache
 import lz_var
+import asyncio
+
+# class MySQLPool:
+#     _pool = None
+
+#     @classmethod
+#     async def init_pool(cls):
+#         cls.cache = MemoryCache()
+#         if cls._pool is None:
+
+#             cls._pool = await aiomysql.create_pool(
+#                 host=MYSQL_HOST,
+#                 user=MYSQL_USER,
+#                 password=MYSQL_PASSWORD,
+#                 db=MYSQL_DB,
+#                 port=MYSQL_DB_PORT,
+#                 charset="utf8mb4",
+#                 autocommit=True,
+#                 minsize=2,
+#                 maxsize=32,       # 建议调高到 32 并配合并发限制
+#                 pool_recycle=1800,  # 每半小时自动重连
+#                 connect_timeout=10,
+#             )
+#             print("✅ MySQL 连接池初始化完成")
+        
+
+#     @classmethod
+#     async def get_conn_cursor(cls):
+#         if cls._pool is None:
+#             raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
+
+#         conn = await cls._pool.acquire()
+#         cursor = await conn.cursor(aiomysql.DictCursor)
+#         return conn, cursor
+
+#     @classmethod
+#     async def release(cls, conn, cursor):
+#         await cursor.close()
+#         cls._pool.release(conn)
+
+#     @classmethod
+#     async def close(cls):
+#         if cls._pool:
+#             cls._pool.close()
+#             await cls._pool.wait_closed()
+#             cls._pool = None
+#             print("🛑 MySQL 连接池已关闭")
 
 
+# 顶部 import 下方，类体开始前无需变
 class MySQLPool:
     _pool = None
+    _lock = asyncio.Lock()
+    _cache_ready = False
+    cache = None
 
     @classmethod
     async def init_pool(cls):
-        cls.cache = MemoryCache()
-        if cls._pool is None:
+        # 幂等：多处并发调用只建一次连接池
+        if cls._pool is not None:
+            if not cls._cache_ready:
+                cls.cache = MemoryCache()
+                cls._cache_ready = True
+            return cls._pool
 
-            cls._pool = await aiomysql.create_pool(
-                host=MYSQL_HOST,
-                user=MYSQL_USER,
-                password=MYSQL_PASSWORD,
-                db=MYSQL_DB,
-                port=MYSQL_DB_PORT,
-                charset="utf8mb4",
-                autocommit=True,
-                minsize=2,
-                maxsize=32,       # 建议调高到 32 并配合并发限制
-                pool_recycle=1800,  # 每半小时自动重连
-                connect_timeout=10,
-            )
-            print("✅ MySQL 连接池初始化完成")
+        async with cls._lock:
+            if cls._pool is None:
+                cls._pool = await aiomysql.create_pool(
+                    host=MYSQL_HOST,
+                    user=MYSQL_USER,
+                    password=MYSQL_PASSWORD,
+                    db=MYSQL_DB,
+                    port=MYSQL_DB_PORT,
+                    charset="utf8mb4",
+                    autocommit=True,
+                    minsize=2,
+                    maxsize=32,
+                    pool_recycle=1800,
+                    connect_timeout=10,
+                )
+                print("✅ MySQL 连接池初始化完成")
+            if not cls._cache_ready:
+                cls.cache = MemoryCache()
+                cls._cache_ready = True
+        return cls._pool
+
+    @classmethod
+    async def ensure_pool(cls):
+        if cls._pool is None:
+            await cls.init_pool()
+        return cls._pool
 
     @classmethod
     async def get_conn_cursor(cls):
-        if cls._pool is None:
-            raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
-
+        # ✅ 不再抛“未初始化”，而是自愈
+        await cls.ensure_pool()
         conn = await cls._pool.acquire()
         cursor = await conn.cursor(aiomysql.DictCursor)
         return conn, cursor
 
     @classmethod
     async def release(cls, conn, cursor):
-        await cursor.close()
-        cls._pool.release(conn)
+        try:
+            if cursor:
+                await cursor.close()
+        finally:
+            if conn and cls._pool:
+                cls._pool.release(conn)
 
     @classmethod
     async def close(cls):
-        if cls._pool:
-            cls._pool.close()
-            await cls._pool.wait_closed()
-            cls._pool = None
-            print("🛑 MySQL 连接池已关闭")
+        async with cls._lock:
+            if cls._pool:
+                cls._pool.close()
+                await cls._pool.wait_closed()
+                cls._pool = None
+                print("🛑 MySQL 连接池已关闭")
+
+
 
     #需要和 lyase_utils.py 整合
     @classmethod
@@ -178,6 +251,7 @@ class MySQLPool:
    
     @classmethod
     async def search_sora_content_by_id(cls, content_id: int):
+        await cls.ensure_pool()  # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute('''
@@ -190,7 +264,7 @@ class MySQLPool:
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
                 LEFT JOIN product p ON s.id = p.content_id
                 LEFT JOIN guild g ON p.guild_id = g.guild_id
-                WHERE s.id = %s AND s.valid_status != 4
+                WHERE s.id = %s AND s.valid_status != 4 ORDER BY s.id DESC
                 '''
             , (lz_var.bot_username, content_id))
             row = await cursor.fetchone()
@@ -205,8 +279,27 @@ class MySQLPool:
             print("❌ 没有找到匹配记录 file_id")
             return None
 
+
     @classmethod
-    async def fetch_file_by_file_id(cls, source_id: str):
+    async def set_sora_content_by_id(cls, content_id: int, update_data: dict):
+        await cls.ensure_pool()   # ✅ 新增
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            set_clause = ', '.join([f"{key} = %s" for key in update_data.keys()])
+            await cursor.execute(f"""
+                UPDATE sora_content SET {set_clause}
+                WHERE id = %s
+            """, (*update_data.values(), content_id))
+           
+            
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)
+
+
+    @classmethod
+    async def fetch_file_by_file_uid(cls, source_id: str):
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute("""
@@ -263,7 +356,7 @@ class MySQLPool:
 
     @classmethod
     async def get_pending_product(cls):
-        """取得最多 2 笔待送审的 product (guild_id 不为空且 review_status=6)"""
+        """取得最多 1 笔待送审的 product (guild_id 不为空且 review_status=6)"""
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute("""
@@ -369,12 +462,20 @@ class MySQLPool:
         finally:
             await cls.release(conn, cur)
 
+    # @classmethod
+    # async def delete_cache(cls, prefix: str):
+    #     keys_to_delete = [k for k in cls.cache.keys() if k.startswith(prefix)]
+    #     for k in keys_to_delete:
+    #         del cls.cache[k]
+    #     pass
+
     @classmethod
     async def delete_cache(cls, prefix: str):
+        if not cls.cache:
+            return
         keys_to_delete = [k for k in cls.cache.keys() if k.startswith(prefix)]
         for k in keys_to_delete:
             del cls.cache[k]
-        pass
 
     @classmethod
     async def list_user_collections(
@@ -794,7 +895,7 @@ class MySQLPool:
             FROM product p
             LEFT JOIN sora_content sc ON p.content_id = sc.id
             WHERE p.owner_user_id = %s AND sc.valid_status != 4
-            ORDER BY sc.id ASC
+            ORDER BY sc.id DESC
             """
             await cur.execute(sql, (user_id,))
             rows = await cur.fetchall()

@@ -1,14 +1,22 @@
 from aiogram import Router, F
 from aiogram.types import Message
 
-from aiogram.types import  InputMediaPhoto
+
+
+from aiogram.types import (
+    Message,
+    InputMediaPhoto
+)
 
 from aiogram.fsm.context import FSMContext
 from utils.media_utils import ProductPreviewFSM  # ⬅️ 新增
 import json
 from lz_db import db
+
 import lz_var
 router = Router()
+
+from utils.media_utils import Media
 
 def parse_caption_json(caption: str):
     try:
@@ -64,7 +72,10 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     menu_message = store_data.get("menu_message")
     fetch_thumb_file_unique_id = store_data.get("fetch_thumb_file_unique_id")
 
+
     
+        
+      
 
     if fetch_thumb_file_unique_id == file_unique_id:
         print(f"✅ [X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)

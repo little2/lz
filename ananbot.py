@@ -299,14 +299,16 @@ async def list_template(results):
 
 @dp.callback_query(F.data.startswith("make_product:"))
 async def make_product(callback_query: CallbackQuery, state: FSMContext):
+    print(f"callback_query = {callback_query.data}", flush=True)
     parts = callback_query.data.split(":")
     content_id, file_type, file_unique_id, user_id = parts[1], parts[2], parts[3], parts[4]
 
     product_id = await AnanBOTPool.get_existing_product(content_id)
     if not product_id:
-
+        print(f"🔍 make_product: 创建新产品 content_id={content_id}", flush=True)
         row = await AnanBOTPool.get_sora_content_by_id(content_id)
-        if row.get("content"):
+        print(f"🔍 sora_content row: {row}", flush=True)
+        if row["content"]:
             content = row["content"]
         else:
             content = "请修改描述"
@@ -1241,7 +1243,7 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
     except Exception:
         cur_price = 68
 
-    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格(1-99)"
+    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格(34-119)"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消", callback_data=f"cancel_set_price:{content_id}")]
     ])
@@ -1288,7 +1290,7 @@ async def receive_price_input(message: Message, state: FSMContext):
     message_id = data.get("message_id")
     
     price_str = message.text.strip()
-    if not price_str.isdigit() or not (34 <= int(price_str) <= 102):
+    if not price_str.isdigit() or not (34 <= int(price_str) <= 119):
         # await message.answer("❌ 请输入 34~102 的整数作为价格")
         # 回到菜单
         
@@ -4071,10 +4073,8 @@ async def _process_create_content_async(message, state, meta, placeholder_msg_id
 
     print(f"{meta}", flush=True)
 
-    # >>> PATCH BEGIN: 不要覆盖 meta['file_type']，用局部映射
     type_map = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
     file_type_short = type_map.get(meta['file_type'], "v")
-    # >>> PATCH END
 
     bot_username = await get_bot_username()
     user_id = str(message.from_user.id)
@@ -4106,6 +4106,20 @@ async def _flush_chat_batch_after_window(message: Message, state: FSMContext, me
     except Exception:
         pass
 
+    type_map = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
+    file_type_short = type_map.get(meta['file_type'], "v")
+
+    bot_username = await get_bot_username()
+    user_id = str(message.from_user.id)
+    row = await AnanBOTPool.insert_sora_content_media(
+        meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
+        user_id, meta['file_id'], bot_username
+    )
+    content_id = row["id"]
+
+    meta['content_id'] = content_id
+
+
     # 收集这一窗口的批量结果
     try:
         meta['batch_results'] = _collect_batch_results(message, meta)  # 会 pop 掉 _BATCH_BY_CHAT[chat_id]
@@ -4133,7 +4147,7 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
         ])
 
         # ===== 组装 caption：优先使用 batch_results（无 content_id 场景）=====
-        caption_text = ".\n检测到文件，是否需要创建为投稿？ \n\n🎈 创建后您仍可以升级为资源夹，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
+        caption_text = f".\n检测到文件，是否需要创建为投稿{content_id}？ \n\n🎈 创建后您仍可以升级为资源夹，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
         results = meta.get("batch_results")  # 这里是我们在上一步塞进去的
         if results and isinstance(results, list) and len(results) >= 2:
             _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
@@ -4285,13 +4299,17 @@ async def handle_media(message: Message, state: FSMContext):
         print(f"❌ 处理媒体信息失败: {e}", flush=True)
         return await message.answer(f"⚠️ 处理媒体信息失败，请稍后重试。")
     
-    timer.lap("Noe")
+    timer.lap("-------Noe-------")
     product_i = await AnanBOTPool.get_product_info_by_fuid(meta['file_unique_id'])
+
+    print(f"meta ->{meta}", flush=True)
+
     content_id = product_i.get("content_id") if product_i else None
     owner_user_id = str(product_i.get("owner_user_id")) if product_i else None
     timer.lap("product_i")
     group_id = getattr(message, "media_group_id", None)
     if not content_id:
+        print(f'no content_id ->{content_id}', flush=True)
         if group_id:
             
             spawn_once(
@@ -4306,6 +4324,7 @@ async def handle_media(message: Message, state: FSMContext):
             )
         else:
             # >>>  非相簿改为“唯一冲洗任务”
+            print(f"4311-GO {meta}", flush=True)
             spawn_once(
                 f"_flush_chat_batch:{message.chat.id}",
                 lambda:_flush_chat_batch_after_window(
@@ -4447,249 +4466,6 @@ async def handle_media(message: Message, state: FSMContext):
 
 
 
-
-async def handle_media_bk(message: Message, state: FSMContext):
-    file_type = message.content_type
-    bot_username = await get_bot_username()
-    print(f"收到媒体消息: {file_type} from {message.from_user.id if message.from_user else 'unknown'}", flush=True)
-    user_id = str(message.from_user.id)
-
-    timer = SegTimer(
-        "handle_media",
-        msg_id=message.message_id,
-        from_user=message.from_user.id if message.from_user else None,
-        chat_id=message.chat.id
-    )
-
-    try:
-        if file_type == ContentType.PHOTO:
-            photo = get_largest_photo(message.photo)
-            
-            file_name =  ""
-            file_unique_id = photo.file_unique_id
-            file_id = photo.file_id
-            file_size = photo.file_size or 0
-            duration = 0
-            width = photo.width
-            height = photo.height
-            table = "photo"
-        elif file_type == ContentType.VIDEO:
-            file_unique_id = message.video.file_unique_id
-            file_name = message.video.file_name or ""
-            file_id = message.video.file_id
-            file_size = message.video.file_size
-            
-            duration = message.video.duration
-            width = message.video.width
-            height = message.video.height
-            table = "video"
-        elif file_type == ContentType.DOCUMENT:
-            file_unique_id = message.document.file_unique_id
-            file_name = message.document.file_name or ""
-            file_id = message.document.file_id
-            file_size = message.document.file_size
-            duration = 0
-            width = 0
-            height = 0
-            table = "document"
-        elif file_type == ContentType.ANIMATION:
-            file_unique_id = message.animation.file_unique_id
-            file_name = message.animation.file_name or ""
-            file_id = message.animation.file_id
-            file_size = message.animation.file_size
-            duration = message.animation.duration
-            width = message.animation.width
-            height = message.animation.height
-            table = "animation"
-        else:
-            print(f"⚠️ 不支持的媒体类型: {file_type}", flush=True)
-            return
-
-        
-    except Exception as e:
-        print(f"❌ 处理媒体信息失败: {e}", flush=True)
-        return await message.answer(f"⚠️ 处理媒体信息失败，请稍后重试。")
-
-    product_i = await AnanBOTPool.get_product_info_by_fuid(file_unique_id)
-    content_id = product_i.get("id") if product_i else None
-    if content_id:
-
-
-
-        pass
-    else:
-        markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="创建", callback_data=f"make_product:{content_id}:{table}:{file_unique_id}:{user_id}"),
-                InlineKeyboardButton(text="取消", callback_data="cancel_product")
-            ]
-        ])
-        caption_text = "检测到文件，是否需要创建为投稿？"
-        await message.answer(caption_text, reply_markup=markup)
-        timer.lap("answer_create_prompt")
-
-        row = await AnanBOTPool.insert_sora_content_media(file_unique_id, table, file_size, duration, user_id, file_id,bot_username)
-        content_id = row["id"]
-        timer.lap("insert_sora_content")
-
-        product_info = await AnanBOTPool.get_existing_product(content_id)
-        owner_user_id = str(product_info.get("owner_user_id")) if product_info else None
-        timer.lap("get_existing_product")
-    
-
-
-
-    if product_info:
-        if(owner_user_id!=user_id):
-            timer.finish(ok=True, note="owner_mismatch")
-            return await message.answer(f"⚠️ 这个资源已经有人投稿 ")
-        
-        if product_info.get("review_status") == 2:
-            guild_row = await AnanBOTPool.check_guild_role(user_id,'manager')
-            timer.lap("check_guild_role")
-            if not guild_row:
-                return await message.answer(f"⚠️ 这个资源正在审核状态")
-        elif product_info.get("review_status") in (3, 4, 5):
-            guild_row = await AnanBOTPool.check_guild_role(user_id,'owner')
-            timer.lap("check_guild_role")
-            if not guild_row:
-                return await message.answer(f"⚠️ 这个资源正在上架中")
-
-        print(f"✅ 已找到现有商品信息：{product_info}", flush=True)
-        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
-        timer.lap("get_product_tpl")
-
-        if row['thumb_file_unique_id'] is None and file_type == ContentType.VIDEO:
-            print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
-            buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
-            timer.lap("extract_preview")
-
-            
-            
-            newsend = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
-            timer.lap("send_preview_photo")
-
-            photo_obj = newsend.photo[-1]
-            thumb_file_id = photo_obj.file_id
-            thumb_file_unique_id = photo_obj.file_unique_id
-            thumb_file_size = photo_obj.file_size
-            thumb_width = photo_obj.width
-            thumb_height = photo_obj.height
-
-            await AnanBOTPool.upsert_media( "photo", {
-                "file_unique_id": thumb_file_unique_id,
-                "file_size": thumb_file_size,
-                "duration": 0,
-                "width": thumb_width,
-                "height": thumb_height,
-                "create_time": datetime.now()
-            })
-            timer.lap("upsert_thumb_media")
-
-            await AnanBOTPool.insert_file_extension("photo", thumb_file_unique_id, thumb_file_id, bot_username, user_id)
-            timer.lap("insert_thumb_extension")
-
-            await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
-            timer.lap("upsert_product_thumb")
-
-            print(f"{newsend}", flush=True)
-            await lz_var.bot.copy_message(
-                chat_id=lz_var.x_man_bot_id,
-                from_chat_id=newsend.chat.id,
-                message_id=newsend.message_id
-            )
-            timer.lap("archive_copy_preview")
-        else:
-            newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
-            timer.lap("answer_preview")
-
-            await update_product_preview(content_id, thumb_file_id, state , newsend)
-            timer.lap("update_product_preview")
-
-    else:
-        markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="创建", callback_data=f"make_product:{content_id}:{table}:{file_unique_id}:{user_id}"),
-                InlineKeyboardButton(text="取消", callback_data="cancel_product")
-            ]
-        ])
-        caption_text = "检测到文件，是否需要创建为投稿？"
-
-        if row['thumb_file_unique_id'] is None and file_type == ContentType.VIDEO:
-            buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
-            timer.lap("extract_preview_new")
-
-            sent = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
-            timer.lap("send_preview_photo_new")
-
-            photo_obj = sent.photo[-1]
-            thumb_file_id = photo_obj.file_id
-            thumb_file_unique_id = photo_obj.file_unique_id
-            thumb_file_size = photo_obj.file_size
-            thumb_width = photo_obj.width
-            thumb_height = photo_obj.height
-
-            await AnanBOTPool.upsert_media( "photo", {
-                "file_unique_id": thumb_file_unique_id,
-                "file_size": thumb_file_size,
-                "duration": 0,
-                "width": thumb_width,
-                "height": thumb_height,
-                "create_time": datetime.now()
-            })
-            timer.lap("upsert_thumb_media_new")
-
-            await AnanBOTPool.insert_file_extension("photo", thumb_file_unique_id, thumb_file_id, bot_username, user_id)
-            timer.lap("insert_thumb_extension_new")
-
-            await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
-            timer.lap("upsert_product_thumb_new")
-
-            print(f"✅ 已取得预览图\nt_file_id = {file_id}\nt_file_unique_id = {thumb_file_unique_id}\nchat_id = {sent.chat.id}", flush=True)
-
-            await lz_var.bot.copy_message(
-                chat_id=lz_var.x_man_bot_id,
-                from_chat_id=sent.chat.id,
-                message_id=sent.message_id
-            )
-            timer.lap("archive_copy_preview_new", to=lz_var.x_man_bot_id)
-
-        else:
-            await message.answer(caption_text, reply_markup=markup)
-            timer.lap("answer_create_prompt")
-
-
-
-
-    '''    # ---------- 异步触发） ----------'''
-    spawn_once(
-        f"upsert_media:{table}",
-        lambda:AnanBOTPool.upsert_media(table, {
-            "file_unique_id": file_unique_id,
-            "file_size": file_size,
-            "duration": duration,
-            "width": width,
-            "height": height,
-            "file_name": file_name,
-            "create_time": datetime.now()
-        })
-    )
-    timer.lap("4451:db_upsert_media")
-
-    spawn_once(f"insert_file_extension:{table}:{file_unique_id}",
-    lambda:AnanBOTPool.insert_file_extension(table, file_unique_id, file_id, bot_username, user_id))
-    timer.lap("4455:insert_file_extension")
-
-
-    # ---------- 2) 归档复制（异步触发） ----------
-    spawn_once(
-        f"copy_message:{message.message_id}",
-        lambda:lz_var.bot.copy_message(
-            chat_id=lz_var.x_man_bot_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id
-        )
-    )
 
 
 

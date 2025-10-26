@@ -117,20 +117,16 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     except Exception as e:
         print(f"❌ 发送资源失败2: {e}", flush=True)
     
-
 async def get_product_material(content_id: int):
     from lz_db import db  # 延迟导入避免循环依赖
         # ✅ 统一在这里连一次
     # await db.connect()
     rows = await db.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
     # print(f"album_list: {rows}", flush=True)
-    
-    # await db.disconnect()
+    await build_product_material(rows)
+        
 
-   
-
-
-   
+async def build_product_material(rows):   
     # 遍历结果
     send_group = []
     send_sub_group=[]
@@ -200,7 +196,7 @@ async def get_product_material(content_id: int):
     box = {
         i + 1: {
             "quantity": len(group),
-            "show": False  # 先默认未发送；你真实发送成功后可回写 True
+            "show": False if i > 0 else True  # 先默认未发送；你真实发送成功后可回写 True
         }
         for i, group in enumerate(send_group)
     }

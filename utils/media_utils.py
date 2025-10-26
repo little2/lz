@@ -2,6 +2,9 @@
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 from aiogram import Bot
 import lz_var
 import asyncio
@@ -205,3 +208,215 @@ class Media:
                 pass
 
         return file_id, file_unique_id, file_size, width, height
+
+    @classmethod
+    async def send_media_group(cls, callback, productInfomation, box_id:int=1, content_id:int|None=0, source_id:str|None=None):
+        from_user_id = callback.from_user.id
+        quantity = 0
+        material_status = productInfomation.get("material_status", {})
+        total_quantity = material_status.get("total",0)
+        box_dict = material_status.get("box",0)
+        box_quantity = len(box_dict)  
+
+        if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
+            lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
+            for fuid in lack_file_uid_rows:
+                
+                await lz_var.bot.send_message(
+                    chat_id=lz_var.x_man_bot_id,
+                    text=f"{fuid}"
+                )
+
+                await asyncio.sleep(0.7)
+            print(f"资源同步中，请稍后再试，请看看别的资源吧", flush=True)        
+            return {'ok':False,'message':'资源同步中，请稍后再试，请看看别的资源吧'}
+        # print(f"1896=>{productInfomation}")
+        rows = productInfomation.get("rows", [])
+        # print(f"rows={rows}", flush=True)
+        if rows:
+
+            material_status = productInfomation.get("material_status")
+            # print(f"material_status={material_status}", flush=True)
+            if material_status:
+               
+                # print(f"{rows}---{box_id}", flush=True)
+
+                # 先只在有值时注入 reply_to_message_id
+                send_media_group_kwargs = dict(chat_id=from_user_id, media=rows[(int(box_id)-1)])
+                try:
+                   
+
+                    # if reply_to_message_id is not None:
+                        # send_media_group_kwargs["reply_to_message_id"] = reply_to_message_id
+                    sr = await lz_var.bot.send_media_group(**send_media_group_kwargs)
+                    
+                except Exception as e:
+                    print(f"❌ 发送媒体组失败: {e}", flush=True)
+                    return {'ok':False,'message':'发送媒体组失败，请稍后再试'}
+
+                
+
+                msg = callback.message
+                kb = msg.reply_markup
+                new_rows: list[list[InlineKeyboardButton]] = []
+                if int(box_id)==1:
+                    return_media = await cls._build_mediagroup_box(box_id, source_id, content_id, material_status)
+                    feedback_kb = return_media.get("feedback_kb")
+                    text = return_media.get("text")
+
+
+                elif int(box_id)>1 and kb and kb.inline_keyboard:
+                    
+                    quantity = 0
+                    for row in kb.inline_keyboard:
+                        new_row = []
+                        for btn in row:
+                            # 去掉已有的 "[V]"，避免重复标记
+                            base_text = btn.text.lstrip()
+                            base_text_pure = base_text.replace("✅","").lstrip()
+                            if base_text_pure == "⚠️ 反馈内容":
+                                continue
+                            btn_quantity = box_dict.get(int(base_text_pure),{}).get("quantity",0)
+                            print(f"btn_quantity={btn_quantity}")
+
+                            if base_text.startswith("✅"):
+                                new_btn = btn.model_copy()
+                                quantity = quantity+ int(btn_quantity)
+                            elif base_text_pure == box_id:
+                                quantity = quantity+ int(btn_quantity)
+                                new_btn_text = f"✅ {base_text_pure}"
+                                new_btn = btn.model_copy(update={"text": new_btn_text})
+                            else:
+                                new_btn = btn.model_copy()
+                            
+                                # print(f"😂{btn}") 
+                                # base_text_pure = base_text[3:].lstrip()
+                                # sent_quantity = len(material_status.get("box",{}).get(int(base_text_pure),{}).get("file_ids",[])) if material_status else 0
+
+                            # 判断是否为目标按钮（文字等于 box_id 或 callback_data 的最后一段等于 box_id）
+                            # # is_target = (base_text == box_id)
+                            # if not is_target and btn.callback_data:
+                            #     try:
+                            #         is_target = (btn.callback_data.split(":")[-1] == box_id)
+                            #     except Exception:
+                            #         is_target = False
+
+                            # 目标按钮加上 "[V]" 前缀，其他按钮保持/移除多余的前缀
+                            # new_btn_text = f"✅ {base_text}" if is_target else base_text
+
+                            # 用 pydantic v2 的 model_copy 复制按钮，仅更新文字，其他字段（url、callback_data 等）保持不变
+                            # new_btn = btn.model_copy(update={"text": new_btn_text})
+                            new_row.append(new_btn)
+                        new_rows.append(new_row)
+                    feedback_kb = InlineKeyboardMarkup(inline_keyboard=new_rows) if new_rows else kb
+                    text = f"💡当前 {quantity}/{total_quantity} 个，第 {box_id} / {box_quantity} 页"
+                    await msg.delete()
+                
+                
+
+
+                # ✅ 1) 取出 callback 内原消息文字，并在后面加 "123"
+  
+                
+
+
+                try:
+                    if(total_quantity > quantity):
+
+                        send_media_menu = dict(chat_id=from_user_id, text=text,reply_markup=feedback_kb,parse_mode="HTML")
+                        try:
+                            # if reply_to_message_id is not None:
+                                # send_media_menu["reply_to_message_id"] = reply_to_message_id
+                            sr = await lz_var.bot.send_message(**send_media_menu)
+                            # print(f"sr={sr}")
+                        except Exception as e:
+                            print(f"❌ 发送媒体组失败: {e}", flush=True)
+                            return {'ok':False,'message':'发送媒体组失败，请稍后再试'}
+                    
+
+
+
+                    # if msg.text is not None:
+                    
+                    #     await msg.edit_text(new_text, reply_markup=new_markup)
+                    # else:
+                    #     await msg.edit_caption(new_text, reply_markup=new_markup)
+                except Exception as e:
+                    # 可选：记录一下，避免因“内容未变更”等报错中断流程
+                    print(f"[media_box] edit message failed: {e}", flush=True)
+
+                # 可选：给个轻量反馈，去掉“加载中”状态
+                await callback.answer()
+
+
+
+    @classmethod
+    async def _build_mediagroup_box(cls, page, source_id,content_id,material_status):
+        show_quantity = 0
+        if material_status:
+            total_quantity = material_status.get("total", 0)
+            box_dict = material_status.get("box", {})  # dict: {1:{...}, 2:{...}}
+            # 盒子数量（组数）
+            box_quantity = len(box_dict)  
+
+            print(f"box={box_dict}")
+
+            # 生成 1..N 号按钮；每行 5 个
+            rows_kb: list[list[InlineKeyboardButton]] = []
+            current_row: list[InlineKeyboardButton] = []
+
+            # 若想按序号排序，确保顺序一致
+            for box_id, meta in sorted(box_dict.items(), key=lambda kv: kv[0]):
+                quantity = int(meta.get("quantity", 0))
+
+                # if box_id == page:
+                #     show_tag = "✅ "
+                # else:
+                #     show_tag = "✅ " if meta.get("show") else ""
+                
+                if (meta.get("show")) or (box_id == page):
+                    show_quantity += quantity
+                    show_tag = "✅ "
+                    current_row.append(
+                        InlineKeyboardButton(
+                            text=f"{show_tag}{box_id}",
+                            callback_data=f"nothing:{content_id}:{box_id}:{quantity}"  # 带上组号
+                        )
+                    )
+                else:
+                    current_row.append(
+                        InlineKeyboardButton(
+                            text=f"{box_id}",
+                            callback_data=f"media_box:{content_id}:{box_id}:{quantity}"  # 带上组号
+                        )
+                    )
+
+                # current_row.append(
+                #     InlineKeyboardButton(
+                #         text=f"{show_tag}{box_id}",
+                #         callback_data=f"media_box:{content_id}:{box_id}:{quantity}"  # 带上组号
+                #     )
+                # )
+                if len(current_row) == 5:
+                    rows_kb.append(current_row)
+                    current_row = []
+
+            # 收尾：剩余不足 5 个的一行
+            if current_row:
+                rows_kb.append(current_row)
+
+            # 追加反馈按钮（单独一行）
+            rows_kb.append([
+                InlineKeyboardButton(
+                    text="⚠️ 反馈内容",
+                    url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
+                )
+            ])
+
+            feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+
+            # 计算页数：每页 10 个（与你 send_media_group 的分组一致）
+            # 避免整除时多 +1，用 (total+9)//10 或 math.ceil
+           
+            text = f"💡当前 {show_quantity}/{total_quantity} 个，第 {box_id} / {box_quantity} 页"
+            return { "feedback_kb": feedback_kb, "text": text}

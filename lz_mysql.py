@@ -6,54 +6,6 @@ from lz_memory_cache import MemoryCache
 import lz_var
 import asyncio
 
-# class MySQLPool:
-#     _pool = None
-
-#     @classmethod
-#     async def init_pool(cls):
-#         cls.cache = MemoryCache()
-#         if cls._pool is None:
-
-#             cls._pool = await aiomysql.create_pool(
-#                 host=MYSQL_HOST,
-#                 user=MYSQL_USER,
-#                 password=MYSQL_PASSWORD,
-#                 db=MYSQL_DB,
-#                 port=MYSQL_DB_PORT,
-#                 charset="utf8mb4",
-#                 autocommit=True,
-#                 minsize=2,
-#                 maxsize=32,       # 建议调高到 32 并配合并发限制
-#                 pool_recycle=1800,  # 每半小时自动重连
-#                 connect_timeout=10,
-#             )
-#             print("✅ MySQL 连接池初始化完成")
-        
-
-#     @classmethod
-#     async def get_conn_cursor(cls):
-#         if cls._pool is None:
-#             raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
-
-#         conn = await cls._pool.acquire()
-#         cursor = await conn.cursor(aiomysql.DictCursor)
-#         return conn, cursor
-
-#     @classmethod
-#     async def release(cls, conn, cursor):
-#         await cursor.close()
-#         cls._pool.release(conn)
-
-#     @classmethod
-#     async def close(cls):
-#         if cls._pool:
-#             cls._pool.close()
-#             await cls._pool.wait_closed()
-#             cls._pool = None
-#             print("🛑 MySQL 连接池已关闭")
-
-
-# 顶部 import 下方，类体开始前无需变
 class MySQLPool:
     _pool = None
     _lock = asyncio.Lock()
@@ -264,7 +216,7 @@ class MySQLPool:
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
                 LEFT JOIN product p ON s.id = p.content_id
                 LEFT JOIN guild g ON p.guild_id = g.guild_id
-                WHERE s.id = %s AND s.valid_status != 4 ORDER BY s.id DESC
+                WHERE s.id = %s AND s.valid_state != 4 ORDER BY s.id DESC
                 '''
             , (lz_var.bot_username, content_id))
             row = await cursor.fetchone()
@@ -597,7 +549,7 @@ class MySQLPool:
             FROM user_collection_file ucf
             LEFT JOIN sora_content sc
               ON sc.id = ucf.content_id
-            WHERE ucf.collection_id = %s AND sc.valid_status != 4
+            WHERE ucf.collection_id = %s AND sc.valid_state != 4
             ORDER BY ucf.sort ASC
             LIMIT %s OFFSET %s
             """
@@ -789,7 +741,7 @@ class MySQLPool:
             SELECT sc.id, sc.source_id, sc.file_type, sc.content
             FROM user_collection_file ucf
             LEFT JOIN sora_content sc ON ucf.content_id = sc.id
-            WHERE ucf.collection_id = %s AND sc.valid_status != 4
+            WHERE ucf.collection_id = %s AND sc.valid_state != 4
             ORDER BY ucf.sort ASC
             """
             await cur.execute(sql, (collection_id,))
@@ -894,7 +846,7 @@ class MySQLPool:
             SELECT sc.id, sc.source_id, sc.file_type, sc.content
             FROM product p
             LEFT JOIN sora_content sc ON p.content_id = sc.id
-            WHERE p.owner_user_id = %s AND sc.valid_status != 4
+            WHERE p.owner_user_id = %s AND sc.valid_state != 4
             ORDER BY sc.id DESC
             """
             await cur.execute(sql, (user_id,))
@@ -929,7 +881,7 @@ class MySQLPool:
             SELECT sc.id, sc.source_id, sc.file_type, sc.content
             FROM transaction t
             LEFT JOIN sora_content sc ON t.transaction_description = sc.source_id
-            WHERE t.sender_id = %s and t.transaction_type='confirm_buy' AND sc.valid_status != 4
+            WHERE t.sender_id = %s and t.transaction_type='confirm_buy' AND sc.valid_state != 4
             ORDER BY t.transaction_id DESC
             """
             await cur.execute(sql, (user_id,))
@@ -959,7 +911,7 @@ class MySQLPool:
                 FROM album_items c
                 LEFT JOIN sora_content s ON c.member_content_id = s.id
                 LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
-                WHERE c.content_id = %s AND s.valid_status != 4
+                WHERE c.content_id = %s AND s.valid_state != 4
                 ORDER BY c.file_type;
             """
             await cur.execute(sql, (bot_name, content_id))

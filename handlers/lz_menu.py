@@ -866,13 +866,13 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
         result = await load_sora_content_by_id(int(args[1]), state)
         print("Returned==>:", result)
 
-        ret_content, file_info, user_info = result
+        ret_content, file_info, purchase_info = result
         source_id = file_info[0] if len(file_info) > 0 else None
         file_type = file_info[1] if len(file_info) > 1 else None
         file_id = file_info[2] if len(file_info) > 2 else None
         thumb_file_id = file_info[3] if len(file_info) > 3 else None
-        owner_user_id = user_info[0] if user_info[0] else None
-        fee = user_info[1] if user_info[1] else None
+        owner_user_id = purchase_info[0] if purchase_info[0] else None
+        fee = purchase_info[1] if purchase_info[1] else None
 
 
         # ✅ 检查是否找不到资源（根据返回第一个值）
@@ -1189,14 +1189,14 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     # ✅ 调用并解包返回的三个值
     result_sora = await load_sora_content_by_id(content_id, state, search_key_index, search_from)
     
-    ret_content, file_info, user_info = result_sora
+    ret_content, file_info, purchase_info = result_sora
     source_id = file_info[0] if len(file_info) > 0 else None
     file_type = file_info[1] if len(file_info) > 1 else None
     file_id = file_info[2] if len(file_info) > 2 else None
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
 
-    owner_user_id = user_info[0] if user_info[0] else None
-    fee = user_info[1] if user_info[1] else 0
+    owner_user_id = purchase_info[0] if purchase_info[0] else None
+    fee = purchase_info[1] if purchase_info[1] else 0
     
     
     # print(f"thumb_file_id:{thumb_file_id}")
@@ -2379,16 +2379,21 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     result = await load_sora_content_by_id(int(content_id), state)
     # print("Returned==>:", result)
 
-    ret_content, file_info, user_info = result
+    ret_content, file_info, purchase_info = result
     source_id = file_info[0] if len(file_info) > 0 else None
     file_type = file_info[1] if len(file_info) > 1 else None
     file_id = file_info[2] if len(file_info) > 2 else None
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
 
-    owner_user_id = user_info[0] if user_info[0] else None
-    fee = user_info[1] if user_info[1] else 0
+    owner_user_id = purchase_info[0] if purchase_info[0] else None
+    fee = purchase_info[1] if purchase_info[1] else 0
+    purchase_condition = purchase_info[2] if len(purchase_info) > 2 else None
 
     
+    if purchase_condition is not None:
+        await callback.answer(f"⚠️ 该资源请到专属的机器人兑换", show_alert=True)
+        return
+
 
     if not file_id:
         print("❌ 没有找到匹配记录 source_id")
@@ -2457,10 +2462,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     elif int(expire_ts) >= now_utc:
-        fee = 17
+        fee = 23
         try:
             await callback.answer(
-                f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个视频只要 {fee} 积分。\r\n\r\n"
+                f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n"
                 f"目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}",
                 show_alert=True
             )
@@ -2552,57 +2557,14 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 # print(f"1896=>{productInfomation}")
                 rows = productInfomation.get("rows", [])
                 if rows:
-                    # await lz_var.bot.send_media_group(
-                    #     chat_id=from_user_id,
-                    #     media=rows[0],
-                    #     reply_to_message_id=callback.message.message_id
-                    # )
+
 
                     material_status = productInfomation.get("material_status")
                     if material_status:
                         return_media = await _build_mediagroup_box(1, source_id,content_id, material_status)
                         feedback_kb = return_media.get("feedback_kb")
                         text = return_media.get("text")
-                        # total_quantity = material_status.get("total", 0)
-                        # box_dict = material_status.get("box", {})  # dict: {1:{...}, 2:{...}}
-                        # # 盒子数量（组数）
-                        # box_quantity = len(box_dict)  
-
-                        # # 生成 1..N 号按钮；每行 5 个
-                        # rows_kb: list[list[InlineKeyboardButton]] = []
-                        # current_row: list[InlineKeyboardButton] = []
-
-                        # # 若想按序号排序，确保顺序一致
-                        # for box_id, meta in sorted(box_dict.items(), key=lambda kv: kv[0]):
-                        #     show_tag = "✅ " if meta.get("show") else ""
-                        #     current_row.append(
-                        #         InlineKeyboardButton(
-                        #             text=f"{show_tag}{box_id}",
-                        #             callback_data=f"view_box:{content_id}:{box_id}"  # 带上组号
-                        #         )
-                        #     )
-                        #     if len(current_row) == 5:
-                        #         rows_kb.append(current_row)
-                        #         current_row = []
-
-                        # # 收尾：剩余不足 5 个的一行
-                        # if current_row:
-                        #     rows_kb.append(current_row)
-
-                        # # 追加反馈按钮（单独一行）
-                        # rows_kb.append([
-                        #     InlineKeyboardButton(
-                        #         text="⚠️ 反馈内容",
-                        #         url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
-                        #     )
-                        # ])
-
-                        # feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
-
-                        # # 计算页数：每页 10 个（与你 send_media_group 的分组一致）
-                        # # 避免整除时多 +1，用 (total+9)//10 或 math.ceil
-                        # pages = (total_quantity + 9) // 10 if total_quantity else 0
-
+                        
                         await lz_var.bot.send_message(
                             parse_mode="HTML",
                             reply_markup=feedback_kb,
@@ -3039,7 +3001,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         
         # print(f"1847:🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
         # ✅ 返回三个值
-        return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee]
+        return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:
         return f"⚠️ 没有找到 ID 为 {content_id} 的 Sora 内容记录"

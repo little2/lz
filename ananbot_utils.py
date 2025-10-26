@@ -9,6 +9,8 @@ from utils.prof import SegTimer
 import asyncio
 import pymysql
 from typing import Optional
+from lz_memory_cache import MemoryCache
+
 
 class AnanBOTPool(LYBase):
     _pool = None
@@ -18,7 +20,8 @@ class AnanBOTPool(LYBase):
     _cache_ttl = 30  # 缓存有效时间（秒）
     _all_tags_types_cache = None
     _all_tags_types_cache_ts = 0
-
+    _cache_ready = False
+    cache = None
 
     @classmethod
     async def init_pool(cls):
@@ -35,7 +38,11 @@ class AnanBOTPool(LYBase):
                     kwargs.setdefault("charset", "utf8mb4")
                     cls._pool = await aiomysql.create_pool(**kwargs)
                     print("✅ MySQL 连接池初始化完成（autocommit, recycle=120）")
-
+            
+            if not cls._cache_ready:
+                cls.cache = MemoryCache()
+                cls._cache_ready = True
+            
 
     @classmethod
     async def _reset_pool(cls):
@@ -111,6 +118,17 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def upsert_media(cls, file_type, data: dict):
+        if file_type == 'v':
+            file_type = 'video'
+        elif file_type == 'p':
+            file_type = 'photo'
+        elif file_type == 'd':
+            file_type = 'document'
+        elif file_type == 'n':
+            file_type = 'animation'
+
+
+
         if file_type != "video":
             data.pop("duration", None)
         if file_type == "document":
@@ -323,6 +341,13 @@ class AnanBOTPool(LYBase):
     #要和 lz_db.py 作整合
     @classmethod
     async def search_sora_content_by_id(cls, content_id: int,bot_username: str):
+
+        # cache_key = f"content_id:{content_id}"
+        # cached = cls.cache.get(cache_key)
+        # if cached:
+        #     print(f"🔹 MemoryCache hit for {cache_key}")
+        #     return cached
+        
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute('''
@@ -414,7 +439,7 @@ class AnanBOTPool(LYBase):
                     )
                     # 如果你这边用手动事务，可考虑在外层统一提交
 
-            
+            # cls.cache.set(cache_key, row, ttl=300)
 
             return row
         except Exception as e:
@@ -519,7 +544,89 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
     @classmethod
-    async def get_album_list(cls, content_id: int, bot_name: str):
+    async def get_album_list(cls, content_id: int, bot_name: str) -> list[dict]:
+        """
+        查询某个 album 下的所有成员文件（MySQL 版，适配 aiomysql）
+        - 逻辑同步 PostgreSQL 版本：
+        1) 取 album_items -> sora_content -> sora_media（按 bot 过滤）；
+        2) 若 m.file_id 为空且 file_extension 能匹配出 ext_file_id，则回填到返回值；
+        3) 批量 UPSERT 回写 sora_media(content_id, source_bot_name) 的 file_id。
+        - 返回：list[dict]
+        """
+        # 说明：
+        # - 需要唯一键/联合索引：sora_media(content_id, source_bot_name) UNIQUE
+        # - JOIN file_extension 使用 (file_unique_id, bot)
+        sql = """
+            SELECT
+                c.member_content_id,           -- 回写 sora_media.content_id 使用
+                s.source_id,
+                c.file_type,
+                s.content,
+                s.file_size,
+                s.duration,
+                m.source_bot_name,
+                m.thumb_file_id,
+                m.file_id,
+                fe.file_id AS ext_file_id
+            FROM album_items AS c
+            LEFT JOIN sora_content AS s
+                ON c.member_content_id = s.id
+            LEFT JOIN sora_media   AS m
+                ON c.member_content_id = m.content_id
+                AND m.source_bot_name   = %s
+            LEFT JOIN file_extension AS fe
+                ON fe.file_unique_id = s.source_id
+                AND fe.bot            = %s
+            WHERE c.content_id = %s
+            ORDER BY c.file_type
+        """
+        params = (bot_name, bot_name, content_id)
+
+        upsert_sql = """
+            INSERT INTO sora_media (content_id, source_bot_name, file_id)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE file_id = VALUES(file_id)
+        """
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(sql, params)
+            rows = await cur.fetchall() or []
+
+            dict_rows: list[dict] = []
+            to_upsert: list[tuple[int, str, str]] = []  # (content_id, bot_name, file_id)
+
+            for d in rows:
+                # d 已是 dict（DictCursor）
+                file_id = d.get("file_id")
+                ext_id  = d.get("ext_file_id")
+                # 如果 m.file_id 为空且扩展表能命中，则用 ext_file_id 回填返回值并准备回写
+                if not file_id and ext_id:
+                    d["file_id"] = ext_id
+                    cid = d.get("member_content_id")
+                    if cid:
+                        to_upsert.append((int(cid), bot_name, str(ext_id)))
+                dict_rows.append(d)
+
+            # 批量 UPSERT 回写 sora_media
+            if to_upsert:
+                await cur.executemany(upsert_sql, to_upsert)
+                await conn.commit()
+
+            return dict_rows
+        except Exception:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def get_album_list_old(cls, content_id: int, bot_name: str):
+        # TODO  写法和 lz_db.py 目前不同, 需保持一致，方便整合
         sql = """
             SELECT s.source_id, c.file_type, s.content, s.file_size, s.duration,
                    m.source_bot_name, m.thumb_file_id, m.file_id
@@ -529,13 +636,15 @@ class AnanBOTPool(LYBase):
             WHERE c.content_id = %s
             ORDER BY c.file_type
         """
-        params = (bot_name, content_id)
+        params = (bot_name, content_id )
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(sql, params)
             return await cur.fetchall()
         finally:
             await cls.release(conn, cur)
+
+
 
     @classmethod
     async def find_rebate_receiver_id(cls, source_id: str, tag: str):
@@ -619,6 +728,13 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def get_content_id_by_file_unique_id(cls, file_unique_id: str) -> str:
+        cache_key = f"file_unique_id:{file_unique_id}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+        
+        
         async with cls._pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
@@ -627,7 +743,9 @@ class AnanBOTPool(LYBase):
                     WHERE source_id = %s
                 """, (file_unique_id,))
                 row = await cur.fetchone()
-                return row[0] if row else ""
+                content_id = row[0] if row else ""
+                cls.cache.set(cache_key, content_id, ttl=30000)
+                return content_id
 
 
     @classmethod

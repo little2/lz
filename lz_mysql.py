@@ -923,6 +923,42 @@ class MySQLPool:
         finally:
             await cls.release(conn, cur)
 
+    
+    @classmethod
+    async def list_album_items_by_content_id(cls, content_id: int) -> list[dict]:
+        """
+        取出某个相簿（content_id）的所有 album_items 行。
+        返回字段与 PG 目标表对齐：id, content_id, member_content_id,
+        file_unique_id, file_type, position, created_at, updated_at, stage
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+                SELECT
+                    id,
+                    content_id,
+                    member_content_id,
+                    file_unique_id,
+                    file_type,
+                    `position`,
+                    created_at,
+                    updated_at,
+                    stage
+                FROM album_items
+                WHERE content_id = %s
+                ORDER BY `position` ASC, id ASC
+            """
+            await cur.execute(sql, (content_id,))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ list_album_items_by_content_id 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)
+
+
+
     @classmethod
     async def fetch_task_value_by_title(cls, title: str) -> str | None:
         """

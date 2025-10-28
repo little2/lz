@@ -2389,6 +2389,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     fee = purchase_info[1] if purchase_info[1] else 0
     purchase_condition = purchase_info[2] if len(purchase_info) > 2 else None
 
+    answer_text = ''
     
     if purchase_condition is not None:
         await callback.answer(f"⚠️ 该资源请到专属的机器人兑换", show_alert=True)
@@ -2464,11 +2465,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     elif int(expire_ts) >= now_utc:
         fee = 23
         try:
-            await callback.answer(
-                f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n"
-                f"目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}",
-                show_alert=True
-            )
+            reply_text = f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"
+            # await callback.answer(
+            #     f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n"
+            #     f"目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}",
+            #     show_alert=True
+            # )
         except Exception:
             pass
     # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
@@ -2510,20 +2512,20 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
 
         if result.get('status') == 'exist':
-            reply_text = f"✅ 你已经兑换过此资源，不需要扣除积分"
+            reply_text += f"✅ 你已经兑换过此资源，不需要扣除积分"
             if user_point > 0:
                 reply_text += f"，当前积分余额: {user_point}。"
 
             print(f"💬 回复内容: {reply_text}", flush=True)
         elif result.get('status') == 'insert':
             
-            reply_text = f"✅ 兑换成功，已扣除 {sender_fee} 积分"
+            reply_text += f"✅ 兑换成功，已扣除 {sender_fee} 积分"
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
        
         elif result.get('status') == 'reward_self':
             
-            reply_text = f"✅ 这是你自己的资源"
+            reply_text += f"✅ 这是你自己的资源"
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
 
@@ -2538,40 +2540,48 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
         try:
-            print(f"{file_type}")
+           
             if file_type == "album" or file_type == "a":
                 
                 productInfomation = await get_product_material(content_id)
-                if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
-                    lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
-                    for fuid in lack_file_uid_rows:
-                       
-                        await lz_var.bot.send_message(
-                            chat_id=lz_var.x_man_bot_id,
-                            text=f"{fuid}"
-                        )
-                        await asyncio.sleep(0.7)
+                if not productInfomation:
+                     await callback.answer(f"资源同步中，请稍等一下再试，请看看别的资源吧 {content_id}", show_alert=True)
+                     return   
+                # else:
+                #     print(f"1892=>{productInfomation}")
+                await Media.send_media_group(callback, productInfomation, 1, content_id, source_id)
+
+                # if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
+                #     await callback.answer("资源同步中，请稍后再试，请看看别的资源吧", show_alert=True) 
+                #     lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
+                #     for fuid in lack_file_uid_rows:
+                    
+                #         await lz_var.bot.send_message(
+                #             chat_id=lz_var.x_man_bot_id,
+                #             text=f"{fuid}"
+                #         )
+                #         await asyncio.sleep(0.7)
                         
-                    await callback.answer("资源同步中，请稍后再试，请看看别的资源吧", show_alert=True)     
-                    return
-                # print(f"1896=>{productInfomation}")
-                rows = productInfomation.get("rows", [])
-                if rows:
+                        
+                #     return
+                # # print(f"1896=>{productInfomation}")
+                # rows = productInfomation.get("rows", [])
+                # if rows:
 
 
-                    material_status = productInfomation.get("material_status")
-                    if material_status:
-                        return_media = await _build_mediagroup_box(1, source_id,content_id, material_status)
-                        feedback_kb = return_media.get("feedback_kb")
-                        text = return_media.get("text")
+                #     material_status = productInfomation.get("material_status")
+                #     if material_status:
+                #         return_media = await _build_mediagroup_box(1, source_id,content_id, material_status)
+                #         feedback_kb = return_media.get("feedback_kb")
+                #         text = return_media.get("text")
                         
-                        await lz_var.bot.send_message(
-                            parse_mode="HTML",
-                            reply_markup=feedback_kb,
-                            chat_id=from_user_id,
-                            text=text,
-                            reply_to_message_id=callback.message.message_id
-                        )
+                #         await lz_var.bot.send_message(
+                #             parse_mode="HTML",
+                #             reply_markup=feedback_kb,
+                #             chat_id=from_user_id,
+                #             text=text,
+                #             # reply_to_message_id=callback.message.message_id
+                #         )
 
 
 
@@ -2675,7 +2685,26 @@ async def _build_mediagroup_box(page,source_id,content_id,material_status):
 
 @router.callback_query(F.data.startswith("media_box:"))
 async def handle_media_box(callback: CallbackQuery, state: FSMContext):
-    reply_to_message_id = callback.message.reply_to_message.message_id
+    print(f"{callback.data}", flush=True)
+    _, content_id, box_id, quantity = callback.data.split(":")
+    product_row = await db.search_sora_content_by_id(int(content_id))
+    # product_info = product_row.get("product_info") or {}
+    source_id = product_row.get("source_id") or ""
+
+    # sora_content = AnanBOTPool.search_sora_content_by_id(content_id)
+    # source_id = sora_content.get("source_id") if sora_content else ""
+    # source_id = get_content_id_by_file_unique_id(content_id)
+    # ===== 你原本的业务逻辑（保留） =====
+    # rows = await AnanBOTPool.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
+               
+    productInfomation = await get_product_material(content_id)
+
+    await Media.send_media_group(callback, productInfomation, box_id, content_id,source_id)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("media_box_old:"))
+async def handle_media_box(callback: CallbackQuery, state: FSMContext):
+    # reply_to_message_id = callback.message.reply_to_message.message_id
     _, content_id, box_id, quantity = callback.data.split(":")
     from_user_id = callback.from_user.id
 
@@ -2698,7 +2727,7 @@ async def handle_media_box(callback: CallbackQuery, state: FSMContext):
     await lz_var.bot.send_media_group(
         chat_id=from_user_id,
         media=rows[(int(box_id)-1)],
-        reply_to_message_id=reply_to_message_id
+        # reply_to_message_id=reply_to_message_id
     )
     # ==================================
 

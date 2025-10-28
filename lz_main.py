@@ -111,6 +111,8 @@ async def handle_user_private_media(event):
 
 
 
+
+
 FILE_ID_REGEX = re.compile(
     r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
 )
@@ -126,8 +128,8 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
     - 若不存在则从 default_skins 生成。
     - 若有 file_unique_id 但 file_id 为空，会调用 get_file_id_by_file_unique_id() 取得。
     """
-    import lz_var
-    from lz_db import db
+    # import lz_var
+    # from lz_db import db
 
 
     default_skins = {
@@ -251,9 +253,6 @@ async def update_username(client,username):
         print("用户名已成功变更。")
     except Exception as e:
         print(f"变更失败：{e}")
-
-
-
 
 async def main():
     # 10.2 并行运行 Telethon 与 Aiogram

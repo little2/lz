@@ -4651,7 +4651,7 @@ async def main():
    # ✅ 初始化 MySQL 连接池
     await AnanBOTPool.init_pool()
 
-    # await AnanBOTPool.sync_bid_product()
+    await AnanBOTPool.sync_bid_product()
 
     await set_default_thumb_file_id()
     
@@ -4678,13 +4678,6 @@ async def main():
 
         
     else:
-        await bot.send_video(
-            chat_id=7496113118,
-            video="BAACAgQAAxkBAAIhr2juVsrwHeEO5RJuMy4kGdenavjkAAJUGAACkXUwUyIVLBfHIQQ_NgQ",
-            duration=6569,                   # 可选：覆盖 Telegram 记忆的时长
-            supports_streaming=True,
-            caption="🎬 拍摄时间：2025-10-08 13:00"
-        )
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询
 

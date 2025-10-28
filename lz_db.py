@@ -570,6 +570,74 @@ class DB:
             return []
 
 
+   
+    async def upsert_album_items_bulk(self, rows: list[dict]) -> int:
+        """
+        批量 UPSERT 到 PostgreSQL 的 public.album_items
+        冲突键： (content_id, member_content_id)
+        更新字段：file_unique_id, file_type, position, updated_at, stage
+        created_at 采用既有值（保持历史），若原表为空则用默认值
+        返回：受影响（插入/更新）行数（近似）
+        """
+        if not rows:
+            return 0
+        await self._ensure_pool()
+
+        # 只带 PG 有的列，注意 file_type 在 PG 是 text（已用 CHECK 约束）
+        payload = []
+        for r in rows:
+            payload.append((
+                int(r["content_id"]),
+                int(r["member_content_id"]),
+                (r.get("file_unique_id") or None),
+                (str(r.get("file_type") or "") or ""),  # 允许空字符串
+                int(r.get("position") or 0),
+                str(r.get("stage") or "pending"),
+            ))
+
+        sql = """
+            INSERT INTO album_items
+                (content_id, member_content_id, file_unique_id, file_type, "position", stage, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+            ON CONFLICT (content_id, member_content_id)
+            DO UPDATE SET
+                file_unique_id = EXCLUDED.file_unique_id,
+                file_type      = EXCLUDED.file_type,
+                "position"     = EXCLUDED."position",
+                stage          = EXCLUDED.stage,
+                updated_at     = CURRENT_TIMESTAMP
+        """
+        affected = 0
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(sql, payload)
+                affected = len(payload)
+        return affected
+
+
+    async def delete_album_items_except(self, content_id: int, keep_member_ids: list[int]) -> int:
+        """
+        删除 PG 中该 content_id 下、但不在 keep_member_ids 的 album_items
+        keep_member_ids 为空时，删除该 content_id 下所有记录
+        返回：删除行数
+        """
+        await self._ensure_pool()
+        async with self.pool.acquire() as conn:
+            if keep_member_ids:
+                sql = """
+                    DELETE FROM album_items
+                    WHERE content_id = $1
+                    AND member_content_id <> ALL($2::bigint[])
+                """
+                res = await conn.execute(sql, content_id, keep_member_ids)
+            else:
+                sql = "DELETE FROM album_items WHERE content_id = $1"
+                res = await conn.execute(sql, content_id)
+            # asyncpg 的返回类似 'DELETE 3'，取数字
+            try:
+                return int(res.split()[-1])
+            except Exception:
+                return 0
 
 
 db = DB()

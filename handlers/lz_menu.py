@@ -63,10 +63,6 @@ import sys
 
 
 
-print("[DIAG] MySQLPool symbol =", MySQLPool, 
-      " from ", inspect.getmodule(MySQLPool).__file__, flush=True)
-print("[DIAG] set_sora_content_by_id from", 
-      inspect.getmodule(MySQLPool.set_sora_content_by_id).__file__, flush=True)
 
 
 
@@ -1213,7 +1209,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],
             [
-                InlineKeyboardButton(text=f"💎 17 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"💎 {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
         ])
 
@@ -1263,7 +1259,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
             [
-                InlineKeyboardButton(text=f"💎 17 (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"💎 {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
             [
                 InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
@@ -2463,7 +2459,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     elif int(expire_ts) >= now_utc:
-        fee = 23
+        fee = lz_var.xlj_fee
+        
         try:
             reply_text = f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"
             # await callback.answer(

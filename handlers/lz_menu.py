@@ -198,10 +198,16 @@ async def _edit_caption_or_text(
             # 没有 msg，也没提供 chat_id/message_id，无法定位消息
             return
 
-        if chat_id is None:
-            chat_id = msg.chat.id
+        if hasattr(msg, 'chat'):
+            if chat_id is None:
+                chat_id = msg.chat.id
+            if message_id is None:
+                message_id = msg.message_id
+        
         if message_id is None:
-            message_id = msg.message_id
+            print('没有 message_id，无法定位消息', flush=True)
+            return False
+
 
         # 判断是否为媒体消息（按优先顺序找出第一种存在的媒体属性）
         media_attr = next(
@@ -274,7 +280,7 @@ async def _edit_caption_or_text(
 
     except Exception as e:
         # 你也可以在这里加上 traceback 打印，或区分 TelegramBadRequest
-        print(f"❌ 编辑消息失败: {e}", flush=True)
+        print(f"❌ 编辑消息失败a: {e}", flush=True)
 
 
 
@@ -358,7 +364,7 @@ async def _edit_caption_or_text2(msg : Message | None = None, *,  text: str, rep
         #         reply_markup=reply_markup
         #     )
     except Exception as e:
-        print(f"❌ 编辑消息失败: {e}", flush=True)
+        print(f"❌ 编辑消息失败b: {e}", flush=True)
 
 
 @debug
@@ -943,7 +949,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
             )
             return
         except Exception as e:
-            print(f"❌ 编辑消息失败: {e}", flush=True)
+            print(f"❌ 编辑消息失败c: {e}", flush=True)
             
     menu_message = await message.answer_photo(
         photo=lz_var.skins['search_keyword']['file_id'],
@@ -1052,19 +1058,27 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ." 
                 if clti_message:
                     try:
-                        # print(f"clti_message={clti_message}",flush=True)
-                        ret_message = await lz_var.bot.edit_message_media(
-                            chat_id=clti_message.chat.id,
-                            message_id=clti_message.message_id,
-                            media=InputMediaAnimation(
-                                media=lz_var.skins["loading"]["file_id"],
+                        if clti_message and hasattr(clti_message, 'message_id') and hasattr(clti_message, 'chat'):
+                            # print(f"clti_message={clti_message}",flush=True)
+                            ret_message = await lz_var.bot.edit_message_media(
+                                chat_id=clti_message.chat.id,
+                                message_id=clti_message.message_id,
+                                media=InputMediaAnimation(
+                                    media=lz_var.skins["loading"]["file_id"],
+                                    caption=caption_txt,
+                                    parse_mode="HTML"
+                                )
+                            )
+                        else:
+                            clti_message = await message.answer_animation(
+                                animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                                 caption=caption_txt,
                                 parse_mode="HTML"
                             )
-                        )
+                            
                         # return
                     except Exception as e:
-                        print(f"❌ 编辑消息失败: {e}", flush=True)
+                        print(f"❌ 编辑消息失败d: {e}", flush=True)
                         clti_message = await message.answer_animation(
                             animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                             caption=caption_txt,

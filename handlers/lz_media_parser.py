@@ -80,16 +80,18 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     if fetch_thumb_file_unique_id == file_unique_id:
         print(f"✅ [X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)
         try:
-            await lz_var.bot.edit_message_media(
-                chat_id=menu_message.chat.id,
-                message_id=menu_message.message_id,
-                media=InputMediaPhoto(
-                    media=file_id,   # 新图的 file_id
-                    caption=menu_message.caption,   # 保留原 caption
-                    parse_mode="HTML",               # 如果原本有 HTML 格式
-                ),
-                reply_markup=menu_message.reply_markup  # 保留原按钮
-            )
+            # 判断 menu_message 是否有 message_id 和 chat.id
+            if menu_message and hasattr(menu_message, 'message_id') and hasattr(menu_message, 'chat'):
+                await lz_var.bot.edit_message_media(
+                        chat_id=menu_message.chat.id,
+                        message_id=menu_message.message_id,
+                        media=InputMediaPhoto(
+                        media=file_id,   # 新图的 file_id
+                        caption=menu_message.caption,   # 保留原 caption
+                        parse_mode="HTML",               # 如果原本有 HTML 格式
+                    ),
+                    reply_markup=menu_message.reply_markup  # 保留原按钮
+                )
         
 
             print(f"✅ [X-MEDIA] 成功更新菜单消息的缩略图", flush=True)

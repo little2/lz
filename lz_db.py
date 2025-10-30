@@ -92,7 +92,7 @@ class DB:
         if cached:
             return cached
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             rows = await conn.fetch(
                 '''
                 SELECT id, source_id, file_type,
@@ -130,7 +130,7 @@ class DB:
             return cached
 
         # 查询 pg
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             rows = await conn.fetch(
                 '''
                 SELECT id, source_id, file_type, content 
@@ -178,7 +178,7 @@ class DB:
         # print(f"Executing SQL:\n{sql.strip()}")
         # print(f"With params: {file_type}, {file_unique_id}, {file_id}, {bot}, {user_id}, {now}")
         await self._ensure_pool()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             result = await conn.fetchrow(sql, file_type, file_unique_id, file_id, bot, user_id, now)
 
 
@@ -211,8 +211,9 @@ class DB:
             return cached
         
         # print(f"\r\n\r\nCache miss for {cache_key}, querying database...")
-    
-        async with self.pool.acquire() as conn:
+        await self._ensure_pool()
+
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 '''
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
@@ -309,7 +310,7 @@ class DB:
             # 返回 asyncpg Record 或 None
 
     async def get_next_content_id(self, current_id: int, offset: int) -> int | None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             if offset > 0:
                 row = await conn.fetchrow(
                     """
@@ -341,7 +342,7 @@ class DB:
         if not unique_ids:
             return []
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             rows = await conn.fetch(
                 '''
                 SELECT file_id
@@ -355,7 +356,7 @@ class DB:
             return [r['file_id'] for r in rows if r['file_id']]
 
     async def insert_search_log(self, user_id: int, keyword: str):
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             await conn.execute(
                 """
                 INSERT INTO search_log (user_id, keyword, search_time)
@@ -365,7 +366,7 @@ class DB:
             )
 
     async def upsert_search_keyword_stat(self, keyword: str):
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             result = await conn.execute(
                  """
                 INSERT INTO search_keyword_stat (keyword, search_count, last_search_time)
@@ -380,7 +381,7 @@ class DB:
             return result
 
     async def get_search_keyword_id(self, keyword: str) -> int | None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 """
                 WITH ins AS (
@@ -405,7 +406,7 @@ class DB:
         if cached:
             return cached
         
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 """
                 SELECT keyword
@@ -428,7 +429,7 @@ class DB:
           - None (未找到记录)
         """
         await self._ensure_pool()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 """
                 SELECT expire_timestamp
@@ -473,7 +474,7 @@ class DB:
             expire_timestamp = GREATEST(membership.expire_timestamp, EXCLUDED.expire_timestamp)
         """
         try:
-            async with self.pool.acquire() as conn:
+            async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.executemany(
                         sql,
@@ -537,7 +538,7 @@ class DB:
         """
 
         try:
-            async with self.pool.acquire() as conn:
+            async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
                 rows = await conn.fetch(sql, bot_name, content_id)
 
                 # 先把记录转成可变 dict，并收集需要回写的条目
@@ -608,7 +609,7 @@ class DB:
                 updated_at     = CURRENT_TIMESTAMP
         """
         affected = 0
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 await conn.executemany(sql, payload)
                 affected = len(payload)
@@ -622,7 +623,7 @@ class DB:
         返回：删除行数
         """
         await self._ensure_pool()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             if keep_member_ids:
                 sql = """
                     DELETE FROM album_items

@@ -2398,7 +2398,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
     purchase_condition = purchase_info[2] if len(purchase_info) > 2 else None
-
+    reply_text = ''
     answer_text = ''
     
     if purchase_condition is not None:
@@ -2551,7 +2551,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
         try:
-           
+            send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb)
+            if callback.message.message_id is not None:
+                send_content_kwargs["reply_to_message_id"] = callback.message.message_id
+
             if file_type == "album" or file_type == "a":
                 
                 productInfomation = await get_product_material(content_id)
@@ -2598,26 +2601,39 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
                     
             elif file_type == "photo" or file_type == "p":
-                await lz_var.bot.send_photo(
-                    chat_id=from_user_id,
-                    photo=file_id,
-                    reply_to_message_id=callback.message.message_id,
-                    reply_markup=feedback_kb
-                )
+
+              
+               
+                send_content_kwargs["photo"] = file_id
+                sr = await lz_var.bot.send_photo(**send_content_kwargs)
+
+                # await lz_var.bot.send_photo(
+                #     chat_id=from_user_id,
+                #     photo=file_id,
+                #     reply_to_message_id=callback.message.message_id,
+                #     reply_markup=feedback_kb
+                # )
             elif file_type == "video" or file_type == "v":
-                await lz_var.bot.send_video(
-                    chat_id=from_user_id,
-                    video=file_id,
-                    reply_to_message_id=callback.message.message_id,
-                    reply_markup=feedback_kb
-                )
+                send_content_kwargs["video"] = file_id
+                sr = await lz_var.bot.send_video(**send_content_kwargs)
+
+
+                # await lz_var.bot.send_video(
+                #     chat_id=from_user_id,
+                #     video=file_id,
+                #     reply_to_message_id=callback.message.message_id,
+                #     reply_markup=feedback_kb
+                # )
             elif file_type == "document" or file_type == "d":
-                await lz_var.bot.send_document(
-                    chat_id=from_user_id,
-                    document=file_id,
-                    reply_to_message_id=callback.message.message_id,
-                    reply_markup=feedback_kb
-                )
+                send_content_kwargs["document"] = file_id
+                sr = await lz_var.bot.send_document(**send_content_kwargs)
+
+                # await lz_var.bot.send_document(
+                #     chat_id=from_user_id,
+                #     document=file_id,
+                #     reply_to_message_id=callback.message.message_id,
+                #     reply_markup=feedback_kb
+                # )
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问: {e}")
 

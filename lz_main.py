@@ -258,30 +258,23 @@ async def main():
     # 10.2 并行运行 Telethon 与 Aiogram
     await user_client.start(PHONE_NUMBER)
     task_telethon = asyncio.create_task(user_client.run_until_disconnected())
-   
+
     # await delete_my_profile_photos(user_client)
     # await update_my_name(user_client,'Luzai', 'Man')
     # await update_username(user_client,"luzai09man")
-
     # import aiohttp
     # from aiogram import Bot
-    
     # # 禁用 SSL 验证（仅开发环境调试时使用）
     # connector = aiohttp.TCPConnector(ssl=False)
-
     # # 增加超时到 60 秒
     # timeout = aiohttp.ClientTimeout(total=60)
-
-    # session = aiohttp.ClientSession(connector=connector, timeout=timeout)
-   
+    # session = aiohttp.ClientSession(connector=connector, timeout=timeout
     # bot = Bot(token=BOT_TOKEN, session=session)
 
     bot = Bot(
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
-    
-
     
      # ✅ 赋值给 lz_var 让其他模块能引用
     lz_var.bot = bot
@@ -296,7 +289,6 @@ async def main():
         await user_client.disconnect()
         await bot.session.close()
         return
-
     try:
         man_me = await user_client.get_me()
         lz_var.man_bot_id = man_me.id

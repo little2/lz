@@ -6,3 +6,5 @@ aiomysql>=0.0.23
 aiofiles
 telethon==1.38.0
 redis >= 4.2
+# 中文分词
+jieba>=0.42.1

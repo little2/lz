@@ -6,7 +6,7 @@ from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 from datetime import datetime
 import lz_var
-
+import jieba
 
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
 DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
@@ -14,7 +14,11 @@ ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
 COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
 CONNECT_TIMEOUT = float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))  # 新增
 
-
+SYNONYM = {
+    "滑鼠": "鼠标",
+    "萤幕": "显示器",
+    "笔电": "笔记本",
+}
 
 class DB:
     def __init__(self):
@@ -109,7 +113,82 @@ class DB:
             self.cache.set(cache_key, result, ttl=60)  # 缓存 60 秒
             return result
 
-    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = None):
+
+    def replace_synonym(self,text):
+        for k, v in SYNONYM.items():
+            text = text.replace(k, v)
+        return text
+
+    def _escape_ts_lexeme(self,s: str) -> str:
+        # 简单转义，避免 to_tsquery 特殊字符影响；必要时再扩充
+        return s.replace("'", "''").replace("&", " ").replace("|", " ").replace("!", " ").replace(":", " ").strip()
+
+    def _build_tsqueries_from_tokens(self,tokens: list[str]) -> tuple[str, str]:
+        toks = [self._escape_ts_lexeme(t) for t in tokens if t.strip()]
+        if not toks:
+            return "", ""
+        phrase = " <-> ".join(toks)  # 相邻
+        all_and = " & ".join(toks)   # 兜底 AND
+        return phrase, all_and
+
+    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 100):
+        query = self._normalize_query(keyword_str)
+        cache_key = f"searchkey:{query}:{last_id}:{limit}"
+        
+        cached = self.cache.get(cache_key)
+        if cached:
+            return cached
+ 
+ 
+        # 归一 + 分词（与建索引时保持一致）
+        q_norm = self.replace_synonym(keyword_str)
+        tokens = list(jieba.cut(q_norm))
+        phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
+        if not and_q:
+            return []
+
+        limit = max(1, min(300, int(limit)))
+
+        where_parts = []
+        params = []
+
+        # 两种匹配：相邻 或 AND
+        cond = []
+        if phrase_q:
+            cond.append("content_seg_tsv @@ to_tsquery('simple', $1)")
+            params.append(phrase_q)
+        cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${len(params)+1})")
+        params.append(and_q)
+        where_parts.append("(" + " OR ".join(cond) + ")")
+
+        if last_id > 0:
+            where_parts.append(f"id < ${len(params)+1}")
+            params.append(last_id)
+
+        sql = f"""
+            SELECT
+                id, source_id, file_type, content,
+                GREATEST(
+                    COALESCE(ts_rank_cd(content_seg_tsv, to_tsquery('simple', $1)), 0) * 1.5,
+                    ts_rank_cd(content_seg_tsv, to_tsquery('simple', $2))
+                ) AS rank
+            FROM sora_content
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY rank DESC, id DESC
+            LIMIT ${len(params)+1}
+        """
+        params.append(limit)
+
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+            rows = await conn.fetch(sql, *params)
+        
+        result = [dict(r) for r in rows]
+        self.cache.set(cache_key, result, ttl=300)  # 缓存 60 秒
+        return result
+
+
+
+    async def search_keyword_page_plain_old(self, keyword_str: str, last_id: int = 0, limit: int = None):
        
         query = self._normalize_query(keyword_str)
 

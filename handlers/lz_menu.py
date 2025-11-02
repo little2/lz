@@ -1085,22 +1085,31 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
             search_key_index = parts[1]
             encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
-            # print(f"🔍 搜索关键字索引: {search_key_index}, 编码内容: {encoded}")
+            print(f"🔍 搜索关键字索引: {search_key_index}, 编码内容: {encoded}")
             # encoded = param[2:]  # 取第三位开始的内容
             try:
                 aes = AESCrypto(AES_KEY)
                 content_id_str = aes.aes_decode(encoded)
-                
+                print(f"🔍 解码得到 content_id_str: {content_id_str}", flush=True)
 
                 # date = await state.get_data()
                 # clti_message = date.get("menu_message")
                 state_data = await MenuBase.get_menu_status(state)
                 current_message = state_data.get("current_message") if state_data else None
+            except Exception as e:
+                # tb = traceback.format_exc()
+                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                print(f"❌ 解密失败A：{e}", flush=True)
 
+
+
+            try:
                 caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ." 
                 if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
                     try:
-                        # print(f"clti_message={clti_message}",flush=True)
+                        
+                        # print(f"clti_message={current_message}",flush=True)
                         current_message = await lz_var.bot.edit_message_media(
                             chat_id=current_message.chat.id,
                             message_id=current_message.message_id,
@@ -1110,7 +1119,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                                 parse_mode="HTML"
                             )
                         )
-                    
+                        
                             
                         # return
                     except Exception as e:
@@ -1120,10 +1129,6 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                             caption=caption_txt,
                             parse_mode="HTML"
                         )
-                   
-
-
-
                 else:   
                     current_message = await message.answer_animation(
                         animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
@@ -1132,25 +1137,38 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     )
 
                     # print(f"clti_message={clti_message}",flush=True)
-
+                print(f"🔍 设置当前消息为 loading 动画", flush=True)
                 await MenuBase.set_menu_status(state, {
                     "current_message": current_message,
                     "current_chat_id": current_message.chat.id,
                     "current_messsage_id": current_message.message_id
                 })
-                
+
+            except Exception as e:
+                # tb = traceback.format_exc()
+                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                print(f"❌ 解密失败B：{e}", flush=True)
+
+
                 # //
   
 
-
+            try:
                 content_id = int(content_id_str)  # ✅ 关键修正
-                
+                print(f"🔍 1148-解码得到 content_id: {content_id}", flush=True)
                 if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                     product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])
+            except Exception as e:
+                # tb = traceback.format_exc()
+                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                print(f"❌ 解密失败C：{e}", flush=True)
+                return
 
-
+            try:
                 print(f"688:Product Info", flush=True)
-                if product_info['ok']:
+                if product_info and product_info['ok']:
                     if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                         # date = await state.get_data()
                         # clti_message = date.get("menu_message")
@@ -1205,7 +1223,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 # tb = traceback.format_exc()
                 await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
-                print(f"❌ 解密失败：{e}", flush=True)
+                print(f"❌ 解密失败D：{e}", flush=True)
+
         elif parts[0] == "post":
             await _submit_to_lg()
         elif parts[0] == "upload":
@@ -1272,7 +1291,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     #     'message': message,
     #     'action':'_build_product_info'
     # })
-
+    # print(f"_build_product_info: {content_id}, {search_key_index}, {search_from}, {current_pos}", flush=True)
     # ✅ 调用并解包返回的三个值
     result_sora = await load_sora_content_by_id(content_id, state, search_key_index, search_from)
     
@@ -1290,16 +1309,23 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     # ✅ 检查是否找不到资源（根据返回第一个值）
     if ret_content.startswith("⚠️"):
         return {"ok": False, "msg": ret_content}
-        
+    
+   
+
     if current_pos == 0:
         # 尝试从搜索结果中定位当前位置
-        search_result = await db.search_keyword_page_plain(await db.get_keyword_by_id(int(search_key_index)))
-        if search_result:
-            current_pos = get_index_by_source_id(search_result, source_id) 
-            print(f"搜索结果总数: {len(search_result)}", flush=True)
-
-
-
+        keyword = await db.get_keyword_by_id(int(search_key_index))
+        if keyword:
+            search_result = await db.search_keyword_page_plain(keyword)
+            if search_result:
+                try:
+                    current_pos = get_index_by_source_id(search_result, source_id) 
+                    print(f"搜索结果总数: {len(search_result)}", flush=True)
+                except Exception as e:
+                    print(f"❌ 取得索引失败：{e}", flush=True)
+    
+    
+   
     if file_id:
         resource_icon = "💎"
     else:
@@ -1345,14 +1371,14 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         else:
 
             if int(search_key_index) > 0:
-                if current_pos == 0:
-                    keyword = await db.get_keyword_by_id(search_key_index)
-                    if keyword:
-                        # 拉取搜索结果 (用 MemoryCache 非常快)
-                        search_result = await db.search_keyword_page_plain(keyword)
-                        if search_result:
-                            current_pos = get_index_by_source_id(search_result, source_id) 
-                            # print(f"搜索结果总数: {len(search_result)}", flush=True)
+                # if current_pos == 0:
+                #     keyword = await db.get_keyword_by_id(search_key_index)
+                #     if keyword:
+                #         # 拉取搜索结果 (用 MemoryCache 非常快)
+                #         search_result = await db.search_keyword_page_plain(keyword)
+                #         if search_result:
+                #             current_pos = get_index_by_source_id(search_result, source_id) 
+                #             # print(f"搜索结果总数: {len(search_result)}", flush=True)
                         
                     
 

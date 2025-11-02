@@ -1407,10 +1407,10 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
+                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
             [
-                InlineKeyboardButton(text=f"💎 {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"{resource_icon} {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
             [
                 InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))

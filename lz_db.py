@@ -188,51 +188,6 @@ class DB:
 
 
 
-    async def search_keyword_page_plain_old(self, keyword_str: str, last_id: int = 0, limit: int = None):
-       
-        query = self._normalize_query(keyword_str)
-
-        # # 先拿 keyword_id
-        # keyword_id = await self.get_search_keyword_id(query)
-        # redis_key = f"sora_search:{keyword_id}" if keyword_id else None
-
-        # # 只有 page 0 才查 redis
-        # if redis_key and last_id == 0:
-        #     cached_result = await lz_var.redis_manager.get_json(redis_key)
-        #     if cached_result:
-        #         return cached_result
-
-        cache_key = f"plain:{query}:{last_id}:{limit}"
-        cached = self.cache.get(cache_key)
-        if cached:
-            print(f"🔹 MemoryCache hit for {cache_key}")
-            return cached
-
-        # 查询 pg
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            rows = await conn.fetch(
-                '''
-                SELECT id, source_id, file_type, content 
-                FROM sora_content
-                WHERE content_seg_tsv @@ plainto_tsquery('simple', $1)
-                AND id > $2
-                ORDER BY id DESC
-                LIMIT $3
-                ''',
-                query, last_id, limit
-            )
-            result = [dict(r) for r in rows]
-
-            # # 只有 page 0 存 redis
-            # if redis_key and last_id == 0 and result:
-            #     await lz_var.redis_manager.set_json(redis_key, result, ttl=300)
-
-
-            # 存 MemoryCache，ttl 可以调 60 秒 / 300 秒
-            self.cache.set(cache_key, result, ttl=300)
-            print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
-
-            return result
 
     async def upsert_file_extension(self,
         file_type: str,

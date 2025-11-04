@@ -2702,10 +2702,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     # 统一在会员判断之后再计算费用
     sender_fee = int(fee) * (-1)
     receiver_fee = int(int(fee) * (0.4))
+    receiver_id = owner_user_id or 0
+
 
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
-        'receiver_id': owner_user_id or 0,
+        'receiver_id': receiver_id,
         'transaction_type': 'confirm_buy',
         'transaction_description': source_id,
         'sender_fee': sender_fee,
@@ -2745,6 +2747,20 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             reply_text += f"✅ 兑换成功，已扣除 {sender_fee} 积分"
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
+
+            available_content_length = 10
+            content_preview = ret_content[:available_content_length]
+            if len(ret_content) > available_content_length:
+                content_preview += "..."
+            notice_text = f"🔔 你分享的资源 {content_id} {content_preview} 被用户 {from_user_id} 兑换，获得 {receiver_fee} 积分奖励！"
+            receiver_id = 7038631858
+            await lz_var.bot.send_message(
+                parse_mode="HTML",
+                chat_id=receiver_id,
+                text=notice_text,
+                # reply_to_message_id=callback.message.message_id
+            )
+
        
         elif result.get('status') == 'reward_self':
             

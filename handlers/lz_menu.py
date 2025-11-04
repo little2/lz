@@ -962,7 +962,10 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
 async def handle_start(message: Message, state: FSMContext, command: Command = Command("start")):
     # 删除 /start 这个消息
     try:
-        await message.delete()
+        if message.text and message.text == "/start":
+            pass
+        else:
+            await message.delete()
     except (TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter) as e:
         print(f"❌ 删除 /start 消息失败: {e}", flush=True)
 

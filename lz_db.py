@@ -6,7 +6,7 @@ from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 from datetime import datetime
 import lz_var
-
+import jieba
 
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
 DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
@@ -14,7 +14,11 @@ ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
 COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
 CONNECT_TIMEOUT = float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))  # 新增
 
-
+SYNONYM = {
+    "滑鼠": "鼠标",
+    "萤幕": "显示器",
+    "笔电": "笔记本",
+}
 
 class DB:
     def __init__(self):
@@ -92,7 +96,7 @@ class DB:
         if cached:
             return cached
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             rows = await conn.fetch(
                 '''
                 SELECT id, source_id, file_type,
@@ -109,51 +113,81 @@ class DB:
             self.cache.set(cache_key, result, ttl=60)  # 缓存 60 秒
             return result
 
-    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = None):
-       
+
+    def replace_synonym(self,text):
+        for k, v in SYNONYM.items():
+            text = text.replace(k, v)
+        return text
+
+    def _escape_ts_lexeme(self,s: str) -> str:
+        # 简单转义，避免 to_tsquery 特殊字符影响；必要时再扩充
+        return s.replace("'", "''").replace("&", " ").replace("|", " ").replace("!", " ").replace(":", " ").strip()
+
+    def _build_tsqueries_from_tokens(self,tokens: list[str]) -> tuple[str, str]:
+        toks = [self._escape_ts_lexeme(t) for t in tokens if t.strip()]
+        if not toks:
+            return "", ""
+        phrase = " <-> ".join(toks)  # 相邻
+        all_and = " & ".join(toks)   # 兜底 AND
+        return phrase, all_and
+
+    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 100):
         query = self._normalize_query(keyword_str)
-
-        # # 先拿 keyword_id
-        # keyword_id = await self.get_search_keyword_id(query)
-        # redis_key = f"sora_search:{keyword_id}" if keyword_id else None
-
-        # # 只有 page 0 才查 redis
-        # if redis_key and last_id == 0:
-        #     cached_result = await lz_var.redis_manager.get_json(redis_key)
-        #     if cached_result:
-        #         return cached_result
-
-        cache_key = f"plain:{query}:{last_id}:{limit}"
+        cache_key = f"searchkey:{query}:{last_id}:{limit}"
+        
         cached = self.cache.get(cache_key)
         if cached:
-            print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
+ 
+ 
+        # 归一 + 分词（与建索引时保持一致）
+        q_norm = self.replace_synonym(keyword_str)
+        tokens = list(jieba.cut(q_norm))
+        phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
+        if not and_q:
+            return []
 
-        # 查询 pg
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                '''
-                SELECT id, source_id, file_type, content 
-                FROM sora_content
-                WHERE content_seg_tsv @@ plainto_tsquery('simple', $1)
-                AND id > $2
-                ORDER BY id DESC
-                LIMIT $3
-                ''',
-                query, last_id, limit
-            )
-            result = [dict(r) for r in rows]
+        limit = max(1, min(300, int(limit)))
 
-            # # 只有 page 0 存 redis
-            # if redis_key and last_id == 0 and result:
-            #     await lz_var.redis_manager.set_json(redis_key, result, ttl=300)
+        where_parts = []
+        params = []
+
+        # 两种匹配：相邻 或 AND
+        cond = []
+        if phrase_q:
+            cond.append("content_seg_tsv @@ to_tsquery('simple', $1)")
+            params.append(phrase_q)
+        cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${len(params)+1})")
+        params.append(and_q)
+        where_parts.append("(" + " OR ".join(cond) + ")")
+
+        if last_id > 0:
+            where_parts.append(f"id < ${len(params)+1}")
+            params.append(last_id)
+
+        sql = f"""
+            SELECT
+                id, source_id, file_type, content,
+                GREATEST(
+                    COALESCE(ts_rank_cd(content_seg_tsv, to_tsquery('simple', $1)), 0) * 1.5,
+                    ts_rank_cd(content_seg_tsv, to_tsquery('simple', $2))
+                ) AS rank
+            FROM sora_content
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY rank DESC, id DESC
+            LIMIT ${len(params)+1}
+        """
+        params.append(limit)
+
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+            rows = await conn.fetch(sql, *params)
+        
+        result = [dict(r) for r in rows]
+        self.cache.set(cache_key, result, ttl=300)  # 缓存 60 秒
+        return result
 
 
-            # 存 MemoryCache，ttl 可以调 60 秒 / 300 秒
-            self.cache.set(cache_key, result, ttl=300)
-            print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
 
-            return result
 
     async def upsert_file_extension(self,
         file_type: str,
@@ -178,7 +212,7 @@ class DB:
         # print(f"Executing SQL:\n{sql.strip()}")
         # print(f"With params: {file_type}, {file_unique_id}, {file_id}, {bot}, {user_id}, {now}")
         await self._ensure_pool()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             result = await conn.fetchrow(sql, file_type, file_unique_id, file_id, bot, user_id, now)
 
 
@@ -211,8 +245,9 @@ class DB:
             return cached
         
         # print(f"\r\n\r\nCache miss for {cache_key}, querying database...")
-    
-        async with self.pool.acquire() as conn:
+        await self._ensure_pool()
+
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 '''
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
@@ -309,7 +344,7 @@ class DB:
             # 返回 asyncpg Record 或 None
 
     async def get_next_content_id(self, current_id: int, offset: int) -> int | None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             if offset > 0:
                 row = await conn.fetchrow(
                     """
@@ -341,7 +376,7 @@ class DB:
         if not unique_ids:
             return []
 
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             rows = await conn.fetch(
                 '''
                 SELECT file_id
@@ -355,7 +390,7 @@ class DB:
             return [r['file_id'] for r in rows if r['file_id']]
 
     async def insert_search_log(self, user_id: int, keyword: str):
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             await conn.execute(
                 """
                 INSERT INTO search_log (user_id, keyword, search_time)
@@ -365,7 +400,7 @@ class DB:
             )
 
     async def upsert_search_keyword_stat(self, keyword: str):
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             result = await conn.execute(
                  """
                 INSERT INTO search_keyword_stat (keyword, search_count, last_search_time)
@@ -380,7 +415,7 @@ class DB:
             return result
 
     async def get_search_keyword_id(self, keyword: str) -> int | None:
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 """
                 WITH ins AS (
@@ -405,7 +440,7 @@ class DB:
         if cached:
             return cached
         
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 """
                 SELECT keyword
@@ -428,7 +463,7 @@ class DB:
           - None (未找到记录)
         """
         await self._ensure_pool()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             row = await conn.fetchrow(
                 """
                 SELECT expire_timestamp
@@ -473,7 +508,7 @@ class DB:
             expire_timestamp = GREATEST(membership.expire_timestamp, EXCLUDED.expire_timestamp)
         """
         try:
-            async with self.pool.acquire() as conn:
+            async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
                 async with conn.transaction():
                     await conn.executemany(
                         sql,
@@ -537,7 +572,7 @@ class DB:
         """
 
         try:
-            async with self.pool.acquire() as conn:
+            async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
                 rows = await conn.fetch(sql, bot_name, content_id)
 
                 # 先把记录转成可变 dict，并收集需要回写的条目
@@ -608,7 +643,7 @@ class DB:
                 updated_at     = CURRENT_TIMESTAMP
         """
         affected = 0
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             async with conn.transaction():
                 await conn.executemany(sql, payload)
                 affected = len(payload)
@@ -622,7 +657,7 @@ class DB:
         返回：删除行数
         """
         await self._ensure_pool()
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             if keep_member_ids:
                 sql = """
                     DELETE FROM album_items

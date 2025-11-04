@@ -11,6 +11,57 @@ import lz_var
 from lz_db import db
 import json
 import asyncio
+from aiogram.fsm.storage.base import StorageKey
+
+class MenuBase:
+    @classmethod
+    async def get_menu_status(cls, state):
+        data = await state.get_data()
+        return data
+
+
+
+    '''
+    "current_message": product_message,
+    "current_chat_id": product_message.chat.id,
+    "current_messsage_id": product_message.message_id
+    "fetch_thumb_file_unique_id": f"{fetch_thumb_file_unique_id}"
+                    
+    '''    
+    
+    @classmethod
+    async def set_menu_status(cls, state, data: dict):
+        await state.update_data(data)
+
+        storage_data = await state.get_data()
+        
+        storage = state.storage
+        key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
+        # storage_data = await storage.get_data(key)
+        # if data.get('fetch_thumb_file_unique_id'):
+        #     storage_data["fetch_thumb_file_unique_id"] = f"{data.get('fetch_thumb_file_unique_id')}"
+
+        # if data.get('fetch_file_unique_id'):
+        #     storage_data["fetch_file_unique_id"] = f"{data.get('fetch_file_unique_id')}"
+
+
+        # if data.get('current_message'):
+        #     storage_data["current_message"] = data.get('current_message')
+
+        await storage.set_data(key, storage_data)
+
+    
+
+
+
+    #     await MenuBase.set_menu_status(state, {
+    #     "current_chat_id": menu_message.chat.id,
+    #     "current_messsage_id": menu_message.message_id,
+    #     "return_function": "search_list",
+    #     "return_chat_id": menu_message.chat.id,
+    #     "return_message_id": menu_message.message_id,
+    # })
+
 
 async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池

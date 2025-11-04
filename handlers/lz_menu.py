@@ -45,15 +45,19 @@ import lz_var
 import traceback
 import random
 from lz_main import load_or_create_skins
+
 from handlers.lz_search_highlighted import build_pagination_keyboard
 
 from utils.media_utils import Media
 from utils.tpl import Tplate
 
 from lz_mysql import MySQLPool
-from ananbot_utils import AnanBOTPool 
+from lz_pgsql import PGPool
+# from ananbot_utils import AnanBOTPool 
 
-from utils.product_utils import submit_resource_to_chat,get_product_material
+
+from utils.string_utils import LZString
+from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase
 
 import functools
 import traceback
@@ -153,18 +157,6 @@ def spawn_once1(key: str, coro: "Coroutine"):
     _background_tasks[key] = t
     t.add_done_callback(lambda _: _background_tasks.pop(key, None))
 
-async def set_global_state(state: FSMContext, thumb_file_unique_id: str | None = None, menu_message: Message | None = None):
-    storage = state.storage
-    key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
-    storage_data = await storage.get_data(key)
-    if thumb_file_unique_id:
-        storage_data["fetch_thumb_file_unique_id"] = f"{thumb_file_unique_id}"
-    if menu_message:
-        storage_data["menu_message"] = menu_message
-        await state.update_data({
-            "menu_message": menu_message
-        })
-    await storage.set_data(key, storage_data)
 
 # ========= 工具 =========
 
@@ -181,7 +173,8 @@ async def _edit_caption_or_text(
     reply_markup: InlineKeyboardMarkup | None,
     chat_id: int | None = None,
     message_id: int | None = None,
-    photo: str | None = None
+    photo: str | None = None,
+    state: FSMContext | None = None,
 ):
     """
     统一编辑：
@@ -194,14 +187,21 @@ async def _edit_caption_or_text(
       - 若原媒体不是 photo，则回退为仅改 caption（避免类型不匹配错误）
     """
     try:
+        # print(f"text=>{text}")
         if msg is None and (chat_id is None or message_id is None):
             # 没有 msg，也没提供 chat_id/message_id，无法定位消息
             return
 
-        if chat_id is None:
-            chat_id = msg.chat.id
+        if hasattr(msg, 'chat'):
+            if chat_id is None:
+                chat_id = msg.chat.id
+            if message_id is None:
+                message_id = msg.message_id
+        
         if message_id is None:
-            message_id = msg.message_id
+            print('没有 message_id，无法定位消息', flush=True)
+            return False
+
 
         # 判断是否为媒体消息（按优先顺序找出第一种存在的媒体属性）
         media_attr = next(
@@ -212,8 +212,9 @@ async def _edit_caption_or_text(
         if media_attr:
             # ——————————— 有媒体的情况 ———————————
             if photo:
+                print(f"‼️ 编辑消息，换图 + caption", flush=True)
                 # 明确要换图：用传入的 photo
-                await lz_var.bot.edit_message_media(
+                current_message = await lz_var.bot.edit_message_media(
                     chat_id=chat_id,
                     message_id=message_id,
                     media=InputMediaPhoto(
@@ -226,6 +227,7 @@ async def _edit_caption_or_text(
             else:
                 # 未传 photo：尝试“复用原媒体”
                 if media_attr == "photo":
+                    print(f"‼️ 编辑消息，仅改 caption，复用原图", flush=True)
                     # Aiogram 的 Message.photo 是 PhotoSize 列表，取最后一项（最大尺寸）
                     try:
                         orig_photo_id = (msg.photo[-1].file_id) if getattr(msg, "photo", None) else None
@@ -233,8 +235,9 @@ async def _edit_caption_or_text(
                         orig_photo_id = None
 
                     if orig_photo_id:
+                        print(f"‼️ 找到原图 ID，复用", flush=True)
                         # 用 edit_message_media + 原图，实现“换媒体但沿用原图 + 改 caption”
-                        await lz_var.bot.edit_message_media(
+                        current_message =  await lz_var.bot.edit_message_media(
                             chat_id=chat_id,
                             message_id=message_id,
                             media=InputMediaPhoto(
@@ -245,8 +248,9 @@ async def _edit_caption_or_text(
                             reply_markup=reply_markup,
                         )
                     else:
+                        print(f"⚠️ 未找到原图 ID，改为仅改 caption", flush=True)
                         # 兜底：拿不到原图 id，就仅改 caption
-                        await lz_var.bot.edit_message_caption(
+                        current_message = await lz_var.bot.edit_message_caption(
                             chat_id=chat_id,
                             message_id=message_id,
                             caption=text,
@@ -254,9 +258,10 @@ async def _edit_caption_or_text(
                             reply_markup=reply_markup,
                         )
                 else:
+                    print(f"‼️ 原媒体不是 photo，仅改 caption", flush=True)
                     # 原媒体不是 photo（例如 animation/video/document）：
                     # 为避免 “can't use file of type ... as Photo” 错误，这里不强行换媒体，改为仅改 caption
-                    await lz_var.bot.edit_message_caption(
+                    current_message = await lz_var.bot.edit_message_caption(
                         chat_id=chat_id,
                         message_id=message_id,
                         caption=text,
@@ -264,17 +269,26 @@ async def _edit_caption_or_text(
                         reply_markup=reply_markup,
                     )
         else:
+            print(f"‼️ 编辑消息，仅改 text（无媒体）", flush=True)
             # ——————————— 无媒体的情况 ———————————
-            await lz_var.bot.edit_message_text(
+            current_message = await lz_var.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
                 text=text,
                 reply_markup=reply_markup,
             )
+        
+        if state is not None:
+            await MenuBase.set_menu_status(state, {
+                "current_message": current_message,
+                "current_chat_id": current_message.chat.id,
+                "current_messsage_id": current_message.message_id
+            })
 
+        return current_message
     except Exception as e:
         # 你也可以在这里加上 traceback 打印，或区分 TelegramBadRequest
-        print(f"❌ 编辑消息失败: {e}", flush=True)
+        print(f"❌ 编辑消息失败a: {e}", flush=True)
 
 
 
@@ -358,13 +372,14 @@ async def _edit_caption_or_text2(msg : Message | None = None, *,  text: str, rep
         #         reply_markup=reply_markup
         #     )
     except Exception as e:
-        print(f"❌ 编辑消息失败: {e}", flush=True)
+        print(f"❌ 编辑消息失败b: {e}", flush=True)
 
 
 @debug
 async def handle_update_thumb(content_id, file_id):
     print(f"✅ [X-MEDIA] 需要为视频创建缩略图，正在处理...{lz_var.man_bot_id}", flush=True)
     await MySQLPool.init_pool()
+    await PGPool.init_pool()
     try:
         send_video_result = await lz_var.bot.send_video(chat_id=lz_var.man_bot_id, video=file_id)
         buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
@@ -374,6 +389,7 @@ async def handle_update_thumb(content_id, file_id):
 
                 # ✅ DB 前确保有池（双保险）
                 await MySQLPool.ensure_pool()
+                await PGPool.ensure_pool()
 
                 # 上传给仓库机器人，获取新的 file_id 和 file_unique_id
                 newcover = await lz_var.bot.send_photo(
@@ -385,23 +401,24 @@ async def handle_update_thumb(content_id, file_id):
                 thumb_file_id = largest.file_id
                 thumb_file_unique_id = largest.file_unique_id
 
-                
-
-
+            
                 # # 更新这个 sora_content 的 thumb_uniuque_id
                 await MySQLPool.set_sora_content_by_id(content_id, {
                     "thumb_file_unique_id": thumb_file_unique_id,
                     "stage":"pending"
                 })
-
+            except Exception as e:
+                print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
+            
+            try:
                 # invalidate_cached_product(content_id)
-                await AnanBOTPool.upsert_product_thumb(
+                await PGPool.upsert_product_thumb(
                     content_id, thumb_file_unique_id, thumb_file_id, lz_var.bot_username
                 )
 
-                print("预览图更新中", flush=True)
+                print(f"预览图更新中 {content_id} {thumb_file_unique_id} {thumb_file_id}", flush=True)
             except Exception as e:
-                print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
+                print(f"⚠️ 用缓冲图更新封面失败(PostgreSQL)：{e}", flush=True)
                     
         
         else:
@@ -433,7 +450,7 @@ def main_menu_keyboard():
             InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
         ],
         [
-            InlineKeyboardButton(text="📂 合集", callback_data="collection"),
+            InlineKeyboardButton(text="📦 合集", callback_data="collection"),
             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
         ],
         # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
@@ -502,12 +519,18 @@ def is_public_keyboard(collection_id: int, is_public: int | None):
 @router.callback_query(F.data.regexp(r"^clt:edit_title:\d+$"))
 async def handle_clt_edit_title(callback: CallbackQuery, state: FSMContext):
     _, _, cid = callback.data.split(":")
-    await state.update_data({
+    await MenuBase.set_menu_status(state, {
         "collection_id": int(cid),
         "anchor_chat_id": callback.message.chat.id,
         "anchor_msg_id": callback.message.message_id,
         "anchor_message": callback.message
     })
+    # await state.update_data({
+    #     "collection_id": int(cid),
+    #     "anchor_chat_id": callback.message.chat.id,
+    #     "anchor_msg_id": callback.message.message_id,
+    #     "anchor_message": callback.message
+    # })
     print(f"{callback.message.chat.id} {callback.message.message_id}")
     await state.set_state(LZFSM.waiting_for_title)
     await _edit_caption_or_text(
@@ -515,7 +538,8 @@ async def handle_clt_edit_title(callback: CallbackQuery, state: FSMContext):
         text="📝 请输入标题（长度 ≤ 255，可包含中文、英文或符号）：",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"clt:edit:{cid}:0:tk")]
-        ])
+        ]),
+        state= state
     )
 
 @router.message(LZFSM.waiting_for_title)
@@ -554,19 +578,27 @@ async def on_title_input(message: Message, state: FSMContext):
 @router.callback_query(F.data.regexp(r"^clt:edit_desc:\d+$"))
 async def handle_clt_edit_desc(callback: CallbackQuery, state: FSMContext):
     _, _, cid = callback.data.split(":")
-    await state.update_data({
+    await MenuBase.set_menu_status(state, {
         "collection_id": int(cid),
         "anchor_message": callback.message,
         "anchor_chat_id": callback.message.chat.id,
         "anchor_msg_id": callback.message.message_id,
     })
+
+    # await state.update_data({
+    #     "collection_id": int(cid),
+    #     "anchor_message": callback.message,
+    #     "anchor_chat_id": callback.message.chat.id,
+    #     "anchor_msg_id": callback.message.message_id,
+    # })
     await state.set_state(LZFSM.waiting_for_description)
     await _edit_caption_or_text(
         callback.message,
         text="🧾 请输入这个合集的介绍：",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"clt:edit:{cid}:0:tk")]
-        ])
+        ]),
+        state= state
     )
 
 
@@ -640,7 +672,7 @@ async def handle_cc_public_set(callback: CallbackQuery):
 
 # 可用 clt:edit 取代 TODO
 @router.callback_query(F.data.regexp(r"^cc:back:\d+$"))
-async def handle_cc_back(callback: CallbackQuery):
+async def handle_cc_back(callback: CallbackQuery,state: FSMContext):
     _, _, cid = callback.data.split(":")
     cid = int(cid)
     rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
@@ -651,7 +683,8 @@ async def handle_cc_back(callback: CallbackQuery):
     await _edit_caption_or_text(
         callback.message,
         text=f"当前设置：\n• ID：{cid}\n• 标题：{title}\n• 公开：{pub}\n• 简介：{_short(desc,120)}\n\n请选择要设置的项目：",
-        reply_markup=_build_clt_edit_keyboard(cid)
+        reply_markup=_build_clt_edit_keyboard(cid),
+        state= state
     )
 
 
@@ -659,37 +692,46 @@ async def handle_cc_back(callback: CallbackQuery):
 # == 历史菜单 ==
 def history_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📜 我的上传", callback_data="history_update")],
-        [InlineKeyboardButton(text="💎 我的兑换", callback_data="history_redeem")],
-        [InlineKeyboardButton(text="🗑️ 收藏合集", callback_data="clt_my")],
+        [InlineKeyboardButton(text="📜 我的上传", callback_data="history_update:0")],
+        [InlineKeyboardButton(text="💎 我的兑换", callback_data="history_redeem:0")],
+        [InlineKeyboardButton(text="❤️ 我的收藏合集", callback_data="clt_my")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
 
 
 # == 历史记录选项响应 ==
-@router.callback_query(F.data.in_(["history_update", "history_redeem"]))
+@router.callback_query(F.data.regexp(r"^(history_update|history_redeem):\d+$"))
+# @router.callback_query(F.data.in_(["history_update", "history_redeem"]))
 async def handle_history_update(callback: CallbackQuery, state: FSMContext):
+    print(f"handle_history_update: {callback.data}", flush=True)
+    func, page_num = callback.data.split(":")
+    page_num = int(page_num) or 0
     user_id = callback.from_user.id
-    page = 0
+    # page = 0
 
-    await state.update_data({
+    await MenuBase.set_menu_status(state, {
         "menu_message": callback.message
     })
 
-    if callback.data == "history_update":
+
+    # await state.update_data({
+    #     "menu_message": callback.message
+    # })
+
+    if func == "history_update":
         callback_function = 'ul_pid'
         keyword_id = user_id
         photo = lz_var.skins['history_update']['file_id']
        
-    elif callback.data == "history_redeem":
+    elif func == "history_redeem":
         callback_function = 'fd_pid'
         keyword_id = user_id
         photo = lz_var.skins['history_redeem']['file_id']
    
    
 
-    pg_result = await _build_pagination(callback_function, keyword_id, page)
+    pg_result = await _build_pagination(callback_function, keyword_id, page_num)
     if not pg_result.get("ok"):
         await callback.answer(pg_result.get("message"), show_alert=True)
         return
@@ -698,7 +740,8 @@ async def handle_history_update(callback: CallbackQuery, state: FSMContext):
         photo=photo,
         msg=callback.message,
         text=pg_result.get("text"), 
-        reply_markup =pg_result.get("reply_markup")
+        reply_markup =pg_result.get("reply_markup"),
+        state= state
     )
 
     # await callback.message.reply(
@@ -744,9 +787,6 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
         aes = AESCrypto(AES_KEY)
         encoded = aes.aes_encode(r['id'])
 
-
-            
-
         lines.append(
             f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{search_key_id}_{encoded}'>{content}</a>"
             # f"<b>Type:</b> {r['file_type']}\n"
@@ -766,7 +806,7 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
 @router.callback_query(
     F.data.regexp(r"^(ul_pid|fd_pid|pageid)\|")
 )
-async def handle_pagination(callback: CallbackQuery):
+async def handle_pagination(callback: CallbackQuery, state: FSMContext):
     callback_function, keyword_id_str, page_str = callback.data.split("|")
     keyword_id = int(keyword_id_str) 
     page = int(page_str)
@@ -789,12 +829,18 @@ async def handle_pagination(callback: CallbackQuery):
         await callback.answer(pg_result.get("message"), show_alert=True)
         return
 
-    await _edit_caption_or_text(
+    current_message = await _edit_caption_or_text(
         photo=photo,
         msg=callback.message,
         text=pg_result.get("text"),
-        reply_markup=pg_result.get("reply_markup")
+        reply_markup=pg_result.get("reply_markup"),
+        state= state
     )
+
+    await MenuBase.set_menu_status(state, {
+        "fetch_thumb_file_unique_id": "fetch_thumb_file_unique_id",
+        "fetch_file_unique_id": "fetch_file_unique_id"
+    })
 
 
     await callback.answer()
@@ -899,7 +945,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
 
 @router.message(Command("s"))
 async def handle_search_s(message: Message, state: FSMContext, command: Command = Command("ss")):
-    # 删除 /ss 这个消息
+    # 删除 /s 这个消息
     try:
         await message.delete()
     except (TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter) as e:
@@ -925,25 +971,32 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
 
     list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id)
     if not list_info.get("ok"):
-        await message.answer(list_info.get("message"), show_alert=True)
+        msg = await message.answer(list_info.get("message"))
+        # ⏳ 延迟 5 秒后自动删除
+        await asyncio.sleep(5)
+        try:
+            await msg.delete()
+        except Exception as e:
+            print(f"❌ 删除提示消息失败: {e}", flush=True)
         return
 
-    date = await state.get_data()
-    handle_message = date.get("menu_message")
+    date = await MenuBase.get_menu_status(state)
+
 
     # print(f"handle_message={handle_message}",flush=True)
 
-    if handle_message:
+    if date and date.get("current_message"):
         try:
             await _edit_caption_or_text(
                 photo=lz_var.skins['search_keyword']['file_id'],
-                msg=handle_message,
+                msg=date.get("current_message"),
                 text=list_info.get("text"),
                 reply_markup=list_info.get("reply_markup"),
+                state= state
             )
             return
         except Exception as e:
-            print(f"❌ 编辑消息失败: {e}", flush=True)
+            print(f"❌ 编辑消息失败c: {e}", flush=True)
             
     menu_message = await message.answer_photo(
         photo=lz_var.skins['search_keyword']['file_id'],
@@ -952,7 +1005,16 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         reply_markup=list_info.get("reply_markup"),
     )
 
-    await set_global_state(state, menu_message=menu_message)
+    await MenuBase.set_menu_status(state, {
+        "current_chat_id": menu_message.chat.id,
+        "current_messsage_id": menu_message.message_id,
+        "current_message": menu_message,
+        "return_function": "search_list",
+        "return_chat_id": menu_message.chat.id,
+        "return_message_id": menu_message.message_id,
+    })
+
+   
     
 
 
@@ -998,9 +1060,10 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             await _edit_caption_or_text(
                 handle_message,
                 text=result.get("caption"),
-                reply_markup=result.get("reply_markup")
+                reply_markup=result.get("reply_markup"),
+                state= state
             )
-            print(f"🔍 删除合集项目 ID: {content_id} {page} {clt_id}")
+            print(f"删除合集项目 ID: {content_id} {page} {clt_id}")
             pass
         elif parts[0] == "clt":    #remove_collection_item
             collection_id = parts[1]
@@ -1042,91 +1105,132 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
             search_key_index = parts[1]
             encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
-            # print(f"🔍 搜索关键字索引: {search_key_index}, 编码内容: {encoded}")
+            print(f"🔍 搜索关键字索引: {search_key_index}, 编码内容: {encoded}")
             # encoded = param[2:]  # 取第三位开始的内容
             try:
                 aes = AESCrypto(AES_KEY)
                 content_id_str = aes.aes_decode(encoded)
-                
+                print(f"🔍 解码得到 content_id_str: {content_id_str}", flush=True)
 
-                date = await state.get_data()
-                clti_message = date.get("menu_message")
+                # date = await state.get_data()
+                # clti_message = date.get("menu_message")
+                state_data = await MenuBase.get_menu_status(state)
+                current_message = state_data.get("current_message") if state_data else None
+            except Exception as e:
+                # tb = traceback.format_exc()
+                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                print(f"❌ 解密失败A：{e}", flush=True)
 
+
+
+            try:
                 caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ." 
-                if clti_message:
+                if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
                     try:
-                        # print(f"clti_message={clti_message}",flush=True)
-                        ret_message = await lz_var.bot.edit_message_media(
-                            chat_id=clti_message.chat.id,
-                            message_id=clti_message.message_id,
+                        
+                        # print(f"clti_message={current_message}",flush=True)
+                        current_message = await lz_var.bot.edit_message_media(
+                            chat_id=current_message.chat.id,
+                            message_id=current_message.message_id,
                             media=InputMediaAnimation(
                                 media=lz_var.skins["loading"]["file_id"],
                                 caption=caption_txt,
                                 parse_mode="HTML"
                             )
                         )
+                        
+                            
                         # return
                     except Exception as e:
-                        print(f"❌ 编辑消息失败: {e}", flush=True)
-                        clti_message = await message.answer_animation(
+                        print(f"❌ 编辑消息失败d: {e}", flush=True)
+                        current_message = await message.answer_animation(
                             animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                             caption=caption_txt,
                             parse_mode="HTML"
                         )
-                   
-
-
-
                 else:   
-                    clti_message = await message.answer_animation(
+                    current_message = await message.answer_animation(
                         animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                         caption=caption_txt,
                         parse_mode="HTML"
                     )
 
                     # print(f"clti_message={clti_message}",flush=True)
+                print(f"🔍 设置当前消息为 loading 动画", flush=True)
+                await MenuBase.set_menu_status(state, {
+                    "current_message": current_message,
+                    "current_chat_id": current_message.chat.id,
+                    "current_messsage_id": current_message.message_id
+                })
 
-                
-                
+            except Exception as e:
+                # tb = traceback.format_exc()
+                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                print(f"❌ 解密失败B：{e}", flush=True)
+
+
                 # //
   
 
-
+            try:
                 content_id = int(content_id_str)  # ✅ 关键修正
-                if parts[0] == "f":
-                    product_info = await _build_product_info(content_id, search_key_index, state, message)
-                elif (parts[0] in ["fd", "ul", "cm", "cf"]):
+                print(f"🔍 1148-解码得到 content_id: {content_id}", flush=True)
+                if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                     product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])
+            except Exception as e:
+                # tb = traceback.format_exc()
+                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                print(f"❌ 解密失败C：{e}", flush=True)
+                return
 
-
+            try:
                 print(f"688:Product Info", flush=True)
-                if product_info['ok']:
+                if product_info and product_info['ok']:
                     if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                         # date = await state.get_data()
                         # clti_message = date.get("menu_message")
                         try:
-                            if clti_message:
-                                await _edit_caption_or_text(
+                            if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+                               
+                                current_message =  await _edit_caption_or_text(
                                     photo=product_info['cover_file_id'],
-                                    msg=clti_message,
+                                    msg =current_message,
                                     text=product_info['caption'],
-                                    reply_markup=product_info['reply_markup']
+                                    reply_markup=product_info['reply_markup'],
+                                    state= state
                                 )
+
+
+
                                 return
+                            else:
+                                print(f"⚠️ 无法编辑消息，clti_message 不存在或无效", flush=True)
+                               
                         except Exception as e:
-                            print(f"⚠️ 删除失败: {e}", flush=True)
+                            print(f"❌ 编辑消息失败e: {e}", flush=True)
                     
+
+                    print(f"‼️ 不应该执行到这段，要查",flush=True)
                     product_message = await message.answer_photo(
                         photo=product_info['cover_file_id'],
                         caption=product_info['caption'],
                         parse_mode="HTML",
                         reply_markup=product_info['reply_markup'])
                 
-                    storage = state.storage
-                    key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
-                    storage_data = await storage.get_data(key)
-                    storage_data["menu_message"] = product_message
-                    await storage.set_data(key, storage_data)
+                    # storage = state.storage
+                    # key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
+                    # storage_data = await storage.get_data(key)
+                    # storage_data["menu_message"] = product_message
+                    # await storage.set_data(key, storage_data)
+
+                    await MenuBase.set_menu_status(state, {
+                        "current_message": product_message,
+                        "current_chat_id": product_message.chat.id,
+                        "current_messsage_id": product_message.message_id
+                    })
 
 
                 else:
@@ -1136,7 +1240,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 # tb = traceback.format_exc()
                 await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
-                print(f"❌ 解密失败：{e}", flush=True)
+                print(f"❌ 解密失败D：{e}", flush=True)
+
         elif parts[0] == "post":
             await _submit_to_lg()
         elif parts[0] == "upload":
@@ -1153,10 +1258,22 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard())   
         # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
-        await state.update_data({
+        await MenuBase.set_menu_status(state, {
+            "current_chat_id": menu_message.chat.id,
+            "current_messsage_id": menu_message.message_id,
             "menu_message": menu_message
         })
 
+        # await state.update_data({
+        #     "menu_message": menu_message
+        # })
+
+
+def get_index_by_source_id(search_result: list[dict], source_id: str, one_based: bool = False) -> int:
+    """返回该 source_id 在 search_result 中的下标；找不到返回 -1。
+       one_based=True 时返回排名从 1 开始。"""
+    idx = next((i for i, r in enumerate(search_result) if r.get("source_id") == source_id), -1)
+    return (idx + 1) if (one_based and idx != -1) else idx
 
 async def _build_product_info(content_id :int , search_key_index: str, state: FSMContext, message: Message, search_from : str = 'search', current_pos:int = 0):
     aes = AESCrypto(AES_KEY)
@@ -1178,13 +1295,20 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     # print(f"message_id: {message.message_id}")
 
-    await state.update_data({
+    await MenuBase.set_menu_status(state, {
         "collection_id": int(content_id),
         "search_key_index": search_key_index,
         'message': message,
         'action':'_build_product_info'
     })
 
+    # await state.update_data({
+    #     "collection_id": int(content_id),
+    #     "search_key_index": search_key_index,
+    #     'message': message,
+    #     'action':'_build_product_info'
+    # })
+    # print(f"_build_product_info: {content_id}, {search_key_index}, {search_from}, {current_pos}", flush=True)
     # ✅ 调用并解包返回的三个值
     result_sora = await load_sora_content_by_id(content_id, state, search_key_index, search_from)
     
@@ -1202,51 +1326,108 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     # ✅ 检查是否找不到资源（根据返回第一个值）
     if ret_content.startswith("⚠️"):
         return {"ok": False, "msg": ret_content}
-        
+    
+   
+
+    if current_pos == 0:
+        search_result = []
+        if stag == "f":
+        # 尝试从搜索结果中定位当前位置
+            keyword = await db.get_keyword_by_id(int(search_key_index))
+            if keyword:
+                search_result = await db.search_keyword_page_plain(keyword)
+        elif stag == "cm" or stag == 'cf':  
+            search_result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
+        elif stag == 'fd':
+            # 我的兑换   
+            search_result = await MySQLPool.search_history_redeem(search_key_index)
+        elif stag == 'ul':   
+            search_result = await MySQLPool.search_history_upload(search_key_index)
+            
+        else:
+            stag = "f"
+    
+            
+            
+        if search_result:
+            try:
+                current_pos = get_index_by_source_id(search_result, source_id) 
+                print(f"搜索结果总数: {len(search_result)}", flush=True)
+            except Exception as e:
+                print(f"❌ 取得索引失败：{e}", flush=True)
+    
+    
+   
+    if file_id:
+        resource_icon = "💎"
+    else:
+        resource_icon = "🔄"
 
     if ENVIRONMENT == "dev":
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-                InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}"),
-                InlineKeyboardButton(text="➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+                InlineKeyboardButton(text=f"⬅️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+                InlineKeyboardButton(text=f"➡️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],
             [
-                InlineKeyboardButton(text=f"💎 {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"{resource_icon} {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
         ])
 
-    
+        page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
+
         if search_from == "cm":
             reply_markup.inline_keyboard.append(
                 [
-                    InlineKeyboardButton(text="📂 回合集", callback_data=f"clti:list:{search_key_index}:0"),
+                    InlineKeyboardButton(text=" 回合集", callback_data=f"clti:list:{search_key_index}:0"),
                 ]
             )
         elif search_from == "cf":
             reply_markup.inline_keyboard.append(
                 [
-                    InlineKeyboardButton(text="📂 回合集", callback_data=f"clti:flist:{search_key_index}:0"),
+                    InlineKeyboardButton(text="📦 回合集", callback_data=f"clti:flist:{search_key_index}:0"),
                 ]
             )    
         elif search_from == "ul":
             reply_markup.inline_keyboard.append(
                 [
-                    InlineKeyboardButton(text="📂 回我的上传", callback_data=f"history_update"),
+                    InlineKeyboardButton(text="📂 回我的上传", callback_data=f"history_update:{page_num}"),
                 ]
             )    
         elif search_from == "fd":
             reply_markup.inline_keyboard.append(
                 [
-                    InlineKeyboardButton(text="📂 回我的兑换", callback_data=f"history_redeem"),
+                    InlineKeyboardButton(text="💠 回我的兑换", callback_data=f"history_redeem:{page_num}"),
                 ]
             )    
         else:
-            reply_markup.inline_keyboard.append(
-                [
-                    InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
-                ]
-            )
+
+            if int(search_key_index) > 0:
+                # if current_pos == 0:
+                #     keyword = await db.get_keyword_by_id(search_key_index)
+                #     if keyword:
+                #         # 拉取搜索结果 (用 MemoryCache 非常快)
+                #         search_result = await db.search_keyword_page_plain(keyword)
+                #         if search_result:
+                #             current_pos = get_index_by_source_id(search_result, source_id) 
+                #             # print(f"搜索结果总数: {len(search_result)}", flush=True)
+                        
+                    
+
+
+                
+                reply_markup.inline_keyboard.append(
+                    [
+                        InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"),
+                    ]
+                )
+            else:
+                reply_markup.inline_keyboard.append(
+                    [
+                        InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                    ]
+                )
         
         reply_markup.inline_keyboard.append(
             [
@@ -1259,10 +1440,10 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"💎 {fee}", callback_data=f"sora_redeem:{content_id}")
+                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
             [
-                InlineKeyboardButton(text=f"💎 {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"{resource_icon} {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
             [
                 InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
@@ -1352,7 +1533,7 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
 
 
 @router.callback_query(F.data.regexp(r"^add_to_collection:(\d+):(\d+)$"))
-async def handle_add_to_collection(callback: CallbackQuery):
+async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
     _, content_id_str, page_str = callback.data.split(":")
     content_id = int(content_id_str)
     page = int(page_str)
@@ -1388,7 +1569,8 @@ async def handle_add_to_collection(callback: CallbackQuery):
     await _edit_caption_or_text(
         callback.message,
         text=f"请选择要加入的合集（第 {page+1} 页）：",
-        reply_markup=kb
+        reply_markup=kb,
+        state= state
     )
     await callback.answer()
 
@@ -1423,12 +1605,13 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
 
 # == 主菜单选项响应 ==
 @router.callback_query(F.data == "search")
-async def handle_search(callback: CallbackQuery):
+async def handle_search(callback: CallbackQuery,state: FSMContext):
     await _edit_caption_or_text(
         photo=lz_var.skins['search']['file_id'],
         msg=callback.message,
         text="👋 请选择操作：", 
-        reply_markup=search_menu_keyboard()
+        reply_markup=search_menu_keyboard(),
+        state= state
     )
 
 def back_search_menu_keyboard():
@@ -1438,13 +1621,14 @@ def back_search_menu_keyboard():
 
     
 @router.callback_query(F.data == "ranking")
-async def handle_ranking(callback: CallbackQuery):
+async def handle_ranking(callback: CallbackQuery,state: FSMContext):
 
     await _edit_caption_or_text(
         photo=lz_var.skins['ranking']['file_id'],
         msg=callback.message,
         text="排行榜", 
-        reply_markup=ranking_menu_keyboard()
+        reply_markup=ranking_menu_keyboard(),
+        state= state
     )  
 
 
@@ -1474,13 +1658,14 @@ async def handle_collection(callback: CallbackQuery):
     # await callback.message.edit_reply_markup(reply_markup=collection_menu_keyboard())
 
 @router.callback_query(F.data == "my_history")
-async def handle_my_history(callback: CallbackQuery):
+async def handle_my_history(callback: CallbackQuery,state: FSMContext):
     
     await _edit_caption_or_text(
         photo=lz_var.skins['history']['file_id'],
         msg=callback.message,
         text="👋 这是你的历史记录菜单！请选择操作：", 
-        reply_markup=history_menu_keyboard()
+        reply_markup=history_menu_keyboard(),
+        state= state
     )
 
 
@@ -1497,9 +1682,14 @@ async def handle_upload_resource(callback: CallbackQuery):
 # == 搜索选项响应 ==
 @router.callback_query(F.data == "search_keyword")
 async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
-    await state.update_data({
+    await MenuBase.set_menu_status(state, {
+        "current_chat_id": callback.message.chat.id,
+        "current_messsage_id": callback.message.message_id,
         "menu_message": callback.message
     })
+    # await state.update_data({
+    #     "menu_message": callback.message
+    # })
     text = textwrap.dedent('''\
         <b>搜索使用方法</b>
         /s + 关键词1 + 关键词2
@@ -1513,18 +1703,20 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
         photo=lz_var.skins['search_keyword']['file_id'],
         msg=callback.message,
         text=text, 
-        reply_markup=back_search_menu_keyboard()
+        reply_markup=back_search_menu_keyboard(),
+        state= state
     )
 
    
 
 @router.callback_query(F.data == "search_tag")
-async def handle_search_tag(callback: CallbackQuery):
+async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
     await _edit_caption_or_text(
         photo=lz_var.skins['search_tag']['file_id'],
         msg=callback.message,
         text="🏷️ 请选择标签进行筛选...", 
-        reply_markup=back_search_menu_keyboard()
+        reply_markup=back_search_menu_keyboard(),
+
     )
 
 
@@ -1575,7 +1767,7 @@ async def get_html_content(file_path: str, title: str) -> str:
 
 # == 排行选项响应 ==
 @router.callback_query(F.data == "ranking_resource")
-async def handle_ranking_resource(callback: CallbackQuery):
+async def handle_ranking_resource(callback: CallbackQuery,state: FSMContext):
     """
     - 若 ranking_resource.html 不存在或 mtime > 24.5h：从 MySQL task_rec 读取 task_title='salai_hot' 的 task_value 并覆盖写入
     - 否则直接读取文件
@@ -1589,7 +1781,8 @@ async def handle_ranking_resource(callback: CallbackQuery):
         photo=lz_var.skins['ranking_resource']['file_id'],
         msg=callback.message,
         text=html_text, 
-        reply_markup=ranking_menu_keyboard()
+        reply_markup=ranking_menu_keyboard(),
+
     )
 
     # await callback.message.answer(
@@ -1600,7 +1793,7 @@ async def handle_ranking_resource(callback: CallbackQuery):
     await callback.answer()
 
 @router.callback_query(F.data == "ranking_uploader")
-async def handle_ranking_uploader(callback: CallbackQuery):
+async def handle_ranking_uploader(callback: CallbackQuery,state: FSMContext):
     FILE_PATH = getattr(lz_var, "RANKING_UPLOADER_HTML_PATH", "ranking_uploader.html")
     html_text = await get_html_content(FILE_PATH, "salai_reward")
     
@@ -1614,7 +1807,8 @@ async def handle_ranking_uploader(callback: CallbackQuery):
         photo=lz_var.skins['ranking_uploader']['file_id'],
         msg=callback.message,
         text=html_text, 
-        reply_markup=ranking_menu_keyboard()
+        reply_markup=ranking_menu_keyboard(),
+        state= state
     )    
     await callback.answer()
 
@@ -1694,7 +1888,7 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
 # ====== “我的合集”入口用通用键盘（保持既有行为）======
 
 @router.callback_query(F.data == "clt_my")
-async def handle_clt_my(callback: CallbackQuery):
+async def handle_clt_my(callback: CallbackQuery,state: FSMContext):
     user_id = callback.from_user.id
     # “我的合集”之前是只换按钮；为了统一体验，也可以换 text，但你要求按钮呈现，因此只换按钮：
 
@@ -1704,7 +1898,8 @@ async def handle_clt_my(callback: CallbackQuery):
         photo=lz_var.skins['clt_my']['file_id'],
         msg=callback.message,
         text=text, 
-        reply_markup=await build_collections_keyboard(user_id=user_id, page=0, mode="mine")
+        reply_markup=await build_collections_keyboard(user_id=user_id, page=0, mode="mine"),
+        state= state
     )
 
 
@@ -1756,14 +1951,20 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
         else:
             new_message = await callback.message.edit_text(text=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
 
-
-    await state.update_data({
-        "menu_message": new_message
+    await MenuBase.set_menu_status(state, {
+        "current_message": new_message,
+        "menu_message": new_message,
+        "current_chat_id": new_message.chat.id,
+        "current_messsage_id": new_message.message_id
     })
+
+    # await state.update_data({
+    #     "menu_message": new_message
+    # })
 
 #编辑合集详情
 @router.callback_query(F.data.regexp(r"^clt:edit:\d+:\d+(?::([A-Za-z]+))?$"))
-async def handle_clt_edit(callback: CallbackQuery):
+async def handle_clt_edit(callback: CallbackQuery,state: FSMContext):
     # ====== “我的合集”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_edit: {callback.data}")
     _, _, cid_str, page_str, refresh_mode = callback.data.split(":")
@@ -1781,18 +1982,20 @@ async def handle_clt_edit(callback: CallbackQuery):
         await _edit_caption_or_text(
             callback.message,
             text=caption, 
-            reply_markup=kb
+            reply_markup=kb,
+            state= state
         )
         user_id = callback.from_user.id
         await MySQLPool.delete_cache(f"user:clt:{user_id}:")
 
-async def _build_clt_edit(cid: int, anchor_message: Message):
+async def _build_clt_edit(cid: int, anchor_message: Message,state: FSMContext):
     caption = await _build_clt_edit_caption(cid)
     kb = _build_clt_edit_keyboard(cid)
     await _edit_caption_or_text(
         msg=anchor_message,
         text=caption, 
-        reply_markup=kb
+        reply_markup=kb,
+        state= state
     )
 
 async def _build_clt_edit_caption(cid: int ):
@@ -1841,21 +2044,23 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
     await _edit_caption_or_text(
         callback.message,
         text=text,
-        reply_markup=_build_clt_edit_keyboard(cid)
+        reply_markup=_build_clt_edit_keyboard(cid),
+        state= state
     )
     cache_key = f"collection_info_{cid}"
     MySQLPool.cache.delete(cache_key)
 
 
 @router.callback_query(F.data == "clt_favorite")
-async def handle_clt_favorite(callback: CallbackQuery):
+async def handle_clt_favorite(callback: CallbackQuery,state: FSMContext):
     user_id = callback.from_user.id
     kb = await build_collections_keyboard(user_id=user_id, page=0, mode="fav")
     await _edit_caption_or_text(
         photo=lz_var.skins['clt_fav']['file_id'],
         msg=callback.message,
         text="这是你收藏的合集", 
-        reply_markup=kb
+        reply_markup=kb,
+        state= state
     )
 
 
@@ -1954,7 +2159,7 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
         callback_function = 'clti:flist' 
 
     nav_row: list[InlineKeyboardButton] = []
-    nav_row.append(InlineKeyboardButton(text="🗂️ 显示合集内容", callback_data=f"{callback_function}:{cid}:0"))
+    nav_row.append(InlineKeyboardButton(text="📦 显示合集内容", callback_data=f"{callback_function}:{cid}:0"))
 
     if mode == 'edit':
         nav_row.append(InlineKeyboardButton(text="🔧 编辑合集", callback_data=f"clt:edit:{cid}:0:k"))
@@ -2080,14 +2285,21 @@ async def handle_clti_list(callback: CallbackQuery, state: FSMContext):
     clt_id, page = int(clt_id_str), int(page_str)
     user_id = callback.from_user.id
     
-    print(f"--->{mode}_message")
-    await state.update_data({
+    # print(f"--->{mode}_message")
+    await MenuBase.set_menu_status(state, {
         "menu_message": callback.message,
         "collection_id": clt_id,
-        'action':mode
-        })
+        'action':mode,
+        "current_chat_id": callback.message.chat.id,
+        "current_messsage_id": callback.message.message_id,
+    })
+    # await state.update_data({
+    #     "menu_message": callback.message,
+    #     "collection_id": clt_id,
+    #     'action':mode
+    #     })
 
-    print(f"✅ Clti Message {callback.message.message_id} in chat {callback.message.chat.id}", flush=True)
+    # print(f"✅ Clti Message {callback.message.message_id} in chat {callback.message.chat.id}", flush=True)
 
     result = await _get_clti_list(clt_id,page,user_id,mode)
 
@@ -2097,8 +2309,9 @@ async def handle_clti_list(callback: CallbackQuery, state: FSMContext):
 
     await _edit_caption_or_text(
         callback.message,
-        text=result.get("caption")+f"\n\n {callback.message.message_id}",
-        reply_markup=result.get("reply_markup")
+        text=result.get("caption"),
+        reply_markup=result.get("reply_markup"),
+        state= state
     )
     await callback.answer()
 
@@ -2142,7 +2355,7 @@ async def _get_clti_list(cid,page,user_id,mode):
             fix_href = ''
             stag = "cf"
         lines.append(
-            f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{cid}_{encoded}'>{f.get('id')} {content}</a> {fix_href}"
+            f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{cid}_{encoded}'>{content}</a> {fix_href}"
         )
 
         # lines.append(f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{cid}_{encoded}'>{f.get("id")} {content}</a> {fix_href}")
@@ -2155,18 +2368,13 @@ async def _get_clti_list(cid,page,user_id,mode):
     return {"success": True, "caption": caption, "reply_markup": reply_markup}
     
 
-    await _edit_caption_or_text(
-        callback.message,
-        text=caption,
-        reply_markup=_clti_list_keyboard(cid, page, has_prev, has_next, is_fav)
-    )
-    pass
+
 
 
 
 # 「合集信息」：恢复信息视图
 @router.callback_query(F.data.regexp(r"^uc:info:\d+$"))
-async def handle_uc_info(callback: CallbackQuery):
+async def handle_uc_info(callback: CallbackQuery,state: FSMContext):
     _, _, cid_str = callback.data.split(":")
     cid = int(cid_str)
     bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
@@ -2174,7 +2382,7 @@ async def handle_uc_info(callback: CallbackQuery):
     if not rec:
         await callback.answer("未找到该收藏", show_alert=True); return
     is_fav = await MySQLPool.is_collection_favorited(user_id=callback.from_user.id, collection_id=cid)
-    await _edit_caption_or_text(callback.message, text=_build_clt_info_caption(rec), reply_markup=_build_clt_info_keyboard(cid, is_fav))
+    await _edit_caption_or_text(callback.message, text=_build_clt_info_caption(rec), reply_markup=_build_clt_info_keyboard(cid, is_fav),state= state)
     await callback.answer()
 
 # 「收藏 / 取消收藏」：落 DB 并刷新按钮
@@ -2271,6 +2479,9 @@ async def handle_go_home(callback: CallbackQuery):
 
     # await callback.message.edit_reply_markup(reply_markup=main_menu_keyboard())
 
+
+
+
 @debug
 @router.callback_query(F.data.startswith("sora_page:"))
 async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
@@ -2282,7 +2493,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         current_pos = int(current_pos_str)
         offset = int(offset_str)
         search_from = str(search_from) or "search"
-        if search_from == "search":
+        if search_from == "search" or search_from == "f":
             # 查回 keyword
             keyword = await db.get_keyword_by_id(search_key_index)
             if not keyword:
@@ -2328,7 +2539,12 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         # print(f"➡️ 翻页请求: current_pos={current_pos}, offset={offset}, new_pos={new_pos}, next_content_id={next_content_id}")
 
     
-
+        await MenuBase.set_menu_status(state, {
+            "current_message": callback.message,
+            "menu_message": callback.message,
+            "current_chat_id": callback.message.chat.id,
+            "current_messsage_id": callback.message.message_id
+        })
 
         
 
@@ -2349,7 +2565,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
 
        
         try:    
-            r=await callback.message.edit_media(
+            result_edit_media=await callback.message.edit_media(
                 media={
                     "type": "photo",
                     "media": thumb_file_id,
@@ -2359,7 +2575,14 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
                 reply_markup=reply_markup
             )
 
-            await set_global_state(state=state, menu_message=r)
+            await MenuBase.set_menu_status(state, {
+                "current_message": result_edit_media,
+                "menu_message": result_edit_media,
+                "current_chat_id": result_edit_media.chat.id,
+                "current_messsage_id": result_edit_media.message_id
+            })
+
+          
             
         except Exception as e:
             print(f"❌ edit_media failed: {e}, try edit_text")
@@ -2387,7 +2610,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
     purchase_condition = purchase_info[2] if len(purchase_info) > 2 else None
-
+    reply_text = ''
     answer_text = ''
     
     if purchase_condition is not None:
@@ -2540,7 +2763,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
         try:
-           
+            send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb)
+            if callback.message.message_id is not None:
+                send_content_kwargs["reply_to_message_id"] = callback.message.message_id
+
             if file_type == "album" or file_type == "a":
                 
                 productInfomation = await get_product_material(content_id)
@@ -2587,26 +2813,39 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
                     
             elif file_type == "photo" or file_type == "p":
-                await lz_var.bot.send_photo(
-                    chat_id=from_user_id,
-                    photo=file_id,
-                    reply_to_message_id=callback.message.message_id,
-                    reply_markup=feedback_kb
-                )
+
+              
+               
+                send_content_kwargs["photo"] = file_id
+                sr = await lz_var.bot.send_photo(**send_content_kwargs)
+
+                # await lz_var.bot.send_photo(
+                #     chat_id=from_user_id,
+                #     photo=file_id,
+                #     reply_to_message_id=callback.message.message_id,
+                #     reply_markup=feedback_kb
+                # )
             elif file_type == "video" or file_type == "v":
-                await lz_var.bot.send_video(
-                    chat_id=from_user_id,
-                    video=file_id,
-                    reply_to_message_id=callback.message.message_id,
-                    reply_markup=feedback_kb
-                )
+                send_content_kwargs["video"] = file_id
+                sr = await lz_var.bot.send_video(**send_content_kwargs)
+
+
+                # await lz_var.bot.send_video(
+                #     chat_id=from_user_id,
+                #     video=file_id,
+                #     reply_to_message_id=callback.message.message_id,
+                #     reply_markup=feedback_kb
+                # )
             elif file_type == "document" or file_type == "d":
-                await lz_var.bot.send_document(
-                    chat_id=from_user_id,
-                    document=file_id,
-                    reply_to_message_id=callback.message.message_id,
-                    reply_markup=feedback_kb
-                )
+                send_content_kwargs["document"] = file_id
+                sr = await lz_var.bot.send_document(**send_content_kwargs)
+
+                # await lz_var.bot.send_document(
+                #     chat_id=from_user_id,
+                #     document=file_id,
+                #     reply_to_message_id=callback.message.message_id,
+                #     reply_markup=feedback_kb
+                # )
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问: {e}")
 
@@ -2617,7 +2856,18 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             message_id=callback.message.message_id,
             reply_markup=callback.message.reply_markup
         )
-        await set_global_state(state, menu_message=new_message)
+
+        print(f"new_message:{new_message}", flush=True)
+        NewMessage = {
+            "chat": {"id":callback.message.chat.id},
+            "message_id": new_message.message_id
+        }
+        await MenuBase.set_menu_status(state, {
+            "menu_message": NewMessage,
+            "current_message": new_message,
+            "current_chat_id": callback.message.chat.id,
+            "current_messsage_id": new_message.message_id
+        })
 
         await lz_var.bot.delete_message(
             chat_id=callback.message.chat.id,
@@ -2861,10 +3111,6 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     record = await db.search_sora_content_by_id(content_id)
     # print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
-        
-
-
-
          # 取出字段，并做基本安全处理
         fee = record.get('fee', 60)
         if fee is None or fee < 0:
@@ -2899,15 +3145,18 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 lambda: Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
             )
 
-
             # thumb_file_id = await Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
             # 设置当下要获取的 thumb 是什么,若从背景取得图片时，可以直接更新 (fetch_thumb_file_unique_id 且 menu_message 存在)
-            state_data = await state.get_data()
-            menu_message = state_data.get("menu_message")
+            # state_data = await state.get_data()
+            # menu_message = state_data.get("menu_message")
+            state_data = await MenuBase.get_menu_status(state)
      
-            if menu_message:
+            if state_data.get("current_message"):
                 print(f"🔍 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
-                await set_global_state(state, thumb_file_unique_id=f"{thumb_file_unique_id}", menu_message=menu_message)
+               
+                await MenuBase.set_menu_status(state, {
+                    "fetch_thumb_file_unique_id": f"{thumb_file_unique_id}"
+                })
             else:
                 print("❌ menu_message 不存在，无法设置 fetch_thumb_file_unique_id")
             
@@ -2918,6 +3167,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             print("❌ 在延展库没有，用预设图")
             
             if file_id and not thumb_file_unique_id and (file_type == "video" or file_type == "v"):
+                print(f"试著取默认封面图")
                 spawn_once(
                     f"create_thumb_file_id:{file_id}",
                     lambda: handle_update_thumb(content_id, file_id )
@@ -2946,7 +3196,20 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                         print(f"✅ 取到的 thumb_file_id: {thumb_file_id}")
                     # 处理找不到的情况
                     
-                    
+        list_text = ''
+
+        if content:
+            content = LZString.dedupe_cn_sentences(content)
+            content = LZString.clean_text(content)
+
+        if product_type == "album" or product_type == "a":
+            
+            results = await db.get_album_list(content_id, lz_var.bot_username)
+            list_text = await Tplate.list_template(results)
+            content = content +  "\r\n" + list_text 
+            
+            
+                      
 
 
         ret_content = ""
@@ -2984,7 +3247,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 
                 clt_info = await MySQLPool.get_user_collection_by_id(collection_id=int(search_key_index))
                 
-                ret_content += f"\r\n📂 合集: {clt_info.get('title')}\n\n"
+                ret_content += f"\r\n📦 合集: {clt_info.get('title')}\n\n"
             else:
                 keyword = await db.get_keyword_by_id(int(search_key_index))
                 if keyword:
@@ -3002,7 +3265,12 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             spawn_once(
                 f"fild_id:{source_id}",
                 lambda: Media.fetch_file_by_file_uid_from_x(state, source_id, 10 )
-            )
+            ) 
+            await MenuBase.set_menu_status(state, {
+                "fetch_file_unique_id": f"{source_id}"
+            })
+        
+
         
         # print(f"tag_length {tag_length}")
 
@@ -3017,6 +3285,8 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if content is None:
             content_preview = ""
         else:
+
+
             # print(f"原始内容长度 {len(content)}，可用长度 {available_content_length}") 
             content_preview = content[:available_content_length]
             if len(content) > available_content_length:

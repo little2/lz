@@ -60,6 +60,44 @@ class Tplate:
         template = Template(template_str)
         return template.safe_substitute(tpl_data)
 
+    @classmethod
+    async def list_template(cls,results):
+        album_list_text = ''
+        album_cont_list_text = ''
+        list_text = ''
+        video_count = document_count = photo_count = 0
+
+        for row in results:
+            file_type = row["file_type"]
+            file_size = row.get("file_size", 0)
+            duration = row.get("duration", 0)
+            file_name = row.get("file_name", "")
+            if file_name:
+                file_name = f"| {file_name}"
+
+            if file_type == "v":
+                video_count += 1
+                album_list_text += f"　🎬 {UnitConverter.byte_to_human_readable(file_size)} | {UnitConverter.seconds_to_hms(duration)}\n"
+            elif file_type == "d":
+                document_count += 1
+                album_list_text += f"　📄 {UnitConverter.byte_to_human_readable(file_size)} {file_name}\n"
+            elif file_type == "p":
+                photo_count += 1
+                album_list_text += f"　🖼️ {UnitConverter.byte_to_human_readable(file_size)}\n"
+
+        if video_count:
+            album_cont_list_text += f"🎬 x{video_count} 　"
+        if document_count:
+            album_cont_list_text += f"📄 x{document_count} 　"
+        if photo_count:
+            album_cont_list_text += f"🖼️ x{photo_count}"
+
+        if album_list_text:
+            list_text += "\n📂 资源列表：\n" + album_list_text.rstrip()
+        if album_cont_list_text:
+            list_text += "\n\n📂 本资源夹包含：" + album_cont_list_text
+
+        return list_text
 
 # # 测试
 # import asyncio

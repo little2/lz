@@ -81,20 +81,47 @@ REPORT_TYPES: dict[int, str] = {
 
 INPUT_TIMEOUT = 300
 
-COLLECTION_PROMPT_DELAY = 2
+COLLECTION_PROMPT_DELAY = 1
 TAG_REFRESH_DELAY = 0.7
 BG_TASK_TIMEOUT = 15
 
 
 
 _background_tasks: dict[str, asyncio.Task] = {}
+_inflight_tasks = {}  # dict[int, set[asyncio.Task]]
+def _track_task(content_id: int, task: asyncio.Task) -> asyncio.Task:
+    """登记一个在途任务，任务完成后自动清理。"""
+    if task is None:
+        return None
+    if content_id not in _inflight_tasks:
+        _inflight_tasks[content_id] = set()  # ✅ 手动初始化
+    _inflight_tasks[content_id].add(task)
+
+    def _done(_):
+        s = _inflight_tasks.get(content_id)
+        if s:
+            s.discard(task)
+            if not s:
+                _inflight_tasks.pop(content_id, None)
+
+    task.add_done_callback(_done)
+    return task
+
+
+async def _await_inflight(content_id: int, timeout: float | None = None):
+    """等待该 content_id 下所有在途任务完成；可设定超时。"""
+    tasks = list(_inflight_tasks.get(content_id, ()))
+    if not tasks:
+        return
+    limit = BG_TASK_TIMEOUT + 2 if timeout is None else timeout
+    await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=limit)
 
 
 def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
     """相同 key 的后台任务只跑一个；结束后自动清理。仅在需要时才创建 coroutine。"""
     task = _background_tasks.get(key)
     if task and not task.done():
-        return
+        return task
 
     async def _runner():
         try:
@@ -108,23 +135,8 @@ def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
     t = asyncio.create_task(_runner(), name=f"backfill:{key}")
     _background_tasks[key] = t
     t.add_done_callback(lambda _: _background_tasks.pop(key, None))
+    return t
 
-def spawn_once1(key: str, coro: "Coroutine"):
-    """相同 key 的后台任务只跑一个；结束后自动清理。"""
-    task = _background_tasks.get(key)
-    if task and not task.done():
-        return
-
-    async def _runner():
-        try:
-            # 可按需加超时
-            await asyncio.wait_for(coro, timeout=BG_TASK_TIMEOUT)
-        except Exception as e:
-            print(f"🔥 background task failed for key={key} {e}", flush=True)
-
-    t = asyncio.create_task(_runner(), name=f"backfill:{key}")
-    _background_tasks[key] = t
-    t.add_done_callback(lambda _: _background_tasks.pop(key, None))
 
 
 bot_username = None
@@ -257,7 +269,7 @@ async def get_list(content_id):
     return list_text
 
 
-
+# TODO: 整合到 tpl.py 中
 async def list_template(results):
     album_list_text = ''
     album_cont_list_text = ''
@@ -1091,10 +1103,16 @@ async def receive_album_media(message: Message, state: FSMContext):
         )
     )
 
-    spawn_once(
+    t_proc = spawn_once(
         f"process_add_item_async:{message.message_id}",
-        lambda:_process_add_item_async(message, state, meta, placeholder_msg_id)
+        lambda: _process_add_item_async(message, state, meta, placeholder_msg_id)
     )
+    _track_task(content_id, t_proc)  # ← 新增：登记处理任务
+
+    # spawn_once(
+    #     f"process_add_item_async:{message.message_id}",
+    #     lambda:_process_add_item_async(message, state, meta, placeholder_msg_id)
+    # )
 
     print(f"添加资源：{file_type} {file_unique_id} {file_id}", flush=True)
 
@@ -1113,6 +1131,10 @@ async def receive_album_media(message: Message, state: FSMContext):
     async def delayed_finish_prompt():
         try:
             await asyncio.sleep(COLLECTION_PROMPT_DELAY)
+
+            # 等待所有该 content_id 的后台处理完毕（copy、落库、写入 album_items 等）
+            await _await_inflight(content_id)
+
             current_state = await state.get_state()
             if current_state == ProductPreviewFSM.waiting_for_album_media and not has_prompt_sent.get(key, False):
                 has_prompt_sent[key] = True  # ✅ 设置为已发送，防止重复
@@ -4147,7 +4169,7 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
         ])
 
         # ===== 组装 caption：优先使用 batch_results（无 content_id 场景）=====
-        caption_text = f".\n检测到文件，是否需要创建为投稿{content_id}？ \n\n🎈 创建后您仍可以升级为资源夹，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
+        caption_text = f".\n检测到文件，是否需要创建为投稿？ \n\n🎈 创建后您仍可以升级为资源夹(即一个投稿下有多个媒体)，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
         results = meta.get("batch_results")  # 这里是我们在上一步塞进去的
         if results and isinstance(results, list) and len(results) >= 2:
             _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
@@ -4167,18 +4189,37 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
                     ),
                     InlineKeyboardButton(text="取消", callback_data="cancel_product")
                 ]
-            ])           
-
+            ])       
 
         # ===== 按占位消息类型编辑（保持你现有的兼容分支）=====
         try:
-            await lz_var.bot.edit_message_caption(
-                chat_id=message.chat.id,
-                message_id=placeholder_msg_id,
-                caption=caption_text,
-                reply_markup=markup,
-                parse_mode="HTML"
-            )
+
+            if meta['thumb_file_unique_id'] is None and table == "video":
+                print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
+                buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
+                # photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
+                
+                photo_msg = await lz_var.bot.edit_message_media(
+                    chat_id=message.chat.id,
+                    message_id=placeholder_msg_id,
+                    media=InputMediaPhoto(media=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, parse_mode="HTML"),
+                    reply_markup=markup
+                )    
+
+                spawn_once(
+                    f"_process_update_default_preview_async:{message.message_id}",
+                    _process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
+                )
+            else:
+
+
+                await lz_var.bot.edit_message_caption(
+                    chat_id=message.chat.id,
+                    message_id=placeholder_msg_id,
+                    caption=caption_text,
+                    reply_markup=markup,
+                    parse_mode="HTML"
+                )
         except Exception:
             await lz_var.bot.edit_message_text(
                 chat_id=message.chat.id,

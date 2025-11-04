@@ -212,7 +212,7 @@ async def _edit_caption_or_text(
         if media_attr:
             # ——————————— 有媒体的情况 ———————————
             if photo:
-                print(f"‼️ 编辑消息，换图 + caption", flush=True)
+                print(f"‼️ 编辑消息，换图 + caption {chat_id} {message_id}", flush=True)
                 # 明确要换图：用传入的 photo
                 current_message = await lz_var.bot.edit_message_media(
                     chat_id=chat_id,
@@ -224,6 +224,7 @@ async def _edit_caption_or_text(
                     ),
                     reply_markup=reply_markup,
                 )
+                print(f"\n\ncurrent_message={current_message}", flush=True)
             else:
                 # 未传 photo：尝试“复用原媒体”
                 if media_attr == "photo":
@@ -1250,18 +1251,24 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")
     else:
         if ENVIRONMENT != "dev":
-            return
-
-        menu_message = await message.answer_photo(
+            current_message = await message.answer_photo(
                 photo=lz_var.skins['home']['file_id'],
                 caption="👋 欢迎使用 LZ 机器人！请选择操作：",
                 parse_mode="HTML",
-                reply_markup=main_menu_keyboard())   
+               )   
+        else:
+             current_message = await message.answer_photo(
+                    photo=lz_var.skins['home']['file_id'],
+                    caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+                    parse_mode="HTML",
+                    reply_markup=main_menu_keyboard()
+            )              
         # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         await MenuBase.set_menu_status(state, {
-            "current_chat_id": menu_message.chat.id,
-            "current_messsage_id": menu_message.message_id,
-            "menu_message": menu_message
+            "current_chat_id": current_message.chat.id,
+            "current_message_id": current_message.message_id,
+            "current_message": current_message,
+            "menu_message": current_message
         })
 
         # await state.update_data({

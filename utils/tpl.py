@@ -82,30 +82,51 @@ class Tplate:
         album_cont_list_text = ''
         list_text = ''
         video_count = document_count = photo_count = 0
+        video_total_size = document_total_size = 0
+        video_total_duration = 0
+        summary_text = ''
+
+        total_size = 0
+        total_duration = 0
 
         for row in results:
             file_type = row["file_type"]
             file_size = row.get("file_size", 0)
             duration = row.get("duration", 0)
             file_name = row.get("file_name", "")
+
+            total_size = total_size + int(file_size)
+            total_duration = total_duration + int(duration)
+
             if file_name:
                 file_name = f"| {file_name}"
 
             if file_type == "v":
                 video_count += 1
+                video_total_size = video_total_size + int(file_size)
+                video_total_duration = video_total_duration + int(duration)
                 album_list_text += f"　🎬 {UnitConverter.byte_to_human_readable(file_size)} | {UnitConverter.seconds_to_hms(duration)}\n"
             elif file_type == "d":
                 document_count += 1
+                document_total_size = document_total_size + int(file_size)
                 album_list_text += f"　📄 {UnitConverter.byte_to_human_readable(file_size)} {file_name}\n"
             elif file_type == "p":
                 photo_count += 1
                 album_list_text += f"　🖼️ {UnitConverter.byte_to_human_readable(file_size)}\n"
 
+
+        summary_text += "\n\n📂 本资源夹包含：\r\n" 
+        
+
+
         if video_count:
+            summary_text += f"　　🎬 x{video_count} 　 {UnitConverter.byte_to_human_readable(video_total_size)} | {UnitConverter.seconds_to_hms(video_total_duration)} \r\n"
             album_cont_list_text += f"🎬 x{video_count} 　"
         if document_count:
+            summary_text += f"　　📄 x{document_count} 　 {UnitConverter.byte_to_human_readable(document_total_size)} \r\n"
             album_cont_list_text += f"📄 x{document_count} 　"
         if photo_count:
+            summary_text += f"　　🖼️ x{photo_count} \r\n"
             album_cont_list_text += f"🖼️ x{photo_count}"
 
         if album_list_text :
@@ -113,8 +134,17 @@ class Tplate:
         
         if album_cont_list_text :
             list_text += "\n\n📂 本资源夹包含：" + album_cont_list_text
+        
+        opt_text = ''
+        limit = 100
+        if len(list_text) < 100:
+            opt_text = list_text
+        elif len(summary_text) < 100 :
+            opt_text = summary_text
+        else:
+            opt_text = album_cont_list_text
 
-        return {"album_list_text": album_list_text, "album_cont_list_text": album_cont_list_text, "list_text": list_text}
+        return {"album_list_text": album_list_text, "album_cont_list_text": album_cont_list_text, "list_text": list_text, "summary_text": summary_text, "opt_text": opt_text}
 
 # # 测试
 # import asyncio

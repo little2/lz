@@ -154,3 +154,8 @@ class LZString:
                     uniq_groups.append(g); seen_keys.add(k)
             return cleaned, uniq_groups
         return cleaned
+
+    def shorten_text(text: str, max_length: int = 30) -> str:
+        if not text:
+            return ""
+        return text[:max_length] + "..." if len(text) > max_length else text

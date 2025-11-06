@@ -224,7 +224,7 @@ async def _edit_caption_or_text(
                     ),
                     reply_markup=reply_markup,
                 )
-                print(f"\n\ncurrent_message={current_message}", flush=True)
+                # print(f"\n\ncurrent_message={current_message}", flush=True)
             else:
                 # 未传 photo：尝试“复用原媒体”
                 if media_attr == "photo":
@@ -1342,6 +1342,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         search_result = []
         if stag == "f":
         # 尝试从搜索结果中定位当前位置
+            
             keyword = await db.get_keyword_by_id(int(search_key_index))
             if keyword:
                 search_result = await db.search_keyword_page_plain(keyword)
@@ -3233,7 +3234,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             
             results = await db.get_album_list(content_id, lz_var.bot_username)
             list_text = await Tplate.list_template(results)
-            content = content +  "\r\n" + list_text['list_text'] 
+            content = content +  "\r\n" + list_text['opt_text'] 
             
             
                       

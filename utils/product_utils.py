@@ -67,9 +67,11 @@ async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
     try:
         tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
+
         review_status = await submit_resource_to_chat_action(content_id,bot,tpl_data)
-        
-        MySQLPool.set_product_review_status(content_id, review_status)
+        print(f"review_status={review_status}", flush=True)
+        if review_status is not None:
+            await MySQLPool.set_product_review_status(content_id, review_status)
     except Exception as e:
         print(f"❌ submit_resource_to_chat error: {e}", flush=True)
     finally:
@@ -96,14 +98,31 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         
         # print(f"tpl_data: {tpl_data}", flush=True)
 
+        from lz_db import db  # 延迟导入避免循环依赖
+            # ✅ 统一在这里连一次
+        await db.connect()
+
         if tpl_data.get("guild_keyword"):
-            from lz_db import db  # 延迟导入避免循环依赖
-             # ✅ 统一在这里连一次
-            await db.connect()
+          
             keyword_id = await db.get_search_keyword_id(tpl_data["guild_keyword"])
-            await db.disconnect()
+            
         else:
             keyword_id = "-1"
+
+        if tpl_data.get("file_type") == "a" or tpl_data.get("file_type") == "album":
+            #TODO 找不到
+            results = await db.get_album_list(content_id, lz_var.bot_username)
+            if(results == []):
+                await sync_album_items(content_id)
+                results = await db.get_album_list(content_id, lz_var.bot_username)
+            
+            print(f"{results}", flush=True)
+            if results:
+                list_text = await Tplate.list_template(results)
+                print(f"{list_text}", flush=True)
+                tpl_data["album_cont_list_text"] = list_text['album_cont_list_text']
+
+        await db.disconnect()
 
         content = await Tplate.pure_text_tpl(tpl_data)
 

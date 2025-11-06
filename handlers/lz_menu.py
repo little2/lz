@@ -781,6 +781,8 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
             icon = "📄"
         elif r['file_type'] == 'p':
             icon = "🖼"
+        elif r['file_type'] == 'a':
+            icon = "📂"
         else:
             icon = "🔹"
 
@@ -2346,6 +2348,8 @@ async def _get_clti_list(cid,page,user_id,mode):
             icon = "📄"
         elif f.get('file_type') == 'p':
             icon = "🖼"
+        elif r['file_type'] == 'a':
+            icon = "📂"
         else:
             icon = "🔹"
 
@@ -3135,9 +3139,9 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     # print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
          # 取出字段，并做基本安全处理
-        fee = record.get('fee', 60)
+        fee = record.get('fee', 68)
         if fee is None or fee < 0:
-            fee = 60
+            fee = 68
             
         owner_user_id = record.get('owner_user_id', 0)
 
@@ -3229,7 +3233,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             
             results = await db.get_album_list(content_id, lz_var.bot_username)
             list_text = await Tplate.list_template(results)
-            content = content +  "\r\n" + list_text 
+            content = content +  "\r\n" + list_text['list_text'] 
             
             
                       
@@ -3243,25 +3247,25 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             ret_content += f"{record['tag']}\n\n"
 
         profile = ""
-        if file_size:
+        if file_size and (product_type != "album" and product_type != "a"):
             # print(f"🔍 资源大小: {file_size}")
             label_size = convert.byte_to_human_readable(file_size)
             ret_content += f"📄 {label_size}  "
             profile += f"📄 {label_size}  "
 
-        if duration:
+        if duration and (product_type != "album" and product_type != "a"):
             label_duration = convert.seconds_to_hms(duration)
             ret_content += f"🕙 {label_duration}  "
             profile += f"🕙 {label_duration}  "
 
-        space = ""
-        meta_line = profile or ""
-        meta_len = len(meta_line)
-        target_len = 55  # 你可以设目标行长度，比如 55 字符
-        if meta_len < target_len:
-            pad_len = target_len - meta_len
-            space += "ㅤ" * pad_len  # 用中点撑宽（最通用，Telegram 不会过滤）
-        ret_content += f"{space}"
+        # space = ""
+        # meta_line = profile or ""
+        # meta_len = len(meta_line)
+        # target_len = 10  # 你可以设目标行长度，比如 55 字符
+        # if meta_len < target_len:
+        #     pad_len = target_len - meta_len
+        #     space += "ㅤ" * pad_len  # 用中点撑宽（最通用，Telegram 不会过滤）
+        # ret_content += f"{space}"
 
 
         if search_key_index:

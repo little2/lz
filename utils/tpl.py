@@ -5,6 +5,18 @@ from utils.unit_converter import UnitConverter
 class Tplate:
     @classmethod
     async def pure_text_tpl(cls, tpl_data):
+        if tpl_data.get('file_type'):
+            type_map = {
+                'p': "photo",
+                'v': "video",
+                'd': "document",
+                'a': "album"
+            }
+
+            tpl_data['file_type'] = type_map.get(tpl_data['file_type'], tpl_data['file_type'])
+
+
+
         if not tpl_data.get('file_icon_type') and tpl_data.get('file_type'):
             icon_map = {
                 'photo': "🖼 ",
@@ -12,10 +24,14 @@ class Tplate:
                 'video': "🎥 ",
                 'v': "🎥 ",
                 'document': "📄 ",
-                'd': "📄 "
+                'd': "📄 ",
+                'album': "📂 ",
+                'a': "📂 "
             }
             tpl_data['file_icon'] = icon_map.get(tpl_data['file_type'], "📄 ")
 
+        
+        
 
 
         if 'fee' in tpl_data and tpl_data['fee'] is not None:
@@ -23,12 +39,12 @@ class Tplate:
         else:
             tpl_data['fee_string'] = ""
 
-        if 'file_size' in tpl_data and tpl_data['file_size'] is not None:
+        if 'file_size' in tpl_data and tpl_data['file_size'] is not None and tpl_data['file_type'] != 'album':
             tpl_data['file_size_string'] = f"📄 {UnitConverter.byte_to_human_readable(int(tpl_data['file_size']))}   "
         else:
             tpl_data['file_size_string'] = ""
 
-        if 'duration' in tpl_data and tpl_data['duration'] is not None:
+        if 'duration' in tpl_data and tpl_data['duration'] is not None and tpl_data['file_type'] != 'album':
             tpl_data['duration_string'] = f"🕔 {UnitConverter.seconds_to_hms(tpl_data['duration'])}   "
         else:
             tpl_data['duration_string'] = ""
@@ -43,8 +59,8 @@ class Tplate:
         else:
             tpl_data['tag_string'] = ""
 
-        if 'album' in tpl_data and tpl_data['album'] is not None:
-            tpl_data['album_string'] = tpl_data['album'] + "\r\n\r\n"
+        if 'album_cont_list_text' in tpl_data and tpl_data['album_cont_list_text'] is not None:
+            tpl_data['album_string'] = tpl_data['album_cont_list_text'] + "\r\n\r\n"
         else:
             tpl_data['album_string'] = ""
 
@@ -92,12 +108,13 @@ class Tplate:
         if photo_count:
             album_cont_list_text += f"🖼️ x{photo_count}"
 
-        if album_list_text:
+        if album_list_text :
             list_text += "\n📂 资源列表：\n" + album_list_text.rstrip()
-        if album_cont_list_text:
+        
+        if album_cont_list_text :
             list_text += "\n\n📂 本资源夹包含：" + album_cont_list_text
 
-        return list_text
+        return {"album_list_text": album_list_text, "album_cont_list_text": album_cont_list_text, "list_text": list_text}
 
 # # 测试
 # import asyncio

@@ -14,6 +14,7 @@ from aiogram.types import (
     InputMediaPhoto,
     BufferedInputFile,
 )
+from utils.tpl import Tplate
 from aiogram.enums import ChatAction,ContentType
 from aiogram.filters import Command
 
@@ -265,12 +266,12 @@ async def get_list(content_id):
     list_text = ''
     bot_username = await get_bot_username()
     results = await AnanBOTPool.get_album_list(content_id, bot_username)
-    list_text = await list_template(results)
-    return list_text
+    list_text = await Tplate.list_template(results)
+    return list_text['list_text']
 
 
-# TODO: 整合到 tpl.py 中
-async def list_template(results):
+# TODO: 整合到 tpl.py 中, 先放一阵子 11/6 , 可删
+async def list_template2(results):
     album_list_text = ''
     album_cont_list_text = ''
     list_text = ''
@@ -992,7 +993,7 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
     content_id = callback_query.data.split(":")[1]
     chat_id = callback_query.message.chat.id
     message_id = callback_query.message.message_id
-    content_list = await get_list(content_id)  # 获取合集列表，更新状态
+    content_list = await get_list(content_id)  # 获取资源夹列表，更新状态
     caption_text = f"{content_list}\n\n⚠️ 注意\r\n📂 资源夹 ( Folder ) 是一个最小完整单位，里面的文件必须成组存在，不能拆开。\r\n\r\n常见场景：\r\n(1)压缩包分卷 + 预览图 : <i>例如 许昌棋社.zip ,许昌棋社.z01 , 许昌棋社.z02</i>\r\n(2)同一场次的拍摄内容（套图/视频）<i>例如: IMG_0001.JPG , IMG_0002.JPG, IMG_0003.MOV , 这三个文档都是 06/19 日九哥和红领巾激战拍摄的视频及照片</i>\r\n\r\n 如果你要整理跨场次、相同主题的作品，请使用 📚 合集 (Collection)。\r\n\r\n📥 请直接传送资源"
 
    
@@ -2164,6 +2165,7 @@ async def _send_to_topic(content_id:int):
         publish_bot_username = me.username
         try:
             tpl_data = await AnanBOTPool.search_sora_content_by_id(int(content_id),publish_bot_username)
+
             review_status = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
             if review_status is not None:
                 await AnanBOTPool.set_product_review_status(content_id, review_status)
@@ -4175,8 +4177,8 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
             _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
 
             try:
-                list_text = await list_template(results)
-                if list_text:
+                list_text = await Tplate.list_template(results)
+                if list_text['list_text']:
                     caption_text = "检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)" + list_text
             except Exception as e:
                 print(f"⚠️ list_template 生成清单失败（忽略）：{e}", flush=True)

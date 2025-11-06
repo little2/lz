@@ -1129,7 +1129,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
             try:
                 caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ." 
-                if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+                if parts[0]!="f" and current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
                     try:
                         
                         # print(f"clti_message={current_message}",flush=True)

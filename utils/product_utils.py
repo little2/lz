@@ -109,7 +109,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         else:
             keyword_id = "-1"
 
-        if tpl_data.get("file_type") == "a" or tpl_data.get("file_type") == "album":
+        if tpl_data.get("product_type") == "a" or tpl_data.get("product_type") == "album":
             #TODO 找不到
             results = await db.get_album_list(content_id, lz_var.bot_username)
             if(results == []):
@@ -120,7 +120,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             if results:
                 list_text = await Tplate.list_template(results)
                 print(f"{list_text}", flush=True)
-                tpl_data["album_cont_list_text"] = list_text['album_cont_list_text']
+                tpl_data["album_cont_list_text"] = list_text['opt_text']
 
         await db.disconnect()
 
@@ -152,7 +152,8 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
     try:
         print(f"准备发送到推播频道 {tpl_data}", flush=True)
-        fee = tpl_data.get("fee", 60)
+        fee = tpl_data.get("fee", 68)
+
 
         tpl_data["text"] = content
         tpl_data["button_str"] = f"💎 兑换 ( {fee} ) - https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"

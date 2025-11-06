@@ -5,6 +5,11 @@ from utils.unit_converter import UnitConverter
 class Tplate:
     @classmethod
     async def pure_text_tpl(cls, tpl_data):
+        
+
+        if tpl_data.get('product_type'):
+            tpl_data['file_type'] = tpl_data['product_type']
+
         if tpl_data.get('file_type'):
             type_map = {
                 'p': "photo",

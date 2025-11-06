@@ -40,8 +40,11 @@ DB_CONFIG = {
 }
 
 REVIEW_CHAT_ID = config.get('review_chat_id', os.getenv('REVIEW_CHAT_ID', ''))
-
 REVIEW_THREAD_ID = config.get('review_thread_id', os.getenv('REVIEW_THREAD_ID', ''))
-LOG_THREAD_ID = config.get('log_thread_id', os.getenv('LOG_THREAD_ID', ''))
 
+REPORT_REVIEW_CHAT_ID = config.get('report_review_chat_id', os.getenv('REPORT_REVIEW_CHAT_ID', ''))
+REPORT_REVIEW_THREAD_ID = config.get('report_review_thread_id', os.getenv('REPORT_REVIEW_THREAD_ID', ''))
+
+
+LOG_THREAD_ID = config.get('log_thread_id', os.getenv('LOG_THREAD_ID', ''))
 PUBLISH_BOT_TOKEN = config.get('publish_bot_token', os.getenv('PUBLISH_BOT_TOKEN', ''))

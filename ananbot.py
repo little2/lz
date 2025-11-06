@@ -29,7 +29,7 @@ import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.media_utils import Media
-from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN
+from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
 import lz_var
 from lz_config import AES_KEY
 
@@ -2644,7 +2644,7 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
     
 
 
-async def send_to_review_group(content_id: int, state: FSMContext):
+async def send_to_review_group(content_id: int, state: FSMContext, chat_id = REVIEW_CHAT_ID, thread_id = REVIEW_THREAD_ID) -> tuple[bool, Optional[str]]:
     product_row = await get_product_info(content_id)
     preview_text = product_row.get("preview_text") or ""
     bot_url = f"https://t.me/{(await get_bot_username())}"
@@ -2682,10 +2682,10 @@ async def send_to_review_group(content_id: int, state: FSMContext):
 
     try:
         await bot.send_message(
-            chat_id=REVIEW_CHAT_ID,
+            chat_id=chat_id,
             text=preview_text,
             reply_markup=kb,
-            message_thread_id=REVIEW_THREAD_ID,  # 指定话题
+            message_thread_id=thread_id,  # 指定话题
             parse_mode="HTML"
         )
         invalidate_cached_product(content_id)
@@ -3339,7 +3339,8 @@ async def handle_report_reason_text(message: Message, state: FSMContext):
         
         content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
         await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
-        result , error = await send_to_review_group(content_id, state)
+        result , error = await send_to_review_group(content_id, state, chat_id=REPORT_REVIEW_CHAT_ID, thread_id=REPORT_REVIEW_THREAD_ID)
+
         if result:
             await message.answer(f"✅ 举报已提交（编号：{report_id}）。我们会尽快处理。")
             
@@ -3597,7 +3598,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         print(f"下一个待裁定 {next_file_unique_id}", flush=True)
         if next_file_unique_id:
             next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
-            result , error = await send_to_review_group(next_content_id, state)
+            result , error = await send_to_review_group(next_content_id, state, chat_id=REPORT_REVIEW_CHAT_ID, thread_id=REPORT_REVIEW_THREAD_ID)
             await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
             await AnanBOTPool.update_report_status(report_id, "published")
 

@@ -726,6 +726,26 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
     data = await state.get_data()
     selected_tags = set(data.get(fsm_key, []))
 
+
+    try:
+        idx = next(i for i, t in enumerate(tag_types) if t["type_code"] == type_code)
+    except StopIteration:
+        idx = None
+
+    # 需要展开的 code：上一个、当前、下一个（注意边界与找不到的情况）
+    expanded_codes = set()
+    if idx is not None:
+        if idx - 1 >= 0:
+            expanded_codes.add(tag_types[idx - 1]["type_code"])
+        expanded_codes.add(tag_types[idx]["type_code"])
+        if idx + 1 < len(tag_types):
+            expanded_codes.add(tag_types[idx + 1]["type_code"])
+    else:
+        # 兜底：如果传入的 type_code 不在列表里，就只展开第一个（可按需调整）
+        if tag_types:
+            expanded_codes.add(tag_types[0]["type_code"])
+    
+
     # 如果 FSM 中没有缓存，就从数据库查一次
     if selected_tags is None or not selected_tags or selected_tags == []:
         selected_tags = await AnanBOTPool.get_tags_for_file(file_unique_id)
@@ -766,11 +786,14 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
             display_cn = f"{current_cn} ( {selected_count}/{total_count} )"
 
 
-        if current_code == type_code:
-            # 当前展开的类型
-            keyboard.append([
-                InlineKeyboardButton(text=f"━━━ ▶️ {display_cn} ━━━ ", callback_data="noop")
-            ])
+        if current_code in expanded_codes:
+
+            is_center = (current_code == type_code)
+            header = f"━━━ ▶️ {display_cn} ━━━ " if is_center else f"━━━ {display_cn} ━━━ "
+            keyboard.append([InlineKeyboardButton(text=header, callback_data="noop")])
+
+
+       
 
             row = []
             for tag in tag_rows:
@@ -4078,7 +4101,7 @@ async def ensure_placeholder(message: Message, *, state, bot, ttl: float = DEFAU
         }
         return msg
 
-async def _process_create_content_async(message, state, meta, placeholder_msg_id, __album_wait__=False):
+async def _handle_album_upload_async(message, state, meta, placeholder_msg_id, __album_wait__=False):
     # ✅ 相册：稍等 0.6s，等同组消息大多到齐
     if __album_wait__:
         try:
@@ -4121,7 +4144,7 @@ async def _process_create_content_async(message, state, meta, placeholder_msg_id
     await _process_create_product_async(message, state, meta, placeholder_msg_id)
 
 # 非相簿批量冲洗（稳定合并成合集提示）
-async def _flush_chat_batch_after_window(message: Message, state: FSMContext, meta: dict, placeholder_msg_id: int):
+async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: dict, placeholder_msg_id: int):
     """
     非相簿（无 media_group_id）多条在 _DEBOUNCE_SECS 时间窗内聚合，统一编辑占位为“合集投稿”。
     - 不入库、不创建 content_id（callback 时再创建），只负责把批量清单展现出来。
@@ -4211,8 +4234,12 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
 
                 spawn_once(
                     f"_process_update_default_preview_async:{message.message_id}",
-                    _process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
+                    lambda:_process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
                 )
+
+
+
+
             else:
 
 
@@ -4357,8 +4384,8 @@ async def handle_media(message: Message, state: FSMContext):
         if group_id:
             
             spawn_once(
-                f"_process_create_content_async:album:{message.chat.id}:{group_id}",
-                lambda:_process_create_content_async(
+                f"_handle_album_upload_async:album:{message.chat.id}:{group_id}",
+                lambda:_handle_album_upload_async(
                     message=message,
                     state=state,
                     meta=meta,
@@ -4371,7 +4398,7 @@ async def handle_media(message: Message, state: FSMContext):
             print(f"4311-GO {meta}", flush=True)
             spawn_once(
                 f"_flush_chat_batch:{message.chat.id}",
-                lambda:_flush_chat_batch_after_window(
+                lambda:_handle_batch_upload_async(
                     message=message,
                     state=state,
                     meta=meta,  # 仅作代表参数
@@ -4450,8 +4477,8 @@ async def handle_media(message: Message, state: FSMContext):
             # 相册：用 media_group_id 去重，并等待 0.6 秒收齐
             if group_id:
                 spawn_once(
-                    f"_process_create_content_async:album:{message.chat.id}:{group_id}",
-                    lambda:_process_create_content_async(
+                    f"_handle_album_upload_async:album:{message.chat.id}:{group_id}",
+                    lambda:_handle_album_upload_async(
                         message=message,
                         state=state,
                         meta=meta,
@@ -4463,7 +4490,7 @@ async def handle_media(message: Message, state: FSMContext):
                 # 非相册：按消息去重即可
                 spawn_once(
                     f"_flush_chat_batch:{message.chat.id}",
-                    lambda:_flush_chat_batch_after_window(
+                    lambda:_handle_batch_upload_async(
                         message=message,
                         state=state,
                         meta=meta,

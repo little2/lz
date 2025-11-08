@@ -4676,7 +4676,7 @@ async def main():
 
     await set_default_thumb_file_id()
     
-
+    # await _sync_pg(26864)
 
     if BOT_MODE == "webhook":
         # dp.startup.register(on_startup)

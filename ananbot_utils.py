@@ -1282,6 +1282,7 @@ class AnanBOTPool(LYBase):
     @classmethod
     async def set_product_guild(cls, content_id: int) -> None:
         conn, cur = await cls.get_conn_cursor()
+        guild_id = None
         try:
             # 1) 取 sora_content 基本信息
             await cur.execute(
@@ -1296,16 +1297,18 @@ class AnanBOTPool(LYBase):
  
             # 2) 取归属的 guild_id
             await cur.execute(
-                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.guild_id > 0 AND a.quantity > 0 ORDER BY a.quantity ASC limit 1;",
+                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.guild_id > 0 ORDER BY a.quantity DESC limit 1;",
                 # "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL AND t.quantity > 0 ORDER BY t.quantity ASC limit 1;",
                 (file_row["source_id"],)
             )
             file_tag_row = await cur.fetchone()
             if not file_tag_row:
+                guild_id = 16
                 print(f"no tag")
-                return False
+            else:
+                guild_id = file_tag_row["guild_id"]
 
-            print(f"{file_tag_row}")
+            print(f"file_tag_row={file_tag_row}")
 
             await cur.execute(
                 """
@@ -1314,11 +1317,11 @@ class AnanBOTPool(LYBase):
                        updated_at=NOW(), stage='pending'
                  WHERE content_id=%s
                 """,
-                (file_tag_row["guild_id"], content_id)
+                (guild_id, content_id)
             )
             affected = cur.rowcount
             await conn.commit()
-            return file_tag_row["guild_id"] or None
+            return guild_id or None
         finally:
             await cls.release(conn, cur)
 

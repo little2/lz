@@ -4,7 +4,7 @@ import asyncio
 import asyncpg
 from typing import Optional, Dict, Any, List, Tuple
 import jieba
-from datetime import datetime
+
 from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 import lz_var
@@ -299,12 +299,13 @@ class PGPool:
         finally:
             await cls.release(conn)
 
+
     @classmethod
     async def upsert_sora(cls, mysql_row: Dict[str, Any]) -> int:
         """
         将 MySQL 的 sora_content 一行 upsert 到 PostgreSQL：
-          1) upsert public.sora_content
-          2) 若含商品信息，则 upsert public.product（以 content_id 为冲突键）
+        1) upsert public.sora_content
+        2) 若含商品信息，则 upsert public.product（以 content_id 为冲突键）
         返回：受影响的总行数（sora_content + product 的近似和）
         """
         await cls.ensure_pool()
@@ -315,15 +316,15 @@ class PGPool:
                 content_id = int(mysql_row["id"])
                 source_id = mysql_row.get("source_id")
                 file_type = mysql_row.get("file_type")
-                content = mysql_row.get("content") or ""
+                content = (mysql_row.get("content") or "").strip()
                 file_size = mysql_row.get("file_size")
                 duration = mysql_row.get("duration")
                 tag = mysql_row.get("tag")
                 thumb_file_unique_id = mysql_row.get("thumb_file_unique_id")
                 owner_user_id = mysql_row.get("owner_user_id")
-                stage = mysql_row.get("stage","updated")
+                stage = mysql_row.get("stage", "updated")
                 plan_update_timestamp = mysql_row.get("plan_update_timestamp")
-                thumb_hash = mysql_row.get("thumb_hash", None)
+                thumb_hash = mysql_row.get("thumb_hash")
                 valid_state = mysql_row.get("valid_state", 1)
 
                 # content_seg：同义词替换 + jieba 分词（与检索一致）
@@ -357,6 +358,7 @@ class PGPool:
                         plan_update_timestamp= EXCLUDED.plan_update_timestamp,
                         thumb_hash           = EXCLUDED.thumb_hash,
                         valid_state          = EXCLUDED.valid_state
+                        
                 """
                 tag_ret1 = await conn.execute(
                     sql_sora,
@@ -370,32 +372,33 @@ class PGPool:
                 except Exception:
                     affected1 = 0
 
-                # ---------- 2) 若含商品信息，upsert product ----------
+                # ---------- 2) 若含商品信息，upsert product（以 content_id 唯一） ----------
                 # 你的 MySQL 查询别名：
                 #   p.price  as fee
                 #   p.file_type as product_type
                 #   p.owner_user_id
                 #   p.purchase_condition
                 #   g.guild_id
-                fee = mysql_row.get("fee")                       # numeric/decimal
-                product_type = mysql_row.get("product_type")     # text
-                p_owner_user_id = mysql_row.get("owner_user_id") # 可能与上面 owner_user_id 一致
+                fee = mysql_row.get("fee")
+                product_type = mysql_row.get("product_type")
+                p_owner_user_id = mysql_row.get("owner_user_id")
                 purchase_condition = mysql_row.get("purchase_condition")
                 guild_id = mysql_row.get("guild_id")
 
                 affected2 = 0
-                # 只有当有商品相关字段时才写 product
                 if any(v is not None for v in (fee, product_type, p_owner_user_id, purchase_condition, guild_id)):
-                    # 如果 PG 的 product 有 created_at / updated_at 字段
-                    #   - INSERT：created_at/updated_at=now()
-                    #   - UPDATE：仅更新 updated_at=now()
-                    now_ts = datetime.utcnow()
+                    # price 为 NOT NULL，确保是整数；无则 0
+                    try:
+                        price_int = int(fee) if fee is not None else 0
+                    except Exception:
+                        price_int = 0
 
                     sql_product = """
                         INSERT INTO product (
-                            content_id, price, file_type, owner_user_id, purchase_condition, guild_id, created_at, updated_at
+                            content_id, price, file_type, owner_user_id, purchase_condition, guild_id,
+                            created_at, updated_at
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
                         ON CONFLICT (content_id)
                         DO UPDATE SET
                             price              = EXCLUDED.price,
@@ -403,11 +406,11 @@ class PGPool:
                             owner_user_id      = EXCLUDED.owner_user_id,
                             purchase_condition = EXCLUDED.purchase_condition,
                             guild_id           = EXCLUDED.guild_id,
-                            updated_at         = EXCLUDED.updated_at
+                            updated_at         = NOW()
                     """
                     tag_ret2 = await conn.execute(
                         sql_product,
-                        content_id, fee, product_type, p_owner_user_id, purchase_condition, guild_id, now_ts
+                        content_id, price_int, product_type, p_owner_user_id, purchase_condition, guild_id
                     )
                     try:
                         affected2 = int(tag_ret2.split()[-1])
@@ -415,9 +418,10 @@ class PGPool:
                         affected2 = 0
 
                 return affected1 + affected2
-
         finally:
             await cls.release(conn)
+
+
 
     # ========= Album 相关 =========
     @classmethod

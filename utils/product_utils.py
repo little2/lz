@@ -138,7 +138,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         
         # 发送到 guild 频道
         if tpl_data.get("guild_chat_id"):
-            print(f"准备发送到贤师楼频道 {tpl_data['guild_chat_id']}", flush=True)
+            print(f"准备发送到贤师楼(讨论)频道 {tpl_data['guild_chat_id']}", flush=True)
             retGuild = await _bot.send_message(
                 chat_id=tpl_data["guild_chat_id"],
                 message_thread_id=tpl_data.get("guild_thread_id"),
@@ -146,13 +146,13 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 parse_mode="HTML",
                 reply_markup=kb
             )
-            print(f"✅ 发送到公会频道", flush=True)
+            print(f"✅ 发送到贤师楼(讨论)频道成幼", flush=True)
     except Exception as e:
-        print(f"❌ 发送资源失败1: {e}", flush=True)
+        print(f"❌ 发送到贤师楼(讨论)频道失败1: {e}", flush=True)
 
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
     try:
-        print(f"准备发送到推播频道 {tpl_data}", flush=True)
+        print(f"准备发送到推播频道", flush=True)
         fee = tpl_data.get("fee", 68)
 
 
@@ -172,7 +172,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     try:
         # 发送到资源频道
         if tpl_data.get("guild_resource_chat_id"):
-            print(f"准备发送到资源频道 {tpl_data['guild_resource_chat_id']}", flush=True)
+            print(f"准备发送到(撸馆)资源频道 {tpl_data['guild_resource_chat_id']}", flush=True)
             retResource = await _bot.send_message(
                 chat_id=tpl_data["guild_resource_chat_id"],
                 message_thread_id=tpl_data.get("guild_resource_thread_id"),
@@ -183,11 +183,11 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             review_status = 9
             
             
-            # print(f"✅ 发送到资源频道 {retResource}", flush=True)
+            print(f"✅ 准备发送到(撸馆)资源频道成功", flush=True)
             return review_status
         
     except Exception as e:
-        print(f"❌ 发送资源失败2: {e}", flush=True)
+        print(f"❌ 准备发送到(撸馆)资源频道失败2: {e}", flush=True)
     
 async def get_product_material(content_id: int):
     from lz_db import db  # 延迟导入避免循环依赖

@@ -326,7 +326,7 @@ class MySQLPool:
         finally:
             await cls.release(conn, cursor)
 
-
+   
 
 
     @classmethod

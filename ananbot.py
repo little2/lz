@@ -36,7 +36,7 @@ from lz_config import AES_KEY
 from utils.prof import SegTimer
 from utils.aes_crypto import AESCrypto
 
-from utils.product_utils import submit_resource_to_chat_action,build_product_material
+from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora
 
 import traceback
 
@@ -270,44 +270,6 @@ async def get_list(content_id):
     return list_text['opt_text']
 
 
-# TODO: 整合到 tpl.py 中, 先放一阵子 11/6 , 可删
-async def list_template2(results):
-    album_list_text = ''
-    album_cont_list_text = ''
-    list_text = ''
-    video_count = document_count = photo_count = 0
-
-    for row in results:
-        file_type = row["file_type"]
-        file_size = row.get("file_size", 0)
-        duration = row.get("duration", 0)
-        file_name = row.get("file_name", "")
-        if file_name:
-            file_name = f"| {file_name}"
-
-        if file_type == "v":
-            video_count += 1
-            album_list_text += f"　🎬 {format_bytes(file_size)} | {format_seconds(duration)}\n"
-        elif file_type == "d":
-            document_count += 1
-            album_list_text += f"　📄 {format_bytes(file_size)} {file_name}\n"
-        elif file_type == "p":
-            photo_count += 1
-            album_list_text += f"　🖼️ {format_bytes(file_size)}\n"
-
-    if video_count:
-        album_cont_list_text += f"🎬 x{video_count} 　"
-    if document_count:
-        album_cont_list_text += f"📄 x{document_count} 　"
-    if photo_count:
-        album_cont_list_text += f"🖼️ x{photo_count}"
-
-    if album_list_text:
-        list_text += "\n📂 资源列表：\n" + album_list_text.rstrip()
-    if album_cont_list_text:
-        list_text += "\n\n📂 本资源夹包含：" + album_cont_list_text
-
-    return list_text
 
 
 @dp.callback_query(F.data.startswith("make_product:"))
@@ -2001,7 +1963,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     product_row = await get_product_info(content_id)
     product_info = product_row.get("product_info") or {}
-    print(f"🔍 product_info = {product_info}", flush=True)
+    # print(f"🔍 product_info = {product_info}", flush=True)
 
 
 
@@ -2085,6 +2047,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             if re.search(r"(#不是正太片|#不是正太片爆菊)", caption):
                 await callback_query.answer("这不是正太片，审核结束后，将不再上架\r\n\r\n🎈如果有你觉得审核后不该再上架的资源，请在讨论区说明", show_alert=True)
             else:
+                spawn_once(f"_sync_pg:{content_id}", lambda:_sync_pg(content_id))
                 spawn_once(f"_send_to_topic:{content_id}", lambda:_send_to_topic(content_id))
                 # ⬇️ 改为后台执行，不阻塞当前回调
                 spawn_once(f"refine:{content_id}", lambda:AnanBOTPool.refine_product_content(content_id))
@@ -2112,9 +2075,6 @@ async def _review_next_product(state: Optional[FSMContext] = None):
         except Exception as e:
             result, error = False, str(e)
         await asyncio.sleep(1)
-
-
-
 
 async def _reset_review_bot_button(callback_query: CallbackQuery,content_id:int,button_str:str):  
     buttons = [[InlineKeyboardButton(text=button_str, callback_data=f"none")]]
@@ -2157,26 +2117,11 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
 
         # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
         if ret_chat is not None and ret_msg is not None:
-
-            
-
-            # # 注意：编辑 reply_markup 不需要 thread_id；thread_id 仅发送消息时常用
-            # await bot.edit_message_reply_markup(
-            #     chat_id=ret_chat,
-            #     message_id=ret_msg,
-            #     reply_markup=result_kb
-            # )
-
             await bot.delete_message(chat_id=ret_chat, message_id=ret_msg)
-
             await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
-
-           
-            
             print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
-
     except Exception as e:
-        logging.exception(f"更新原审核消息按钮失败: {e}")
+        logging.exception(f"‼️更新原审核消息按钮失败: {e}")
 
 async def _send_to_topic(content_id:int):
     global publish_bot
@@ -2197,7 +2142,12 @@ async def _send_to_topic(content_id:int):
         
     return
     
-
+async def _sync_pg(content_id:int):
+    try:
+        await sync_sora(content_id)
+        print(f"🔍 已同步 content_id={content_id} 到 PG 数据库", flush=True)
+    except Exception as e:
+        logging.exception(f"同步 content_id={content_id} 到 PG 失败: {e}")
 ############
 #  content     
 ############

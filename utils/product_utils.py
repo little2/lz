@@ -6,6 +6,7 @@ from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, 
 from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
 from lz_mysql import MySQLPool
+from lz_pgsql import PGPool
 from lz_config import AES_KEY
 import lz_var
 from lz_db import db
@@ -200,7 +201,8 @@ async def get_product_material(content_id: int):
     else:
         await sync_album_items(content_id)
         print(f"❌ get_product_material: no rows for content_id={content_id}", flush=True)
-        return None
+        return await get_product_material(content_id)
+        
 
 # == 找到文件里已有的占位 ==
 async def sync_album_items(content_id: int):
@@ -213,7 +215,7 @@ async def sync_album_items(content_id: int):
     # 确保两端连接池已就绪（main() 里已经 connect 过的话，这里是幂等调用）
     await asyncio.gather(
         MySQLPool.init_pool(),
-        db.connect(),
+        PGPool.init_pool(),
     )
 
     # 1) 拉 MySQL 源数据
@@ -221,12 +223,12 @@ async def sync_album_items(content_id: int):
     print(f"[sync_album_items] MySQL rows = {len(mysql_rows)} for content_id={content_id}", flush=True)
 
     # 2) 先做 PG 端 UPSERT
-    upsert_count = await db.upsert_album_items_bulk(mysql_rows)
+    upsert_count = await PGPool.upsert_album_items_bulk(mysql_rows)
     print(f"[sync_album_items] Upsert to PG = {upsert_count}", flush=True)
 
     # 3) 差异删除（PG 有而 MySQL 没有）
     keep_ids = [int(r["member_content_id"]) for r in mysql_rows] if mysql_rows else []
-    deleted = await db.delete_album_items_except(int(content_id), keep_ids)
+    deleted = await PGPool.delete_album_items_except(int(content_id), keep_ids)
     print(f"[sync_album_items] Delete extras in PG = {deleted}", flush=True)
 
     # 4) 小结
@@ -238,6 +240,32 @@ async def sync_album_items(content_id: int):
     }
     print(f"[sync_album_items] Done: {summary}", flush=True)
     return summary
+
+async def sync_sora(content_id: int):
+    """
+    单向同步：以 MySQL 为源，将 sora_contents 同步到 PostgreSQL。
+    规则：
+      - MySQL 存在 → PG upsert（存在更新，不存在插入）
+    """
+    # 确保两端连接池已就绪（main() 里已经 connect 过的话，这里是幂等调用）
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+
+    # 1) 拉 MySQL 源数据
+    mysql_row = await MySQLPool.search_sora_content_by_id(int(content_id))
+    print(f"[sync_sora_content] MySQL row = {mysql_row} for content_id={content_id}", flush=True)
+
+    # 2) 先做 PG 端 UPSERT
+    upsert_count = 0
+    if mysql_row:
+        upsert_count = await PGPool.upsert_sora(mysql_row)
+    print(f"[upsert_sora] Upsert to PG = {upsert_count}", flush=True)
+
+    # 3) Album 相关的同步
+    album_sync_summary = await sync_album_items(content_id)
+
 
 
 

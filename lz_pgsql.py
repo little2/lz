@@ -3,7 +3,8 @@ import os
 import asyncio
 import asyncpg
 from typing import Optional, Dict, Any, List, Tuple
-
+import jieba
+from datetime import datetime
 from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 import lz_var
@@ -119,6 +120,13 @@ class PGPool:
     @classmethod
     def _normalize_query(cls, keyword_str: str) -> str:
         return " ".join((keyword_str or "").strip().lower().split())
+
+    @classmethod
+    def replace_synonym(cls, text: str) -> str:
+        for k, v in SYNONYM.items():
+            text = text.replace(k, v)
+        return text
+
 
     # ========= 示例：与原 PGDB 同名/同义方法 =========
     @classmethod
@@ -288,5 +296,279 @@ class PGPool:
             # async with conn.transaction() 失败会自动回滚，这里仅打日志
             print(f"❌ [X-MEDIA][PG] upsert_product_thumb error: {e}", flush=True)
             raise
+        finally:
+            await cls.release(conn)
+
+    @classmethod
+    async def upsert_sora(cls, mysql_row: Dict[str, Any]) -> int:
+        """
+        将 MySQL 的 sora_content 一行 upsert 到 PostgreSQL：
+          1) upsert public.sora_content
+          2) 若含商品信息，则 upsert public.product（以 content_id 为冲突键）
+        返回：受影响的总行数（sora_content + product 的近似和）
+        """
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            async with conn.transaction():
+                # ---------- 1) 准备 sora_content 字段 ----------
+                content_id = int(mysql_row["id"])
+                source_id = mysql_row.get("source_id")
+                file_type = mysql_row.get("file_type")
+                content = mysql_row.get("content") or ""
+                file_size = mysql_row.get("file_size")
+                duration = mysql_row.get("duration")
+                tag = mysql_row.get("tag")
+                thumb_file_unique_id = mysql_row.get("thumb_file_unique_id")
+                owner_user_id = mysql_row.get("owner_user_id")
+                stage = mysql_row.get("stage","updated")
+                plan_update_timestamp = mysql_row.get("plan_update_timestamp")
+                thumb_hash = mysql_row.get("thumb_hash", None)
+                valid_state = mysql_row.get("valid_state", 1)
+
+                # content_seg：同义词替换 + jieba 分词（与检索一致）
+                norm = cls.replace_synonym(content)
+                content_seg = " ".join(jieba.cut(norm)) if norm else ""
+
+                sql_sora = """
+                    INSERT INTO sora_content (
+                        id, source_id, file_type, content, content_seg,
+                        file_size, duration, tag,
+                        thumb_file_unique_id, owner_user_id, stage,
+                        plan_update_timestamp, thumb_hash, valid_state
+                    ) VALUES (
+                        $1, $2, $3, $4, $5,
+                        $6, $7, $8,
+                        $9, $10, $11,
+                        $12, $13, $14
+                    )
+                    ON CONFLICT (id)
+                    DO UPDATE SET
+                        source_id            = EXCLUDED.source_id,
+                        file_type            = EXCLUDED.file_type,
+                        content              = EXCLUDED.content,
+                        content_seg          = EXCLUDED.content_seg,
+                        file_size            = EXCLUDED.file_size,
+                        duration             = EXCLUDED.duration,
+                        tag                  = EXCLUDED.tag,
+                        thumb_file_unique_id = EXCLUDED.thumb_file_unique_id,
+                        owner_user_id        = EXCLUDED.owner_user_id,
+                        stage                = EXCLUDED.stage,
+                        plan_update_timestamp= EXCLUDED.plan_update_timestamp,
+                        thumb_hash           = EXCLUDED.thumb_hash,
+                        valid_state          = EXCLUDED.valid_state
+                """
+                tag_ret1 = await conn.execute(
+                    sql_sora,
+                    content_id, source_id, file_type, content, content_seg,
+                    file_size, duration, tag,
+                    thumb_file_unique_id, owner_user_id, stage,
+                    plan_update_timestamp, thumb_hash, valid_state
+                )
+                try:
+                    affected1 = int(tag_ret1.split()[-1])
+                except Exception:
+                    affected1 = 0
+
+                # ---------- 2) 若含商品信息，upsert product ----------
+                # 你的 MySQL 查询别名：
+                #   p.price  as fee
+                #   p.file_type as product_type
+                #   p.owner_user_id
+                #   p.purchase_condition
+                #   g.guild_id
+                fee = mysql_row.get("fee")                       # numeric/decimal
+                product_type = mysql_row.get("product_type")     # text
+                p_owner_user_id = mysql_row.get("owner_user_id") # 可能与上面 owner_user_id 一致
+                purchase_condition = mysql_row.get("purchase_condition")
+                guild_id = mysql_row.get("guild_id")
+
+                affected2 = 0
+                # 只有当有商品相关字段时才写 product
+                if any(v is not None for v in (fee, product_type, p_owner_user_id, purchase_condition, guild_id)):
+                    # 如果 PG 的 product 有 created_at / updated_at 字段
+                    #   - INSERT：created_at/updated_at=now()
+                    #   - UPDATE：仅更新 updated_at=now()
+                    now_ts = datetime.utcnow()
+
+                    sql_product = """
+                        INSERT INTO product (
+                            content_id, price, file_type, owner_user_id, purchase_condition, guild_id, created_at, updated_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+                        ON CONFLICT (content_id)
+                        DO UPDATE SET
+                            price              = EXCLUDED.price,
+                            file_type          = EXCLUDED.file_type,
+                            owner_user_id      = EXCLUDED.owner_user_id,
+                            purchase_condition = EXCLUDED.purchase_condition,
+                            guild_id           = EXCLUDED.guild_id,
+                            updated_at         = EXCLUDED.updated_at
+                    """
+                    tag_ret2 = await conn.execute(
+                        sql_product,
+                        content_id, fee, product_type, p_owner_user_id, purchase_condition, guild_id, now_ts
+                    )
+                    try:
+                        affected2 = int(tag_ret2.split()[-1])
+                    except Exception:
+                        affected2 = 0
+
+                return affected1 + affected2
+
+        finally:
+            await cls.release(conn)
+
+    # ========= Album 相关 =========
+    @classmethod
+    async def get_album_list(cls, content_id: int, bot_name: str) -> List[Dict[str, Any]]:
+        """
+        查询某个 album 下的所有成员文件（PostgreSQL 版）
+        - 对应 PHP 的 get_album_list()
+        - 使用 asyncpg，占位符 $1/$2
+        - 若 m.file_id 为空且从 file_extension 匹配到 ext_file_id，则回写/新增到 sora_media.file_id
+        - 返回值：list[dict]
+        依赖：
+          - album_items(content_id, member_content_id, file_unique_id, file_type, position, stage, ...)
+          - sora_content(id, source_id, file_type, content, file_size, duration, ...)
+          - sora_media(content_id, source_bot_name, file_id, thumb_file_id, UNIQUE(content_id, source_bot_name))
+          - file_extension(file_unique_id, bot, file_id)
+        """
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            sql = """
+                SELECT
+                    c.member_content_id,           -- 用于回写 sora_media.content_id
+                    s.source_id,
+                    c.file_type,
+                    s.content,
+                    s.file_size,
+                    s.duration,
+                    m.source_bot_name,
+                    m.thumb_file_id,
+                    m.file_id,
+                    fe.file_id AS ext_file_id
+                FROM album_items AS c
+                LEFT JOIN sora_content AS s
+                    ON c.member_content_id = s.id
+                LEFT JOIN sora_media   AS m
+                    ON c.member_content_id = m.content_id
+                   AND m.source_bot_name   = $1
+                LEFT JOIN file_extension AS fe
+                    ON fe.file_unique_id = s.source_id
+                   AND fe.bot            = $1
+                WHERE c.content_id = $2
+                ORDER BY c.file_type;
+            """
+
+            rows = await conn.fetch(sql, bot_name, content_id)
+
+            dict_rows: List[Dict[str, Any]] = []
+            to_upsert: List[Tuple[int, str, str]] = []  # (content_id, bot_name, file_id)
+
+            for rec in rows or []:
+                d = dict(rec)
+                if d.get("file_id") is None and d.get("ext_file_id") is not None:
+                    # 用 ext_file_id 回填到返回值
+                    d["file_id"] = d["ext_file_id"]
+                    # 收集需要写回 sora_media 的条目
+                    if d.get("member_content_id") is not None:
+                        to_upsert.append((
+                            int(d["member_content_id"]),
+                            bot_name,
+                            str(d["ext_file_id"]),
+                        ))
+                dict_rows.append(d)
+
+            if to_upsert:
+                upsert_sql = """
+                    INSERT INTO sora_media (content_id, source_bot_name, file_id)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT (content_id, source_bot_name)
+                    DO UPDATE SET file_id = EXCLUDED.file_id
+                """
+                async with conn.transaction():
+                    await conn.executemany(upsert_sql, to_upsert)
+
+            return dict_rows
+
+        except Exception as e:
+            print(f"⚠️ [PG] get_album_list 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn)
+
+    @classmethod
+    async def upsert_album_items_bulk(cls, rows: List[Dict[str, Any]]) -> int:
+        """
+        批量 UPSERT 到 PostgreSQL 的 public.album_items
+        冲突键： (content_id, member_content_id)
+        更新字段：file_unique_id, file_type, position, updated_at, stage
+        created_at 采用既有值（保持历史），若原表为空则用默认值
+        返回：受影响（插入/更新）行数（近似）
+        """
+        if not rows:
+            return 0
+
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            payload: List[Tuple[int, int, Optional[str], str, int, str]] = []
+            for r in rows:
+                payload.append((
+                    int(r["content_id"]),
+                    int(r["member_content_id"]),
+                    (r.get("file_unique_id") or None),
+                    str(r.get("file_type") or ""),  # 允许空字符串
+                    int(r.get("position") or 0),
+                    str(r.get("stage") or "pending"),
+                ))
+
+            sql = """
+                INSERT INTO album_items
+                    (content_id, member_content_id, file_unique_id, file_type, "position", stage, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                ON CONFLICT (content_id, member_content_id)
+                DO UPDATE SET
+                    file_unique_id = EXCLUDED.file_unique_id,
+                    file_type      = EXCLUDED.file_type,
+                    "position"     = EXCLUDED."position",
+                    stage          = EXCLUDED.stage,
+                    updated_at     = CURRENT_TIMESTAMP
+            """
+
+            async with conn.transaction():
+                await conn.executemany(sql, payload)
+            return len(payload)
+
+        finally:
+            await cls.release(conn)
+
+    @classmethod
+    async def delete_album_items_except(cls, content_id: int, keep_member_ids: List[int]) -> int:
+        """
+        删除 PG 中该 content_id 下、但不在 keep_member_ids 的 album_items
+        keep_member_ids 为空时，删除该 content_id 下所有记录
+        返回：删除行数
+        """
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            if keep_member_ids:
+                sql = """
+                    DELETE FROM album_items
+                    WHERE content_id = $1
+                      AND member_content_id <> ALL($2::bigint[])
+                """
+                tag = await conn.execute(sql, content_id, keep_member_ids)
+            else:
+                sql = "DELETE FROM album_items WHERE content_id = $1"
+                tag = await conn.execute(sql, content_id)
+
+            try:
+                return int(tag.split()[-1])  # e.g. 'DELETE 3' → 3
+            except Exception:
+                return 0
         finally:
             await cls.release(conn)

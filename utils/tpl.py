@@ -125,7 +125,10 @@ class Tplate:
 
 
         if video_count:
-            summary_text += f"　　🎬 x{video_count} 　 {UnitConverter.byte_to_human_readable(video_total_size)} | {UnitConverter.seconds_to_hms(video_total_duration)} \r\n"
+            summary_text += f"　　🎬 x{video_count} 　 {UnitConverter.byte_to_human_readable(video_total_size)} "
+            if video_total_duration > 0:
+                summary_text += f"　　| {UnitConverter.seconds_to_hms(video_total_duration)} "
+            summary_text += "\r\n"
             album_cont_list_text += f"🎬 x{video_count} 　"
         if document_count:
             summary_text += f"　　📄 x{document_count} 　 {UnitConverter.byte_to_human_readable(document_total_size)} \r\n"

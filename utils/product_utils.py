@@ -69,7 +69,8 @@ async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
     try:
         tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
 
-        review_status = await submit_resource_to_chat_action(content_id,bot,tpl_data)
+        review_status_json = await submit_resource_to_chat_action(content_id,bot,tpl_data)
+        review_status = review_status_json.get("review_status")
         print(f"review_status={review_status}", flush=True)
         if review_status is not None:
             await MySQLPool.set_product_review_status(content_id, review_status)
@@ -153,7 +154,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
     try:
         print(f"准备发送到推播频道", flush=True)
-        fee = tpl_data.get("fee", 68)
+        fee = tpl_data.get("fee", lz_var.default_point)
 
 
         tpl_data["text"] = content
@@ -184,11 +185,13 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             
             
             print(f"✅ 准备发送到(撸馆)资源频道成功", flush=True)
-            return review_status
+            
         
     except Exception as e:
         print(f"❌ 准备发送到(撸馆)资源频道失败2: {e}", flush=True)
     
+    return {'review_status': review_status , 'result_send': retGuild}
+
 async def get_product_material(content_id: int):
     from lz_db import db  # 延迟导入避免循环依赖
         # ✅ 统一在这里连一次

@@ -8,6 +8,7 @@ sungfeng: int = 7753111936  # 顺丰快递,基本废用了
 x_man_bot_id: int = 7539299814
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
 UPLOADER_BOT_NAME: str = "luzai02bot"
+helper_bot_name = 'lyjwcbot'
 default_thumb_unique_file_ids: list[str] = [
     "AQADMK0xG4g4QEV-",
     "AQADMq0xG4g4QEV-",
@@ -17,4 +18,6 @@ skins: dict = {}  # 皮肤配置
 bot = None  # 预留 bot 全局变量
 user_client = None  # Telethon 用户客户端
 redis_manager = None  # Redis client
-xlj_fee = 29
+xlj_fee = 34 #TODO 可移除
+xlj_discount_rate = 0.4 # 小懒觉会员补贴率
+default_point = 34  # 默认积分

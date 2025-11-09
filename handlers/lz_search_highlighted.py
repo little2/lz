@@ -3,6 +3,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.enums import ChatType
+from utils.string_utils import LZString
 from lz_db import db
 import lz_var
 from keyboards.lz_paginator import build_pagination_keyboard
@@ -41,7 +42,7 @@ async def render_results_plain(results: list[dict], keyword: str, page: int, tot
 
     for r in results:
         # print(r)
-        content = shorten_content(r["content"])
+        content = LZString.shorten_text(r["content"])
         # 根据 r['file_type'] 进行不同的处理
         if r['file_type'] == 'v':
             icon = "🎬"
@@ -73,11 +74,6 @@ async def render_results_plain(results: list[dict], keyword: str, page: int, tot
 
     return "\n".join(lines)  # ✅ 强制变成纯文字
 
-def shorten_content(text: str, max_length: int = 30) -> str:
-    if not text:
-        return ""
-    text = text.replace('\n', '').replace('\r', '')
-    return text[:max_length] + "..." if len(text) > max_length else text
 
 
 @router.message(Command("sss"))

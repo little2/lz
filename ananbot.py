@@ -28,6 +28,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 import aiohttp
 
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
+from utils.string_utils import LZString
 from utils.media_utils import Media
 from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
 import lz_var
@@ -37,7 +38,7 @@ from utils.prof import SegTimer
 from utils.aes_crypto import AESCrypto
 
 from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora
-
+import textwrap
 import traceback
 
 bot = Bot(token=BOT_TOKEN)
@@ -288,7 +289,7 @@ async def make_product(callback_query: CallbackQuery, state: FSMContext):
         else:
             content = "请修改描述"
 
-        await AnanBOTPool.create_product(content_id, "默认商品", content, 68, file_type, user_id)
+        await AnanBOTPool.create_product(content_id, "默认商品", content, lz_var.default_point, file_type, user_id)
     
     thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(content_id)
     await callback_query.message.delete()
@@ -440,10 +441,9 @@ async def get_product_info(content_id: int):
     # 统一从工具函数取
     cached = get_cached_product(content_id)
     if cached is not None:
-        print(f"\r\n466-from cache", flush=True)
+  
         return cached
-    else:
-        print(f"\r\n469-not from cache", flush=True)
+
 
     # 查询是否已有同 source_id 的 product
     # 查找缩图 file_id
@@ -474,7 +474,7 @@ async def get_product_info(content_id: int):
 
 
     if product_info.get('fee') is None:
-        product_info['fee'] = 68
+        product_info['fee'] = lz_var.default_point
 
     if not product_info.get('product_id'):
         await AnanBOTPool.create_product(content_id, "默认商品", content, product_info['fee'], file_type, owner_user_id)
@@ -496,7 +496,7 @@ async def get_product_info(content_id: int):
     preview_text = f"数据库ID:<code>{content_id}</code> <code>{file_unique_id}</code>"
     
     if(product_info['content']  and product_info['content'].strip() != ''):
-        preview_text += f"\n\n{shorten_content(product_info['content'],300)}"
+        preview_text += f"\n\n{LZString.shorten_text(product_info['content'],300)}"
 
     if(product_info['tag']  and product_info['tag'].strip() != ''):
         preview_text += f"\n\n<i>{product_info['tag']}</i>"
@@ -507,7 +507,7 @@ async def get_product_info(content_id: int):
 
     # if review_status == 3 or review_status==4 or review_status==5:
     #     await AnanBOTPool.check_guild_manager(content_id)
-    print("532>>>>")
+
 
     if review_status == 4:
 
@@ -661,11 +661,6 @@ async def get_product_info(content_id: int):
     }
 
 
-def shorten_content(text: str, max_length: int = 30) -> str:
-    if not text:
-        return ""
-    text = text.replace('\n', '').replace('\r', '')
-    return text[:max_length] + "..." if len(text) > max_length else text
 
 
 ############
@@ -1247,11 +1242,11 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
     product_info = await AnanBOTPool.get_existing_product(content_id)       
     cur_price = product_info.get('price')
     try:
-        cur_price = int(cur_price) if cur_price is not None else 68
+        cur_price = int(cur_price) if cur_price is not None else lz_var.default_point
     except Exception:
-        cur_price = 68
+        cur_price = lz_var.default_point
 
-    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格(34-119)"
+    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格( {lz_var.default_point}-119)"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消", callback_data=f"cancel_set_price:{content_id}")]
     ])
@@ -1298,13 +1293,13 @@ async def receive_price_input(message: Message, state: FSMContext):
     message_id = data.get("message_id")
     
     price_str = message.text.strip()
-    if not price_str.isdigit() or not (34 <= int(price_str) <= 119):
+    if not price_str.isdigit() or not (lz_var.default_point <= int(price_str) <= 119):
         # await message.answer("❌ 请输入 34~102 的整数作为价格")
         # 回到菜单
         
         callback_id = data.get("callback_id")
         if callback_id:
-            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 34~102 的整数作为价格", show_alert=True)
+            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 {lz_var.default_point}~102 的整数作为价格", show_alert=True)
         else:
             await state.clear()
             thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -1931,9 +1926,9 @@ def parse_tme_c_url(url: str) -> Optional[Tuple[int, Optional[int], int]]:
 async def handle_approve_product(callback_query: CallbackQuery, state: FSMContext):
     judge_string = ''
     try:
-        print(f"callback_query={callback_query.data=}", flush=True)
+        # print(f"callback_query={callback_query.data=}", flush=True)
         content_id = int(callback_query.data.split(":")[1])
-        print(f"content_id={content_id=}", flush=True)
+        # print(f"content_id={content_id=}", flush=True)
         if callback_query.data.split(":")[2] in ("'Y'", "'N'"):
             judge_string = callback_query.data.split(":")[2]
             review_status = 6 
@@ -2021,13 +2016,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         elif judge_string == "'Y'":
             button_str = f"✅ {reviewer} 认可举报"
         else:
-            button_str = f"✅ {reviewer} 已审核{judge_string}"
-   
-
-       
-        
-
-      
+            button_str = f"✅ {reviewer} 已审核{judge_string}"      
 
     elif review_status == 3:
         await callback_query.answer("✅ 已通过审核，审核人 +3 活跃值", show_alert=True)
@@ -2037,6 +2026,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     elif review_status == 1:
         button_str = f"❌ {reviewer} 已拒绝审核"
         await callback_query.answer("❌ 已拒绝审核，审核人 +3 活跃值", show_alert=True)
+        spawn_once(f"_reject_content:{content_id}", lambda:_reject_content(product_row))
         
 
     extra_info = f"<code>{product_info.get('id','')}</code> #<code>{product_info.get('source_id','')}</code>"
@@ -2047,10 +2037,12 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             if re.search(r"(#不是正太片|#不是正太片爆菊)", caption):
                 await callback_query.answer("这不是正太片，审核结束后，将不再上架\r\n\r\n🎈如果有你觉得审核后不该再上架的资源，请在讨论区说明", show_alert=True)
             else:
-                spawn_once(f"_sync_pg:{content_id}", lambda:_sync_pg(content_id))
-                spawn_once(f"_send_to_topic:{content_id}", lambda:_send_to_topic(content_id))
-                # ⬇️ 改为后台执行，不阻塞当前回调
                 spawn_once(f"refine:{content_id}", lambda:AnanBOTPool.refine_product_content(content_id))
+                spawn_once(f"_sync_pg:{content_id}", lambda:_sync_pg(content_id))
+                spawn_once(f"_approve_content:{content_id}", lambda:_approve_content(product_row))
+                
+                # ⬇️ 改为后台执行，不阻塞当前回调
+               
                 # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
 
         # await _send_to_topic(content_id)
@@ -2123,6 +2115,114 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
     except Exception as e:
         logging.exception(f"‼️更新原审核消息按钮失败: {e}")
 
+
+async def _reject_content(product_row):
+    product_info = product_row.get("product_info") or {}
+    content_id = product_row.get("id")
+    owner_user_id = product_info.get("owner_user_id")
+    shorten_content = LZString.shorten_text(product_info.get('content',''))
+    print(f"product_row={product_info}", flush=True)
+
+    text = textwrap.dedent(f'''\
+        ❌ 很抱歉，您的投稿内容「<code>{shorten_content}</code>」未通过审核，未能上架发布。
+            
+        请您检查并修改内容后，可以重新投稿。
+        如果您对审核结果有任何疑问，欢迎在透过下方的「教务处小助手」提出。
+        感谢您的理解与支持！
+        ''')   
+
+    option_buttons = []
+    option_buttons.append([
+        InlineKeyboardButton(
+            text=f"📩 教务处小助手",
+            url=f"https://t.me/{lz_var.helper_bot_name}?start=nothing"
+        )
+    ])
+
+    try:
+        # 通知上传者
+        await bot.send_message(
+            chat_id=owner_user_id, 
+            text=text, 
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+            )
+    except Exception as e:
+        print(f"❌ 目标 chat 不存在或无法访问: {e}")
+
+
+   
+
+
+async def _approve_content(product_row):
+    global publish_bot
+
+    me = await publish_bot.get_me()
+    publish_bot_username = me.username
+    
+    product_info = product_row.get("product_info") or {}
+    content_id = product_info.get("id")
+    owner_user_id = product_info.get("owner_user_id")
+    result_send = await _send_to_topic(content_id)
+    resource_board_url = ''
+
+    print(f"🔍 发送到发布频道结果: {result_send}", flush=True)
+    if result_send:
+        guild_chat_id = result_send.chat.id
+        guild_thread_id = str(getattr(result_send, "message_thread_id", None))   
+        guild_message_id = str(result_send.message_id)
+
+
+        if guild_thread_id:
+            resource_board_url = f"https://t.me/c/{str(guild_chat_id)[4:]}/{guild_thread_id}/{guild_message_id}"
+        else:
+            resource_board_url = f"https://t.me/c/{str(guild_chat_id)[4:]}/{guild_message_id}"
+
+    aes = AESCrypto(AES_KEY)
+    encoded = aes.aes_encode(content_id)
+
+
+    resource_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}" 
+
+    shorten_content = LZString.shorten_text(product_info.get('content',''))
+
+
+    text = textwrap.dedent(f'''\
+        ✅ 您的投稿内容「<code>{shorten_content}</code>」通过审核，已经上架发布。
+            
+        🔗 <a href="{resource_board_url}">资源上架版块</a>。
+
+        🔗 <a href="{resource_url}">资源连结</a>。
+
+        如果连结失效，需要请您先加入<code>贤师楼</code>。
+        如果您对审核结果有任何疑问，欢迎在透过下方的「教务处小助手」提出。
+        感谢您的理解与支持！
+        ''') 
+
+
+    option_buttons = []
+    option_buttons.append([
+        InlineKeyboardButton(
+            text=f"📩 教务处小助手",
+            url=f"https://t.me/{lz_var.helper_bot_name}?start=nothing"
+        )
+    ])
+
+    try:
+        # 通知上传者
+        await bot.send_message(
+            chat_id=owner_user_id, 
+            text=text, 
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+            )
+    except Exception as e:
+        print(f"❌ 目标 chat 不存在或无法访问: {e}")
+
+
+    
+
+
 async def _send_to_topic(content_id:int):
     global publish_bot
     guild_id = await AnanBOTPool.set_product_guild(content_id) 
@@ -2134,9 +2234,12 @@ async def _send_to_topic(content_id:int):
         try:
             tpl_data = await AnanBOTPool.search_sora_content_by_id(int(content_id),publish_bot_username)
 
-            review_status = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
+            review_status_json = await submit_resource_to_chat_action(content_id,publish_bot,tpl_data)
+            review_status = review_status_json.get("review_status")
             if review_status is not None:
                 await AnanBOTPool.set_product_review_status(content_id, review_status)
+            if review_status_json.get("result_send"):
+                return review_status_json.get("result_send")
         except Exception as e:
             logging.exception(f"发送到发布频道失败: {e}")
         
@@ -2971,7 +3074,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
     # TODO
 
-    # spawn_once(f"refine:{content_id}", lambda:AnanBOTPool.sync_bid_product())
+    # spawn_once(f"sync_bid_product:{content_id}", lambda:AnanBOTPool.sync_bid_product())
     
 
     if file_id :
@@ -3388,6 +3491,7 @@ async def handle_cancel_report(callback_query: CallbackQuery, state: FSMContext)
 
     await callback_query.answer("已取消")
 
+#处理举报
 @dp.callback_query(F.data.startswith("judge_suggest:"))
 async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext):
     """
@@ -3524,17 +3628,27 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
 
         elif decision == "N":  # 不认可举报
             reply_msg += (
-                "举报内容不成立。\n若密文失效，请在获取密文的消息点击 '❌ 失效' 即会更换新的密文。\n"
-                "若仍无法更换，请等待资源持有者重新上传，再重新兑换一次即可获得新密文或连结（免积分）。"
+                f"举报内容不成立。\n若密文失效，请在获取密文的消息点击 '❌ 失效' 即会更换新的密文。\n"
+                f"若仍无法更换，请等待资源持有者重新上传，再重新兑换一次即可获得新密文或连结（免积分）。\n"
+                f"自动审核机制可能会有误判的情形，如果您对审核的结果有建议，可以再透过以下「教务处小助手」和专人沟通。\n"
             )
 
-            
+            #helper_bot_name
+            option_buttons = []
+            option_buttons.append([
+                InlineKeyboardButton(
+                    text=f"📩 教务处小助手",
+                    url=f"https://t.me/{lz_var.helper_bot_name}?start=nothing"
+                )
+            ])
+
             try:
                 # 通知举报人
                 await bot.send_message(
                     chat_id=sender_id,
                     text=reply_msg,
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
                 )
             except Exception as e:
                 print(f"❌ 目标 chat 不存在或无法访问: {e}")

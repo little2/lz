@@ -1373,7 +1373,15 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         resource_icon = "🔄"
 
+
+
+    discount_amount = int(fee * lz_var.xlj_discount_rate)
+    xlj_final_price = fee - discount_amount
+    
+
+
     if ENVIRONMENT == "dev":
+        
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text=f"⬅️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
@@ -1381,7 +1389,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text=f"➡️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],
             [
-                InlineKeyboardButton(text=f"{resource_icon} {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
         ])
 
@@ -1453,7 +1461,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}")
             ],
             [
-                InlineKeyboardButton(text=f"{resource_icon} {lz_var.xlj_fee} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+                InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],
             [
                 InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
@@ -2656,6 +2664,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     expire_ts = await db.get_latest_membership_expire(from_user_id)
     now_utc = int(datetime.now(timezone.utc).timestamp())
 
+    # 统一在会员判断之后再计算费用
+    sender_fee = int(fee) * (-1)
+    receiver_fee = int(int(fee) * (0.6))
+    receiver_id = owner_user_id or 0
+
     if not expire_ts:
         # 未开通/找不到记录 → 用原价，提示并给两个按钮，直接返回
         human_ts = _fmt_ts(None)
@@ -2697,10 +2710,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     elif int(expire_ts) >= now_utc:
-        fee = lz_var.xlj_fee
+        discount_amount = int(fee * lz_var.xlj_discount_rate)
+        xlj_final_price = fee - discount_amount
+        sender_fee = xlj_final_price
         
         try:
-            reply_text = f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"
+            reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"
             # await callback.answer(
             #     f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n"
             #     f"目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}",
@@ -2711,10 +2726,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
     
 
-    # 统一在会员判断之后再计算费用
-    sender_fee = int(fee) * (-1)
-    receiver_fee = int(int(fee) * (0.4))
-    receiver_id = owner_user_id or 0
+
 
 
     result = await MySQLPool.transaction_log({
@@ -2764,13 +2776,16 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             content_preview = ret_content[:available_content_length]
             if len(ret_content) > available_content_length:
                 content_preview += "..."
-            notice_text = f"🔔 你分享的资源 {content_id} {content_preview} 被用户 {from_user_id} 兑换，获得 {receiver_fee} 积分奖励！"
+
+            aes = AESCrypto(AES_KEY)
+            encoded = aes.aes_encode(content_id)
+
+            notice_text = f"🔔 {receiver_id} 分享的资源<a href='https://t.me/{lz_var.bot_username}/start?f_-1_{encoded}'>「{content_preview}」</a> 已被用户 {from_user_id} 兑换，获得 {receiver_fee} 积分分成！"
             receiver_id = 7038631858
             await lz_var.bot.send_message(
                 parse_mode="HTML",
                 chat_id=receiver_id,
                 text=notice_text,
-                # reply_to_message_id=callback.message.message_id
             )
 
        
@@ -3140,9 +3155,9 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     # print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
          # 取出字段，并做基本安全处理
-        fee = record.get('fee', 68)
+        fee = record.get('fee', lz_var.default_point)
         if fee is None or fee < 0:
-            fee = 68
+            fee = lz_var.default_point
             
         owner_user_id = record.get('owner_user_id', 0)
 

@@ -10,7 +10,7 @@ import asyncio
 import pymysql
 from typing import Optional
 from lz_memory_cache import MemoryCache
-
+import lz_var
 
 class AnanBOTPool(LYBase):
     _pool = None
@@ -1614,7 +1614,7 @@ class AnanBOTPool(LYBase):
         - 取 10 笔 b.content_id IS NULL 且能在 sora_content 命中的记录
         - 以一条 INSERT ... ON DUPLICATE KEY UPDATE 融合插入/更新 product
         - product.content = [sora_content.id]（以字符串写入，与你现有风格一致）
-        - product.price = 68
+        - product.price = lz_var.default_point
         - product.file_type = [bid.type]
         - product.stage = 'pending'
         - 回写 bid.content_id = [sora_content.id]
@@ -1659,7 +1659,7 @@ class AnanBOTPool(LYBase):
                         file_type = VALUES(file_type),
                         stage     = 'pending'
                     """,
-                    (  68, content_id, file_type, )
+                    (  lz_var.default_point, content_id, file_type, )
                 )
                 upserted += 1
 

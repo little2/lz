@@ -1,6 +1,7 @@
 import re
 import json
 from typing import List
+import os
 
 class LZString:
     # --- 小工具：安全转字符串 ---
@@ -17,9 +18,127 @@ class LZString:
                 return ""
         return x
 
+
+import json
+import re
+from typing import Iterable
+
+class LZString:
+    _ZERO_WIDTH = re.compile(r'[\u200B-\u200F\uFEFF]')
+    _URL = re.compile(r'https?://[^\s)>\]]+')
+    _TME = re.compile(r'https?://t\.me/[^\s)>\]]+', re.IGNORECASE)
+    _FLAT_JSON = re.compile(r'\{[^{}]{1,2000}\}')  # 防止极长文本卡顿
+    _BLANK_LINE = re.compile(r'^[ \t]*$', re.MULTILINE)
+
+    _AD_CUT_MARKS: tuple[str, ...] = (
+        "- Advertisement - No Guarantee",
+        "- 广告 - 无担保",
+    )
+
+    _NOISE_PHRASES: tuple[str, ...] = (
+        "求打赏", "求赏", "可通过以下方式获取或分享文件",
+        "✅共找到 1 个媒体",
+        "私聊模式：将含有File ID的文本直接发送给机器人 @datapanbot 即可进行文件解析",
+        "①私聊模式：将含有File ID的文本直接发送给机器人  即可进行文件解析",
+        "单机复制：", "文件解码器:", "您的文件码已生成，点击复制：",
+        "批量发送的媒体代码如下:", "此条媒体分享link:",
+        "女侅搜索：@ seefilebot", "解码：@ MediaBK2bot",
+        "如果您只是想备份，发送 /settings 可以设置关闭此条回复消息",
+        "媒体包已创建！", "此媒体代码为:", "文件名称:", "分享链接:", "|_SendToBeach_|",
+        "Forbidden: bot was kicked from the supergroup chat",
+        "Bad Request: chat_id is empty",
+    )
+
+    _TEMPLATE_PATTERNS: tuple[re.Pattern, ...] = tuple(
+        re.compile(p, re.IGNORECASE) for p in (
+            r'LINK\s*\n[^\n]+#C\d+\s*\nOriginal:[^\n]*\n?',
+            r'LINK\s*\n[^\n]+#C\d+\s*\nForwarded from:[^\n]*\n?',
+            r'LINK\s*\n[^\n]*#C\d+\s*',
+            r'Original caption:[^\n]*\n?',
+        )
+    )
+
+    @staticmethod
+    def _to_text(s) -> str:
+        return "" if s is None else str(s)
+
+    @staticmethod
+    def _cut_at_any(hay: str, marks: Iterable[str]) -> str:
+        cut = len(hay)
+        for m in marks:
+            p = hay.find(m)
+            if p != -1:
+                cut = min(cut, p)
+        return hay[:cut]
+
     @staticmethod
     def clean_text(original_string: str) -> str:
         s = LZString._to_text(original_string)
+
+        # 0) 归一化换行 & 去零宽字符
+        s = s.replace('\r\n', '\n').replace('\r', '\n')
+        s = LZString._ZERO_WIDTH.sub('', s)
+
+        # 1) 截断广告块
+        s = LZString._cut_at_any(s, LZString._AD_CUT_MARKS)
+
+        # 2) 批量移除噪声短语
+        for t in LZString._NOISE_PHRASES:
+            if t in s:
+                s = s.replace(t, "")
+
+        # 3) 去掉分享到期提示
+        s = re.sub(r"分享至\d{4}-\d{2}-\d{2} \d{2}:\d{2} 到期后您仍可重新分享", "", s)
+
+        # 4) 尝试多段扁平 JSON 抽取 content/text
+        def _json_repl(m):
+            block = m.group(0)
+            try:
+                data = json.loads(block)
+            except json.JSONDecodeError:
+                return ""
+            text_parts = []
+            if isinstance(data, dict):
+                c = data.get('content')
+                t = data.get('text')
+                if isinstance(c, str) and c.strip():
+                    text_parts.append(c)
+                if isinstance(t, str) and t.strip():
+                    # 避免 content 和 text 重复
+                    if not text_parts or t.strip() != text_parts[-1].strip():
+                        text_parts.append(t)
+            return ("\n" + "\n".join(text_parts)) if text_parts else ""
+        s = LZString._FLAT_JSON.sub(_json_repl, s)
+
+        # 5) 链接与模板移除
+        s = LZString._TME.sub('', s)      # 先清 t.me
+        s = LZString._URL.sub('', s)      # 其他链接
+        for pat in LZString._TEMPLATE_PATTERNS:
+            s = pat.sub('', s)
+
+        # 6) 清空白行、去重、保序
+        s = LZString._BLANK_LINE.sub('', s)
+        lines = [ln.strip() for ln in s.split('\n') if ln.strip()]
+        uniq = list(dict.fromkeys(lines))
+        result = "\n".join(uniq)
+
+        # 7) 特定符号前插入换行（避免 \r）
+        for symbol in ('🔑', '💎'):
+            result = result.replace(symbol, '\n' + symbol)
+
+        # 8) 压尾部多余空白并截断
+        result = result.strip()
+        return result[:1500] if len(result) > 1500 else result
+
+
+    @staticmethod
+    def clean_text2(original_string: str) -> str:
+        s = LZString._to_text(original_string)
+
+        # 0) 统一换行 & 去掉零宽字符
+        s = s.replace('\r\n', '\n').replace('\r', '\n')
+        s = re.sub(r'[\u200B-\u200F\uFEFF]', '', s)
+
 
         # 1) 截断广告块
         for target in ["- Advertisement - No Guarantee", "- 广告 - 无担保"]:
@@ -30,7 +149,7 @@ class LZString:
         # 2) 批量替换噪声短语
         replace_texts = [
             "求打赏", "求赏", "可通过以下方式获取或分享文件",
-            "✅共找到 1 个媒体"
+            "✅共找到 1 个媒体",
             "私聊模式：将含有File ID的文本直接发送给机器人 @datapanbot 即可进行文件解析",
             "①私聊模式：将含有File ID的文本直接发送给机器人  即可进行文件解析",
             "单机复制：", "文件解码器:", "您的文件码已生成，点击复制：",
@@ -82,6 +201,59 @@ class LZString:
             result = result.replace(symbol, '\r\n' + symbol)
 
         return result[:1500] if len(result) > 1500 else result
+
+
+
+    @staticmethod
+    def extract_meaningful_name(filename: str) -> str | None:
+        """
+        从文件名中提取有意义的部分。
+        若无意义则返回 None。
+        """
+        # 去除副档名
+        name, _ = os.path.splitext(filename)
+
+        # 去除中括号、圆括号、下划线、横线等符号
+        s = re.sub(r"[\[\]【】（）(){}<>_+\-.,，。:;!@#%^&*~]", " ", name)
+
+        # 去除多余空格
+        s = re.sub(r"\s+", " ", s).strip()
+
+        # 若是纯数字或纯符号，则视为无意义
+        if re.fullmatch(r"[\d\s]+", s):
+            return None
+
+        # 若包含大量无意义的随机字母（如 aJkRzTq）
+        if re.fullmatch(r"[A-Za-z]{6,}", s):
+            return None
+
+        # 若中文或英文比例过低，也视为无意义
+        zh_count = len(re.findall(r"[\u4e00-\u9fff]", s))
+        en_count = len(re.findall(r"[A-Za-z]", s))
+        num_count = len(re.findall(r"\d", s))
+
+        total = zh_count + en_count + num_count
+        if total == 0:
+            return None
+
+        # 若主要是数字或符号
+        if num_count / (total + 1e-5) > 0.6:
+            return None
+
+        # 若只有少量有效字符（太短）
+        if len(s) < 3:
+            return None
+
+        # 若匹配“1080p”、“4k”等纯视频信息，也视为无意义
+        if re.search(r"(1080p|720p|4k|8k|h264|x264|hevc|mp4|mkv|mov|avi|webm)", s, re.I):
+            return None
+
+        # 若包含看似有意义的中英文单词（例如“旅行 日记”、“school project”）
+        if zh_count > 0 or re.search(r"[A-Za-z]{3,}", s):
+            return s
+
+        return None
+
 
     @staticmethod
     def dedupe_cn_sentences(text: str, min_chars: int = 6, return_removed: bool = False, strict: bool = False):

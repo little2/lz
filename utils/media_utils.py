@@ -229,7 +229,7 @@ class Media:
 
                 await asyncio.sleep(0.7)
             print(f"资源同步中，请稍后再试，请看看别的资源吧", flush=True)        
-            return {'ok':False,'message':'资源同步中，请稍后再试，请看看别的资源吧'}
+            return {'ok':False,'message':'资源同步中，请稍后再试，可以先看看别的资源吧'}
         # print(f"1896=>{productInfomation}")
         rows = productInfomation.get("rows", [])
         # print(f"rows={rows}", flush=True)

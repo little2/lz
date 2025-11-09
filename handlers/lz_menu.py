@@ -2703,7 +2703,21 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
             )],
         ])
-        await callback.message.reply(text, reply_markup=kb)
+        msg = await callback.message.reply(text, reply_markup=kb)
+        
+        # 在当前函数中定义一个局部异步任务（不污染全局）
+        async def _del_after_delay():
+            await asyncio.sleep(7)
+            try:
+                await msg.delete()
+            except Exception as e:
+                print(f"⚠️ 删除消息失败: {e}", flush=True)
+
+        # 启动异步任务，不阻塞主逻辑
+        asyncio.create_task(_del_after_delay())
+
+
+
         if( redeem_type == 'xlj'):
             await callback.answer()
             return
@@ -2726,7 +2740,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
     
 
-
+    await MySQLPool.ensure_pool()
 
 
     result = await MySQLPool.transaction_log({
@@ -2780,19 +2794,22 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             aes = AESCrypto(AES_KEY)
             encoded = aes.aes_encode(content_id)
 
-            #  $group_text = "<a href='tg://user?id=" . $user_info['id'] . "'>" . $user_title . "</a>";
-            receiver_fullname = MySQLPool.get_user_name(receiver_id)
-            sender_fullname = MySQLPool.get_user_name(from_user_id)
-            share_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
-            owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname}</a>"
-            sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname}</a>"
-            notice_text = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
-            receiver_id = 7038631858
-            await lz_var.bot.send_message(
-                parse_mode="HTML",
-                chat_id=receiver_id,
-                text=notice_text,
-            )
+            try:
+                #  $group_text = "<a href='tg://user?id=" . $user_info['id'] . "'>" . $user_title . "</a>";
+                receiver_fullname = await MySQLPool.get_user_name(receiver_id)
+                sender_fullname = await MySQLPool.get_user_name(from_user_id)
+                share_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+                owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname}</a>"
+                sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname}</a>"
+                notice_text = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
+                receiver_id = 7038631858
+                await lz_var.bot.send_message(
+                    parse_mode="HTML",
+                    chat_id=receiver_id,
+                    text=notice_text,
+                )
+            except Exception as e:
+                print(f"❌ 发送兑换通知失败: {e}", flush=True)
 
        
         elif result.get('status') == 'reward_self':
@@ -2824,41 +2841,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                      return   
                 # else:
                 #     print(f"1892=>{productInfomation}")
-                await Media.send_media_group(callback, productInfomation, 1, content_id, source_id)
-
-                # if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
-                #     await callback.answer("资源同步中，请稍后再试，请看看别的资源吧", show_alert=True) 
-                #     lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
-                #     for fuid in lack_file_uid_rows:
-                    
-                #         await lz_var.bot.send_message(
-                #             chat_id=lz_var.x_man_bot_id,
-                #             text=f"{fuid}"
-                #         )
-                #         await asyncio.sleep(0.7)
-                        
-                        
-                #     return
-                # # print(f"1896=>{productInfomation}")
-                # rows = productInfomation.get("rows", [])
-                # if rows:
-
-
-                #     material_status = productInfomation.get("material_status")
-                #     if material_status:
-                #         return_media = await _build_mediagroup_box(1, source_id,content_id, material_status)
-                #         feedback_kb = return_media.get("feedback_kb")
-                #         text = return_media.get("text")
-                        
-                #         await lz_var.bot.send_message(
-                #             parse_mode="HTML",
-                #             reply_markup=feedback_kb,
-                #             chat_id=from_user_id,
-                #             text=text,
-                #             # reply_to_message_id=callback.message.message_id
-                #         )
-
-
+                result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id)
+                #return {'ok':False,'message':'资源同步中，请稍后再试，请看看别的资源吧'}
+                if not result.get('ok'):
+                    await callback.answer(result.get('message'), show_alert=True)
+                    return
 
                     
             elif file_type == "photo" or file_type == "p":
@@ -2899,29 +2886,31 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             print(f"❌ 目标 chat 不存在或无法访问: {e}")
 
         await callback.answer(reply_text, show_alert=True)
-        new_message = await lz_var.bot.copy_message(
-            chat_id=callback.message.chat.id,
-            from_chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id,
-            reply_markup=callback.message.reply_markup
-        )
+        
+        # TODO : 删除兑换消息，改为复制一条新的消息
+        # new_message = await lz_var.bot.copy_message(
+        #     chat_id=callback.message.chat.id,
+        #     from_chat_id=callback.message.chat.id,
+        #     message_id=callback.message.message_id,
+        #     reply_markup=callback.message.reply_markup
+        # )
 
-        print(f"new_message:{new_message}", flush=True)
-        NewMessage = {
-            "chat": {"id":callback.message.chat.id},
-            "message_id": new_message.message_id
-        }
-        await MenuBase.set_menu_status(state, {
-            "menu_message": NewMessage,
-            "current_message": new_message,
-            "current_chat_id": callback.message.chat.id,
-            "current_messsage_id": new_message.message_id
-        })
+        # print(f"new_message:{new_message}", flush=True)
+        # NewMessage = {
+        #     "chat": {"id":callback.message.chat.id},
+        #     "message_id": new_message.message_id
+        # }
+        # await MenuBase.set_menu_status(state, {
+        #     "menu_message": NewMessage,
+        #     "current_message": new_message,
+        #     "current_chat_id": callback.message.chat.id,
+        #     "current_messsage_id": new_message.message_id
+        # })
 
-        await lz_var.bot.delete_message(
-            chat_id=callback.message.chat.id,
-            message_id=callback.message.message_id
-        )
+        # await lz_var.bot.delete_message(
+        #     chat_id=callback.message.chat.id,
+        #     message_id=callback.message.message_id
+        # )
 
         return
     elif result.get('status') == 'insufficient_funds':

@@ -2780,7 +2780,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             aes = AESCrypto(AES_KEY)
             encoded = aes.aes_encode(content_id)
 
-            notice_text = f"🔔 {receiver_id} 分享的资源<a href='https://t.me/{lz_var.bot_username}/start?f_-1_{encoded}'>「{content_preview}」</a> 已被用户 {from_user_id} 兑换，获得 {receiver_fee} 积分分成！"
+            #  $group_text = "<a href='tg://user?id=" . $user_info['id'] . "'>" . $user_title . "</a>";
+            receiver_fullname = MySQLPool.get_user_name(receiver_id)
+            sender_fullname = MySQLPool.get_user_name(from_user_id)
+            share_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+            owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname}</a>"
+            sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname}</a>"
+            notice_text = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
             receiver_id = 7038631858
             await lz_var.bot.send_message(
                 parse_mode="HTML",

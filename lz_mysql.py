@@ -994,3 +994,19 @@ class MySQLPool:
         finally:
             if conn and cur:
                 await cls.release(conn, cur)
+
+    @classmethod
+    async def get_user_name(cls,user_id: int):
+
+        cache_key = f"get_user_name:{user_id}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            return cached
+
+        try:
+            chat = await lz_var.bot.get_chat(user_id)
+            cached = chat.full_name or f"@{chat.username}" or "未知用户"
+            return cached
+        except Exception as e:
+            print(f"❌ 获取用户资料失败: {e}")
+            return "未知用户"

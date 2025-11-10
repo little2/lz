@@ -382,6 +382,7 @@ async def on_make_product_folder(callback_query: CallbackQuery, state: FSMContex
                     fid = None
 
                 fshort = item.get("file_type") or to_short(table)
+                # insert_sora_content_media(cls, file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username):
                 row = await AnanBOTPool.insert_sora_content_media(
                     fuid, fshort, int(item.get("file_size") or 0), int(item.get("duration") or 0),
                     str(callback_query.from_user.id), fid or "", bot_username

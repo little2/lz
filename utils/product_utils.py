@@ -65,7 +65,7 @@ class MenuBase:
 
 
 async def submit_resource_to_chat(content_id: int, bot: Optional[Bot] = None):
-    await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
+    await MySQLPool.ensure_pool()  # ✅ 初始化 MySQL 连接池
     try:
         tpl_data = await MySQLPool.search_sora_content_by_id(int(content_id))
 
@@ -88,6 +88,11 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
     me = await _bot.get_me()
     bot_username = me.username
+
+    retGuild = None
+    review_status = None
+    content = ""
+
 
     aes = AESCrypto(AES_KEY)
     content_id_str = aes.aes_encode(content_id)
@@ -138,7 +143,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         review_status = None
         
         # 发送到 guild 频道
-        if tpl_data.get("guild_chat_id"):
+        if content and tpl_data.get("guild_chat_id"):
             print(f"准备发送到贤师楼(讨论)频道 {tpl_data['guild_chat_id']}", flush=True)
             retGuild = await _bot.send_message(
                 chat_id=tpl_data["guild_chat_id"],
@@ -221,9 +226,31 @@ async def sync_album_items(content_id: int):
         PGPool.init_pool(),
     )
 
+    await MySQLPool.ensure_pool()  # ✅ 初始化 MySQL 连接池
+    await PGPool.ensure_pool()  # ✅ 初始化 PostgreSQL 连接池
+
     # 1) 拉 MySQL 源数据
     mysql_rows = await MySQLPool.list_album_items_by_content_id(int(content_id))
     print(f"[sync_album_items] MySQL rows = {len(mysql_rows)} for content_id={content_id}", flush=True)
+
+
+    # 2.1 先确保所有 member_content_id 已写入 PG.sora_content
+    member_ids = sorted({int(r["member_content_id"]) for r in mysql_rows})
+    if member_ids:
+        # 查询 PG 已有的
+        rows_pg = await PGPool.fetch(
+            "SELECT id FROM sora_content WHERE id = ANY($1::bigint[])",
+            member_ids
+        )
+        pg_have = {int(r["id"]) for r in rows_pg}
+        missing = [mid for mid in member_ids if mid not in pg_have]
+
+        # 逐一从 MySQL 拉行并 upsert 到 PG
+        for mid in missing:
+            row = await MySQLPool.search_sora_content_by_id(int(mid))
+            if row:
+                await PGPool.upsert_sora(row)
+
 
     # 2) 先做 PG 端 UPSERT
     upsert_count = await PGPool.upsert_album_items_bulk(mysql_rows)
@@ -255,6 +282,9 @@ async def sync_sora(content_id: int):
         MySQLPool.init_pool(),
         PGPool.init_pool(),
     )
+
+    await MySQLPool.ensure_pool()  # ✅ 初始化 MySQL 连接池
+    await PGPool.ensure_pool()  # ✅ 初始化 PostgreSQL 连接池
 
     # 1) 拉 MySQL 源数据
     mysql_row = await MySQLPool.search_sora_content_by_id(int(content_id))

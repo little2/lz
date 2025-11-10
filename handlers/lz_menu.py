@@ -2883,7 +2883,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 #     reply_markup=feedback_kb
                 # )
         except Exception as e:
-            print(f"❌ 目标 chat 不存在或无法访问: {e}")
+            print(f"❌ 目标 chat 不存在或无法访问(2886): {e}")
 
         await callback.answer(reply_text, show_alert=True)
         

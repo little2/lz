@@ -85,7 +85,7 @@ INPUT_TIMEOUT = 300
 
 COLLECTION_PROMPT_DELAY = 1
 TAG_REFRESH_DELAY = 0.7
-BG_TASK_TIMEOUT = 15
+BG_TASK_TIMEOUT = 120
 
 
 
@@ -2148,7 +2148,7 @@ async def _reject_content(product_row):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
             )
     except Exception as e:
-        print(f"❌ 目标 chat 不存在或无法访问: {e}")
+        print(f"❌ 目标 chat 不存在或无法访问(2151): {e}")
 
 
    
@@ -2166,11 +2166,13 @@ async def _approve_content(product_row):
     result_send = await _send_to_topic(content_id)
     resource_board_url = ''
 
-    print(f"🔍 发送到发布频道结果: {result_send}", flush=True)
+    
     if result_send:
         guild_chat_id = result_send.chat.id
         guild_thread_id = str(getattr(result_send, "message_thread_id", None))   
         guild_message_id = str(result_send.message_id)
+
+        print(f"🔍 发送到发布频道结果: C:{guild_chat_id} T:{guild_thread_id} M:{guild_message_id}", flush=True)
 
 
         if guild_thread_id:
@@ -2210,14 +2212,17 @@ async def _approve_content(product_row):
 
     try:
         # 通知上传者
-        await bot.send_message(
-            chat_id=owner_user_id, 
-            text=text, 
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
-            )
+        if owner_user_id and owner_user_id is not None:
+            await bot.send_message(
+                chat_id=owner_user_id, 
+                text=text, 
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+                )
+        else:
+            print(f"❌ 目标 chat 不存在或无法访问(2213): owner_user_id is None")
     except Exception as e:
-        print(f"❌ 目标 chat 不存在或无法访问: {e}")
+        print(f"❌ 目标 chat 不存在或无法访问(2220): chat_id = {owner_user_id} : {e}")
 
 
     
@@ -3095,7 +3100,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
                
                 await Media.send_media_group(callback_query, productInfomation, 1, content_id, source_id)
         except Exception as e:
-            print(f"❌ 目标 chat 不存在或无法访问: {e}")
+            print(f"❌ 目标 chat 不存在或无法访问(3098): {e}")
 
 
     try:
@@ -3219,7 +3224,7 @@ async def fix_suggest_content(message:Message, content_id: int, state) -> bool:
                 elif file_type == "document" or file_type == "d":
                     await lz_var.bot.send_document(chat_id=from_user_id, document=file_id)
             except Exception as e:
-                print(f"❌ 目标 chat 不存在或无法访问: {e}")
+                print(f"❌ 目标 chat 不存在或无法访问(3222): {e}")
 
         #再发设置按钮
         try:
@@ -3609,7 +3614,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
                         parse_mode="HTML"
                     )
                 except Exception as e:
-                    print(f"❌ 目标 chat 不存在或无法访问: {e}")
+                    print(f"❌ 目标 chat 不存在或无法访问(3612): {e}")
 
             # 4) 更新 bid 表（owner_user_id 交回给系统或指定 ID）
             await AnanBOTPool.update_bid_owner(file_unique_id, new_owner_id="6874579736")
@@ -3651,7 +3656,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
                 )
             except Exception as e:
-                print(f"❌ 目标 chat 不存在或无法访问: {e}")
+                print(f"❌ 目标 chat 不存在或无法访问(3654): {e}")
 
 
             # 更新 report 状态
@@ -4790,7 +4795,7 @@ async def main():
 
     await set_default_thumb_file_id()
     
-    # await _sync_pg(26864)
+    # await _sync_pg(409009)
 
     if BOT_MODE == "webhook":
         # dp.startup.register(on_startup)

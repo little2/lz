@@ -285,7 +285,7 @@ class MySQLPool:
                 elif row["file_type"] == "document":
                     retSend = await mybot.send_document(chat_id=chat_id, document=row["file_id"])
             except Exception as e:
-                print(f"❌ 目标 chat 不存在或无法访问: {e}")
+                print(f"❌ 目标 chat 不存在或无法访问(288): {e}")
             finally:
                 await mybot.session.close()
                 return retSend
@@ -997,6 +997,9 @@ class MySQLPool:
 
     @classmethod
     async def get_user_name(cls,user_id: int):
+
+        if user_id is None or user_id == 0:
+            return "未知用户"
 
         cache_key = f"get_user_name:{user_id}"
         cached = cls.cache.get(cache_key)

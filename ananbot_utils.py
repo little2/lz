@@ -1136,7 +1136,7 @@ class AnanBOTPool(LYBase):
         FT_MAP = {
             "d": "document", "document": "document",
             "v": "video",    "video": "video",
-            "p": "photo",    "photo": "photo",
+            "p": "photo",    "photo": "photo"
         }
 
         conn, cur = await cls.get_conn_cursor()

@@ -353,8 +353,15 @@ class PGPool:
                         duration             = EXCLUDED.duration,
                         tag                  = EXCLUDED.tag,
                         thumb_file_unique_id = EXCLUDED.thumb_file_unique_id,
-                        owner_user_id        = EXCLUDED.owner_user_id,
-                        stage                = EXCLUDED.stage,
+                        -- 仅当原纪录 owner_user_id 为 NULL 或 0 时才更新；否则保留原值
+                        owner_user_id = CASE
+                            WHEN sora_content.owner_user_id IS NULL OR sora_content.owner_user_id = 0
+                                THEN EXCLUDED.owner_user_id
+                            ELSE sora_content.owner_user_id
+                        END,
+
+                        -- 冲突更新时一律重置为 'pending'
+                        stage = 'pending',
                         plan_update_timestamp= EXCLUDED.plan_update_timestamp,
                         thumb_hash           = EXCLUDED.thumb_hash,
                         valid_state          = EXCLUDED.valid_state

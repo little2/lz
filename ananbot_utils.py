@@ -17,7 +17,7 @@ class AnanBOTPool(LYBase):
     _pool_lock = asyncio.Lock()  # 新增：并发安全
     _all_tags_grouped_cache = None
     _all_tags_grouped_cache_ts = 0
-    _cache_ttl = 30  # 缓存有效时间（秒）
+    _cache_ttl = 300  # 缓存有效时间（秒）
     _all_tags_types_cache = None
     _all_tags_types_cache_ts = 0
     _cache_ready = False
@@ -53,8 +53,8 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def get_conn_cursor(cls):
-        if cls._pool is None:
-            raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
+        # if cls._pool is None:
+        #     raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
         try:
             conn = await cls._pool.acquire()
             try:
@@ -74,6 +74,7 @@ class AnanBOTPool(LYBase):
             conn = await cls._pool.acquire()
             cursor = await conn.cursor(aiomysql.DictCursor)
             return conn, cursor
+        
 
 
 
@@ -193,7 +194,11 @@ class AnanBOTPool(LYBase):
                     file_type     = VALUES(file_type),
                     file_size     = VALUES(file_size),
                     duration      = VALUES(duration),
-                    owner_user_id = VALUES(owner_user_id),
+                    owner_user_id = IF(
+                        sora_content.owner_user_id IS NULL OR sora_content.owner_user_id = 0,
+                        VALUES(owner_user_id),
+                        sora_content.owner_user_id
+                    ),        
                     stage         = 'pending'
                 """,
                 (file_unique_id, file_type, file_size, duration, user_id)
@@ -240,11 +245,11 @@ class AnanBOTPool(LYBase):
                     (thumb_file_unique_id, content_id)
                 )
                 # 打印执行的SQL
-                cur_sql = cur._last_executed
-                print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
+                # cur_sql = cur._last_executed
+                # print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
 
                 content_rows = cur.rowcount  # 受影響筆數（0 代表該 content_id 不存在）
-                print(f"✅ [X-MEDIA] 更新 sora_content 縮略圖，受影響筆數：{content_rows}", flush=True)
+                print(f"✅ [X-MEDIA] 更新 sora_content 縮略圖", flush=True)
 
             # 2) 對 sora_media 做 UPSERT（不存在則插入，存在則更新 thumb_file_id）
             # 依賴唯一鍵 uniq_content_bot (content_id, source_bot_name)
@@ -259,19 +264,19 @@ class AnanBOTPool(LYBase):
                 (content_id, bot_username, thumb_file_id)
             )
             # 在 MariaDB/MySQL 中，ON DUPLICATE 觸發更新時 rowcount 會是 2（1 插入、2 更新的慣例不完全一致，依版本而異）
-            media_rows = cur.rowcount
+            # media_rows = cur.rowcount
 
-            cur_sql = cur._last_executed
-            print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
+            # cur_sql = cur._last_executed
+            # print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
 
-            print(f"✅ [X-MEDIA] UPSERT sora_media 縮略圖完成，受影響筆數：{media_rows}", flush=True)
+            # print(f"✅ [X-MEDIA] UPSERT sora_media 縮略圖完成，受影響筆數：{media_rows}", flush=True)
             await conn.commit()
 
-            print(f"✅ [X-MEDIA] 縮略圖更新事務完成 {content_rows} {media_rows}", flush=True)
+            print(f"✅ [X-MEDIA] 縮略圖更新事務完成", flush=True)
 
             return {
                 "sora_content_updated_rows": content_rows,
-                "sora_media_upsert_rowcount": media_rows
+                # "sora_media_upsert_rowcount": media_rows
             }
 
         except Exception as e:
@@ -467,7 +472,7 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def get_preview_thumb_file_id(cls, bot_username: str, content_id: int):
-        print(f"▶️ 正在获取缩略图 file_id for content_id: {content_id} by bot: {bot_username}", flush=True)
+        print(f"▶️ 正在获取缩略图(get_preview_thumb_file_id) file_id for content_id: {content_id} by bot: {bot_username}", flush=True)
         conn, cur = await cls.get_conn_cursor()
         try:
             # 1. 查 sora_media
@@ -520,7 +525,7 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def get_default_preview_thumb_file_id(cls, bot_username: str, file_unqiue_id: str):
-        print(f"▶️ 正在获取缩略图 file_id for file_unqiue_id: {file_unqiue_id} by bot: {bot_username}", flush=True)
+        print(f"▶️ 正在获取缩略图(get_default_preview_thumb_file_id) file_id for file_unqiue_id: {file_unqiue_id} by bot: {bot_username}", flush=True)
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
@@ -945,6 +950,7 @@ class AnanBOTPool(LYBase):
     async def update_product_content(cls, content_id: int, content: str, user_id: int = 0, overwrite: int = 0):
         # ✅ 用更准确的名称
         timer = SegTimer("update_product_content", content_id=content_id, overwrite=int(overwrite))
+        
         # 允许的表名白名单（标识符不能用占位符，只能先验证再拼接）
         FT_MAP = {
             "d": "document", "document": "document",
@@ -953,6 +959,7 @@ class AnanBOTPool(LYBase):
         }
 
         try:
+            cls.init_pool()
             async with cls._pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     timer.lap("acquire_conn_and_cursor")
@@ -1297,7 +1304,7 @@ class AnanBOTPool(LYBase):
  
             # 2) 取归属的 guild_id
             await cur.execute(
-                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.guild_id > 0 ORDER BY a.quantity DESC limit 1;",
+                "SELECT a.guild_id FROM `file_tag` t LEFT JOIN tag a ON a.tag = t.tag WHERE t.`file_unique_id` LIKE %s AND a.guild_id IS NOT NULL AND a.guild_id > 0 ORDER BY a.quantity ASC limit 1;",
                 # "SELECT g.guild_id FROM `file_tag` t LEFT JOIN guild g ON g.guild_tag = t.tag WHERE t.`file_unique_id` LIKE %s AND g.guild_id IS NOT NULL AND t.quantity > 0 ORDER BY t.quantity ASC limit 1;",
                 (file_row["source_id"],)
             )
@@ -1651,9 +1658,9 @@ class AnanBOTPool(LYBase):
                 await cur.execute(
                     """
                     INSERT INTO product
-                        ( price, content_id, file_type, review_status, stage)
+                        ( price, content_id, file_type, review_status, stage, owner_user_id)
                     VALUES
-                        (   %s,      %s,    %s,        2,          'pending')
+                        (   %s,      %s,    %s,        2,          'pending', 666666)
                     ON DUPLICATE KEY UPDATE
                         price     = VALUES(price),
                         file_type = VALUES(file_type),

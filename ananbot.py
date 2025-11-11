@@ -679,11 +679,131 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
     sora_content = await AnanBOTPool.get_sora_content_by_id(content_id)
     file_unique_id = sora_content['source_id']
 
+    fsm_key = f"selected_tags:{file_unique_id}"
+    data = await state.get_data()
+    selected_tags = set(data.get(fsm_key, []))
+
+    # ===== 新增：按规格分组展开 =====
+    GROUPS = [
+        {'age', 'eth', 'face', 'feedback', 'nudity','par'},
+        { 'act', 'pro', 'fetish','att', 'position', 'hardcore''att', 'position', 'hardcore'}
+        
+    ]
+    expanded_codes = None
+    for g in GROUPS:
+        if type_code in g:
+            expanded_codes = set(g)
+            break
+
+    # 如果传入的 type_code 不在上述分组里，做个兜底（例如未来新增类型）
+    if expanded_codes is None:
+        # 找到它在 tag_types 里的位置，用“上一个、当前、下一个”兜底
+        try:
+            idx = next(i for i, t in enumerate(tag_types) if t["type_code"] == type_code)
+            expanded_codes = set()
+            if idx - 1 >= 0:
+                expanded_codes.add(tag_types[idx - 1]["type_code"])
+            expanded_codes.add(tag_types[idx]["type_code"])
+            if idx + 1 < len(tag_types):
+                expanded_codes.add(tag_types[idx + 1]["type_code"])
+        except StopIteration:
+            # 再兜底：展开第一个
+            expanded_codes = {tag_types[0]["type_code"]} if tag_types else set()
+    # ===== 新增结束 =====
+
+    # 如果 FSM 中没有缓存，就从数据库查一次
+    if not selected_tags:
+        selected_tags = await AnanBOTPool.get_tags_for_file(file_unique_id)
+        print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id},并更新到FSM")
+        await state.update_data({fsm_key: list(selected_tags)})
+    else:
+        print(f"🔍 从 FSM 缓存中获取选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
+
+    keyboard = []
+
+    for tag_type in tag_types:
+        current_code = tag_type["type_code"]
+        current_cn = tag_type["type_cn"]
+
+        tag_rows = all_tags_by_type.get(current_code, [])
+        tag_codes = [tag["tag"] for tag in tag_rows]
+
+        # 勾选统计
+        selected_count = len(set(tag_codes) & set(selected_tags))
+        total_count = len(tag_codes)
+
+        # 需要显示已选标签名的 type_code（保持你原来的逻辑）
+        SPECIAL_DISPLAY_TYPES = {'age', 'eth', 'face', 'feedback', 'nudity', 'par'}
+
+        if current_code in SPECIAL_DISPLAY_TYPES:
+            selected_tag_names = [
+                (tag["tag_cn"] or tag["tag"])
+                for tag in tag_rows
+                if tag["tag"] in selected_tags
+            ]
+            display_cn = f"{current_cn} ( {'、'.join(selected_tag_names)} )" if selected_tag_names else f"{current_cn} (未选择)"
+        else:
+            display_cn = f"{current_cn} ( {selected_count}/{total_count} )"
+
+        if current_code in expanded_codes:
+            is_center = (current_code == type_code)
+            header = f"━━━ ▶️ {display_cn} ━━━ " if is_center else f"━━━ {display_cn} ━━━ "
+            keyboard.append([InlineKeyboardButton(text=header, callback_data="noop")])
+
+            row = []
+            for tag in tag_rows:
+                tag_text = tag["tag_cn"] or tag["tag"]
+                tag_code = tag["tag"]
+                display = f"☑️ {tag_text}" if tag_code in selected_tags else tag_text
+
+                row.append(InlineKeyboardButton(
+                    text=display,
+                    callback_data=f"add_tag:{content_id}:{tag_code}"
+                ))
+
+                if len(row) == 3:
+                    keyboard.append(row)
+                    row = []
+            if row:
+                keyboard.append(row)
+        else:
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=f"――― {display_cn} ――― ",
+                    callback_data=f"set_tag_type:{content_id}:{current_code}"
+                )
+            ])
+
+    # 添加「完成」按钮
+    keyboard.append([
+        InlineKeyboardButton(
+            text="✅ 设置完成并返回",
+            callback_data=f"back_to_product_from_tag:{content_id}"
+        )
+    ])
+
+    await callback_query.message.edit_reply_markup(
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
+
+
+async def refresh_tag_keyboard1(callback_query: CallbackQuery, content_id: str, type_code: str, state: FSMContext):
+    # 一次查出所有 tag_type（保持原有排序）
+    tag_types = await AnanBOTPool.get_all_tag_types()
+
+    # ✅ 一次性查询所有标签并按 type_code 分组
+    all_tags_by_type = await AnanBOTPool.get_all_tags_grouped()
+
+    # 查询该资源的 file_unique_id
+    sora_content = await AnanBOTPool.get_sora_content_by_id(content_id)
+    file_unique_id = sora_content['source_id']
+
     # print(f"🔍 查询到 file_unique_id: {file_unique_id} for content_id: {content_id}")
     fsm_key = f"selected_tags:{file_unique_id}"
     data = await state.get_data()
     selected_tags = set(data.get(fsm_key, []))
 
+    #0:'age', 1:'eth', 2:'face', 3:'feedback',4:'nudity',5:'par',6:'act',7:'pro',8:'fetish',9:'att',10:'position',11:'hardcore'
 
     try:
         idx = next(i for i, t in enumerate(tag_types) if t["type_code"] == type_code)
@@ -2172,8 +2292,8 @@ async def _approve_content(product_row):
         guild_chat_id = result_send.chat.id
         guild_thread_id = str(getattr(result_send, "message_thread_id", None))   
         guild_message_id = str(result_send.message_id)
-
-        print(f"🔍 发送到发布频道结果: C:{guild_chat_id} T:{guild_thread_id} M:{guild_message_id}", flush=True)
+        
+        print(f"🔍 发布成功的回执: C:{guild_chat_id} T:{guild_thread_id} M:{guild_message_id}", flush=True)
 
 
         if guild_thread_id:
@@ -2328,7 +2448,7 @@ async def receive_content_input(message: Message, state: FSMContext):
         timer.ctx["content_id"] = content_id
 
         timer.lap("state.get_data")
-
+        
         # 1) DB 更新（高概率慢点）
         await AnanBOTPool.update_product_content(content_id, content_text, user_id, overwrite)
         timer.lap("update_product_content")
@@ -4067,8 +4187,8 @@ async def handle_text(message: Message):
 _PLACEHOLDER_BY_CHAT: dict[int, dict] = {}
 _LOCK = asyncio.Lock()
 _BATCH_BY_CHAT = {}      # key: chat_id -> {"items":[meta...], "expires": ts}
-_DEBOUNCE_SECS = 2.5     # 非相册连发的防抖窗口
-_ALBUM_WAIT = 1.2        # 相册等待收齐窗口（秒）
+_DEBOUNCE_SECS = 1.1     # 非相册连发的防抖窗口
+_ALBUM_WAIT = 0.7        # 相册等待收齐窗口（秒）
 _PLACEHOLDER_BY_GROUP: dict[tuple[int, int], dict] = {}
 _BATCH_BY_GROUP: dict[tuple[int, int], list] = {}
 _ALBUM_PROCESSED: dict[tuple[int, int], bool] = {}
@@ -4076,14 +4196,10 @@ _PENDING_ALBUM_MEMBERS: dict[tuple[int, int], list[dict]] = {}
 
 DEFAULT_TTL = 3.0  # 非相册连续发送的防抖窗口（秒）
 
+#放进去
 def _buffer_meta_for_batch(message, meta):
-    group_id = getattr(message, "media_group_id", None)
     now = time.monotonic()
-    if group_id:
-        key = (message.chat.id, group_id)            
-        _BATCH_BY_GROUP.setdefault(key, []).append(meta)
-        
-        return
+    
     rec = _BATCH_BY_CHAT.get(message.chat.id)
     if not rec or now > rec.get("expires", 0):
         _BATCH_BY_CHAT[message.chat.id] = {"items": [meta], "expires": now + _DEBOUNCE_SECS}
@@ -4102,13 +4218,7 @@ def _collect_batch_results(message, meta):
             "file_unique_id": m.get("file_unique_id", None),
             "file_id": m.get("file_id", None),
         }
-    group_id = getattr(message, "media_group_id", None)
-    if group_id:
-        key = (message.chat.id, group_id)
-        items = _BATCH_BY_GROUP.pop(key, None)  # 只允许被第一次消费
-        if items:
-            return [map_meta(x) for x in items]
-
+   
     rec = _BATCH_BY_CHAT.pop(message.chat.id, None)
     if rec and rec.get("items"):
         return [map_meta(x) for x in rec["items"]]
@@ -4122,7 +4232,7 @@ async def ensure_placeholder(message: Message, *, state, bot, ttl: float = DEFAU
     - 非相册：按 chat_id 做短时防抖
     """
     chat_id = message.chat.id
-    group_id = getattr(message, "media_group_id", None)
+  
 
     await bot.send_chat_action(chat_id, ChatAction.TYPING)
 
@@ -4130,28 +4240,7 @@ async def ensure_placeholder(message: Message, *, state, bot, ttl: float = DEFAU
         now = time.monotonic()
 
         # 1) 相册：同一 media_group 只发一次
-        if group_id:
-            gkey = (chat_id, group_id)                  # 👈 tuple key
-            rec = _PLACEHOLDER_BY_GROUP.get(gkey)
-            if rec and rec.get("msg_id"):
-                return rec["msg"]  # 复用
-            # 不存在则新建
-            msg = await message.reply("🏃‍♂️  正在处理，请稍候...")
-            _PLACEHOLDER_BY_GROUP[gkey] = {
-                "msg": msg,
-                "msg_id": msg.message_id,
-                "chat_id": chat_id,
-                "created_at": now,
-            }
-            # 同时登记到 chat 维度，供后续非相册连发也能复用
-            _PLACEHOLDER_BY_CHAT[chat_id] = {
-                "msg": msg,
-                "msg_id": msg.message_id,
-                "chat_id": chat_id,
-                "updated_at": now,
-                "ttl": ttl,
-            }
-            return msg
+        
 
         # 2) 非相册：按 chat 做短时防抖
         rec = _PLACEHOLDER_BY_CHAT.get(chat_id)
@@ -4170,48 +4259,6 @@ async def ensure_placeholder(message: Message, *, state, bot, ttl: float = DEFAU
             "ttl": ttl,
         }
         return msg
-
-async def _handle_album_upload_async(message, state, meta, placeholder_msg_id, __album_wait__=False):
-    # ✅ 相册：稍等 0.6s，等同组消息大多到齐
-    if __album_wait__:
-        try:
-            await asyncio.sleep(_ALBUM_WAIT)
-        except Exception:
-            pass
-    
-    # >>> PATCH BEGIN: 相册只处理一次
-    group_id = getattr(message, "media_group_id", None)
-    if group_id:
-        gkey = (message.chat.id, group_id)
-        if _ALBUM_PROCESSED.get(gkey):
-            return
-        _ALBUM_PROCESSED[gkey] = True
-    # >>> PATCH END
-
-
-    print(f"{meta}", flush=True)
-
-    type_map = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
-    file_type_short = type_map.get(meta['file_type'], "v")
-
-    bot_username = await get_bot_username()
-    user_id = str(message.from_user.id)
-    row = await AnanBOTPool.insert_sora_content_media(
-        meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
-        user_id, meta['file_id'], bot_username
-    )
-    content_id = row["id"]
-
-    meta['content_id'] = content_id
-    meta['thumb_file_unique_id'] = None
-
-    # ✅ 带上这一批的清单（即使没有 content_id 也能展示）
-    try:
-        meta['batch_results'] = _collect_batch_results(message, meta)
-    except Exception:
-        meta['batch_results'] = None
-
-    await _process_create_product_async(message, state, meta, placeholder_msg_id)
 
 # 非相簿批量冲洗（稳定合并成合集提示）
 async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: dict, placeholder_msg_id: int):
@@ -4257,7 +4304,7 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
         markup = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="创建",
+                    text=f"创建{user_id}",
                     callback_data=f"make_product:{content_id}:{table}:{file_unique_id}:{user_id}"
                 ),
                 InlineKeyboardButton(text="取消", callback_data="cancel_product")
@@ -4271,16 +4318,16 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
             _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
 
             try:
-                list_text = await Tplate.list_template(results)
-                if list_text['opt_text']:
-                    caption_text = "检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)" + list_text
+                list_text_reslt = await Tplate.list_template(results)                
+                if list_text_reslt.get('opt_text'):
+                    caption_text = "检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)" + list_text_reslt.get('opt_text')
             except Exception as e:
                 print(f"⚠️ list_template 生成清单失败（忽略）：{e}", flush=True)
 
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="创建资源夹",
+                        text=f"创建资源夹{user_id}",
                         callback_data=f"make_product_folder:{content_id}:{table}:{file_unique_id}:{user_id}"
                     ),
                     InlineKeyboardButton(text="取消", callback_data="cancel_product")
@@ -4434,6 +4481,7 @@ async def handle_media(message: Message, state: FSMContext):
         else:
             print(f"⚠️ 不支持的媒体类型: {file_type}", flush=True)
             return
+        #这一步是放入内存缓冲区，而不是立即写数据库。
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
@@ -4443,45 +4491,36 @@ async def handle_media(message: Message, state: FSMContext):
     timer.lap("-------Noe-------")
     product_i = await AnanBOTPool.get_product_info_by_fuid(meta['file_unique_id'])
 
-    print(f"meta ->{meta}", flush=True)
+    print(f"\nmeta -> {meta['file_unique_id']}\n", flush=True)
 
     content_id = product_i.get("content_id") if product_i else None
     owner_user_id = str(product_i.get("owner_user_id")) if product_i else None
     timer.lap("product_i")
     group_id = getattr(message, "media_group_id", None)
+
+    #分支A：还没有 content（新投稿）
     if not content_id:
-        print(f'no content_id ->{content_id}', flush=True)
-        if group_id:
-            
-            spawn_once(
-                f"_handle_album_upload_async:album:{message.chat.id}:{group_id}",
-                lambda:_handle_album_upload_async(
-                    message=message,
-                    state=state,
-                    meta=meta,
-                    placeholder_msg_id=placeholder.message_id,
-                    __album_wait__=True   # 👈 让里面 sleep(_ALBUM_WAIT)
-                )
+        timer.lap(f"不存在于 sora_content ->{content_id}")
+        print(f"4311-GO {meta}", flush=True)
+        spawn_once(
+            f"_flush_chat_batch:{message.chat.id}",
+            lambda:_handle_batch_upload_async(
+                message=message,
+                state=state,
+                meta=meta,  # 仅作代表参数
+                placeholder_msg_id=placeholder.message_id
             )
-        else:
-            # >>>  非相簿改为“唯一冲洗任务”
-            print(f"4311-GO {meta}", flush=True)
-            spawn_once(
-                f"_flush_chat_batch:{message.chat.id}",
-                lambda:_handle_batch_upload_async(
-                    message=message,
-                    state=state,
-                    meta=meta,  # 仅作代表参数
-                    placeholder_msg_id=placeholder.message_id
-                )
-            )
+        )
         timer.lap("answer_create_prompt")
     else:
+        
+        #分支B：已有 content（编辑/补料）
         content_id = product_i.get("content_id") if product_i else None
         product_id = product_i.get("product_id") if product_i else None
-        print(f"{product_i}", flush=True)
+        timer.lap(f"存在于 sora_content ->{content_id}")
     
         if product_id:
+            timer.lap(f"product_id ->{product_id}")
             if(owner_user_id!=user_id):
                await placeholder.edit_text(f"⚠️ 这个资源已经被其他用户投稿 ")
                return
@@ -4538,40 +4577,22 @@ async def handle_media(message: Message, state: FSMContext):
 
 
         else:
+            timer.lap(f"no product_id ->{product_id}")
+           
             # 用 spawn_once 投递后台任务（同一消息只跑一次）
             meta['content_id'] = content_id
             meta['thumb_file_unique_id'] = product_i.get("thumb_file_unique_id")
             key = f"media_process:{message.chat.id}:{message.message_id}"
-            group_id = getattr(message, "media_group_id", None)
-
-            # 相册：用 media_group_id 去重，并等待 0.6 秒收齐
-            if group_id:
-                spawn_once(
-                    f"_handle_album_upload_async:album:{message.chat.id}:{group_id}",
-                    lambda:_handle_album_upload_async(
-                        message=message,
-                        state=state,
-                        meta=meta,
-                        placeholder_msg_id=placeholder.message_id,
-                        __album_wait__=True  # 👈 传个旗标
-                    )
+            
+            spawn_once(
+                f"_flush_chat_batch:{message.chat.id}",
+                lambda:_handle_batch_upload_async(
+                    message=message,
+                    state=state,
+                    meta=meta,
+                    placeholder_msg_id=placeholder.message_id
                 )
-            else:
-                # 非相册：按消息去重即可
-                spawn_once(
-                    f"_flush_chat_batch:{message.chat.id}",
-                    lambda:_handle_batch_upload_async(
-                        message=message,
-                        state=state,
-                        meta=meta,
-                        placeholder_msg_id=placeholder.message_id
-                    )
-                )
-
-
-
-            timer.lap("answer_create_prompt")
-           
+            )
 
 
     '''    # ---------- 异步触发） ----------'''
@@ -4587,12 +4608,12 @@ async def handle_media(message: Message, state: FSMContext):
             "create_time": datetime.now()
         })
     )
-    timer.lap("db_upsert_media")
+    
 
     spawn_once(f"insert_file_extension:{meta['file_type']}:{meta['file_unique_id']}",
         lambda:AnanBOTPool.insert_file_extension(meta['file_type'], meta['file_unique_id'], meta['file_id'], bot_username, user_id)
     )
-    timer.lap("insert_file_extension")
+    
 
 
     # ---------- 2) 归档复制（异步触发） ----------
@@ -4758,7 +4779,6 @@ async def get_bot_username():
         lz_var.bot_username = bot_username
         return lz_var.bot_username
         
-
 async def set_default_thumb_file_id():
     global DEFAULT_THUMB_FILE_ID
     first = lz_var.default_thumb_unique_file_ids[0] if lz_var.default_thumb_unique_file_ids else None

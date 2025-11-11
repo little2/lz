@@ -2786,7 +2786,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
 
-            available_content_length = 10
+            available_content_length = 20
             content_preview = ret_content[:available_content_length]
             if len(ret_content) > available_content_length:
                 content_preview += "..."
@@ -2807,6 +2807,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                     parse_mode="HTML",
                     chat_id=receiver_id,
                     text=notice_text,
+                    disable_web_page_preview=True
                 )
             except Exception as e:
                 print(f"❌ 发送兑换通知失败: {e}", flush=True)

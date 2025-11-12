@@ -15,6 +15,8 @@ import lz_var
 class AnanBOTPool(LYBase):
     _pool = None
     _pool_lock = asyncio.Lock()  # 新增：并发安全
+    _acq_sem = asyncio.Semaphore(16)      # 新增：总限流（前台+后台）
+    _bg_sem  = asyncio.Semaphore(4)       # 新增：后台写入专用限流
     _all_tags_grouped_cache = None
     _all_tags_grouped_cache_ts = 0
     _cache_ttl = 300  # 缓存有效时间（秒）
@@ -24,7 +26,7 @@ class AnanBOTPool(LYBase):
     cache = None
 
     @classmethod
-    async def init_pool(cls):
+    async def init_pool_old(cls):
         if cls._pool is None:
             async with cls._pool_lock:
                 if cls._pool is None:
@@ -36,6 +38,7 @@ class AnanBOTPool(LYBase):
                     kwargs.setdefault("connect_timeout", 10)
                     kwargs.setdefault("pool_recycle", 120)  # 关键：120 秒回收陈旧连接
                     kwargs.setdefault("charset", "utf8mb4")
+
                     cls._pool = await aiomysql.create_pool(**kwargs)
                     print("✅ MySQL 连接池初始化完成（autocommit, recycle=120）")
             
@@ -45,14 +48,61 @@ class AnanBOTPool(LYBase):
             
 
     @classmethod
-    async def _reset_pool(cls):
+    async def init_pool(cls):
+        if cls._pool is None:
+            async with cls._pool_lock:
+                if cls._pool is None:
+                    kwargs = dict(DB_CONFIG)
+                    kwargs.setdefault("autocommit", True)
+                    kwargs.setdefault("minsize", 2)
+                    kwargs.setdefault("maxsize", 40)
+                    kwargs.setdefault("connect_timeout", 10)
+                    kwargs.setdefault("pool_recycle", 110)  # 建议略小于 MySQL wait_timeout
+                    kwargs.setdefault("charset", "utf8mb4")
+
+                    delay = 0.3
+                    for i in range(4):
+                        try:
+                            cls._pool = await aiomysql.create_pool(**kwargs)
+                            print("✅ MySQL 连接池初始化完成")
+                            break
+                        except Exception as e:
+                            if i == 3:
+                                raise
+                            await asyncio.sleep(delay)
+                            delay *= 2
+
+            if not cls._cache_ready:
+                cls.cache = MemoryCache()
+                cls._cache_ready = True
+
+
+
+    @classmethod
+    async def _reset_pool_old(cls):
         if cls._pool:
             cls._pool.close()
             await cls._pool.wait_closed()
             cls._pool = None
 
+    
     @classmethod
-    async def get_conn_cursor(cls):
+    async def _reset_pool(cls):
+        async with cls._pool_lock:
+            if cls._pool:
+                try:
+                    cls._pool.close()
+                    # 防止被外层 wait_for 取消，且限制等待时长
+                    await asyncio.wait_for(asyncio.shield(cls._pool.wait_closed()), timeout=20)
+                except Exception as e:
+                    print(f"⚠️ wait_closed 异常(忽略): {e}")
+                finally:
+                    cls._pool = None
+
+
+
+    @classmethod
+    async def get_conn_cursor_old(cls):
         # if cls._pool is None:
         #     raise Exception("MySQL 连接池未初始化，请先调用 init_pool()")
         try:
@@ -74,8 +124,30 @@ class AnanBOTPool(LYBase):
             conn = await cls._pool.acquire()
             cursor = await conn.cursor(aiomysql.DictCursor)
             return conn, cursor
-        
-
+    
+    @classmethod
+    async def get_conn_cursor(cls):
+        if cls._pool is None:
+            await cls.init_pool()
+        # ☆ 关键：统一经由总信号量限流
+        async with cls._acq_sem:
+            try:
+                conn = await asyncio.wait_for(cls._pool.acquire(), timeout=20)
+                try:
+                    await conn.ping()
+                except Exception:
+                    await cls._reset_pool()
+                    await cls.init_pool()
+                    conn = await asyncio.wait_for(cls._pool.acquire(), timeout=20)
+                    await conn.ping()
+                cursor = await conn.cursor(aiomysql.DictCursor)
+                return conn, cursor
+            except Exception:
+                await cls._reset_pool()
+                await cls.init_pool()
+                conn = await asyncio.wait_for(cls._pool.acquire(), timeout=20)
+                cursor = await conn.cursor(aiomysql.DictCursor)
+                return conn, cursor
 
 
     @classmethod
@@ -169,6 +241,22 @@ class AnanBOTPool(LYBase):
 
     @classmethod
     async def insert_file_extension(cls, file_type, file_unique_id, file_id, bot_username, user_id):
+        # 后台写入路径使用更小并发，避免争抢
+        async with cls._bg_sem:
+            conn, cur = await cls.get_conn_cursor()
+            try:
+                await cur.execute(
+                    """INSERT IGNORE INTO file_extension 
+                    (file_type, file_unique_id, file_id, bot, user_id, create_time)
+                    VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (file_type, file_unique_id, file_id, bot_username, user_id, datetime.now())
+                )
+            finally:
+                await cls.release(conn, cur)
+
+
+    @classmethod
+    async def insert_file_extension_old(cls, file_type, file_unique_id, file_id, bot_username, user_id):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
@@ -206,6 +294,7 @@ class AnanBOTPool(LYBase):
             await cur.execute("SELECT * FROM sora_content WHERE source_id=%s LIMIT 1", (file_unique_id,))
             row = (await cur.fetchone())
             content_id = row["id"]
+            
             await cur.execute(
                 """
                 INSERT INTO sora_media

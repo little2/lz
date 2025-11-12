@@ -288,9 +288,9 @@ async def make_product(callback_query: CallbackQuery, state: FSMContext):
             content = row["content"]
         else:
             content = "请修改描述"
-
         await AnanBOTPool.create_product(content_id, "默认商品", content, lz_var.default_point, file_type, user_id)
-    
+    else:
+        print(f"product_id={product_id}")
     thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(content_id)
     await callback_query.message.delete()
     new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
@@ -345,12 +345,14 @@ async def on_make_product_folder(callback_query: CallbackQuery, state: FSMContex
             album_fuid = f"album:{chat_id}:{holder_mid}:{int(time.time())}"
             # file_id 可以留空字符串，后续可再补封面
             row = await AnanBOTPool.insert_sora_content_media(
-                album_fuid, 'a', 0, 0, str(callback_query.from_user.id), "", bot_username
+                album_fuid, 'a', 0, 0, user_id, "", bot_username
             )
             album_content_id = int(row["id"])
 
+        await AnanBOTPool.create_product(album_content_id, "默认商品", None, lz_var.default_point, "a", user_id)
+
         # 3) 把产品/内容标记为 album
-        await AnanBOTPool.update_product_file_type(album_content_id, 'a')
+        # await AnanBOTPool.update_product_file_type(album_content_id, 'a')
         # 兜底把 sora_content 也标记为 album（避免只有 product 被更新）
         conn, cur = await AnanBOTPool.get_conn_cursor()
         try:
@@ -385,7 +387,7 @@ async def on_make_product_folder(callback_query: CallbackQuery, state: FSMContex
                 # insert_sora_content_media(cls, file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username):
                 row = await AnanBOTPool.insert_sora_content_media(
                     fuid, fshort, int(item.get("file_size") or 0), int(item.get("duration") or 0),
-                    str(callback_query.from_user.id), fid or "", bot_username
+                    user_id, fid or "", bot_username
                 )
                 member_cid = int(row["id"])
             else:
@@ -4276,6 +4278,8 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
 
     bot_username = await get_bot_username()
     user_id = str(message.from_user.id)
+
+    
     row = await AnanBOTPool.insert_sora_content_media(
         meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
         user_id, meta['file_id'], bot_username
@@ -4327,7 +4331,7 @@ async def _process_create_product_async(message: Message, state: FSMContext, met
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"创建资源夹{user_id}",
+                        text=f"创建资源夹:{content_id}:{file_unique_id}:{user_id}",
                         callback_data=f"make_product_folder:{content_id}:{table}:{file_unique_id}:{user_id}"
                     ),
                     InlineKeyboardButton(text="取消", callback_data="cancel_product")

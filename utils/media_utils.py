@@ -86,37 +86,53 @@ class Media:
 
 
     @classmethod
-    async def extract_video_metadata_from_aiogram(cls,message):
+    async def extract_metadata_from_message(cls,message):
+        file_type = None
+        mediamessage = None
+        file_unique_id = ""
+        file_id = ""
         if message.photo:
             largest = message.photo[-1]
             file_id = largest.file_id
-            file_unique_id = largest.file_unique_id
-            mime_type = 'image/jpeg'
+            file_unique_id = largest.file_unique_i
+            mediamessage = message.photo
             file_type = 'photo'
-            file_size = largest.file_size
-            file_name = None
-            # 用 Bot API 发到目标群组
       
 
         elif message.document:
-            file_id = message.document.file_id
-            file_unique_id = message.document.file_unique_id
-            mime_type = message.document.mime_type
             file_type = 'document'
-            file_size = message.document.file_size
-            file_name = message.document.file_name
+            mediamessage = message.document
+        elif message.animation:
+            file_type = "animation"     
+            mediamessage = message.animation     
+        elif message.video:       
+            file_type = "video"
+            mediamessage = message.video
        
-
-        else:  # 视频
-            file_id = message.video.file_id
-            file_unique_id = message.video.file_unique_id
-            mime_type = message.video.mime_type or 'video/mp4'
-            file_type = 'video'
-            file_size = message.video.file_size
-            file_name = getattr(message.video, 'file_name', None)
         
-        return file_id, file_unique_id, mime_type, file_type, file_size, file_name
-    
+
+        if file_type: 
+            meta = {
+                "file_type": file_type,
+                "file_unique_id": file_unique_id or getattr(mediamessage, "file_unique_id", None),
+                "file_id": file_id or getattr(mediamessage, "file_id", None),
+                "file_size": getattr(mediamessage, "file_size", 0) or 0,
+                "duration": getattr(mediamessage, "duration", 0) or 0,
+                "width": getattr(mediamessage, "width", 0) or 0,
+                "height": getattr(mediamessage, "height", 0) or 0,
+                "file_name": getattr(mediamessage, "file_name", "") or "",
+                "mime_type": getattr(mediamessage, "mime_type", "") or "",
+            }
+            
+            print(f"{meta}")
+            return meta
+        
+        print(f"{meta}")
+
+        return False
+
+
+
     @classmethod
     def build_hashtag_string(cls, tag_names: list[str], max_len: int = 200) -> str:
         """

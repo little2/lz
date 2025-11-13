@@ -240,6 +240,119 @@ class AnanBOTPool(LYBase):
 
 
     @classmethod
+    async def upsert_media_bulk(cls, rows: list[dict], *, batch_size: int = 200, show_sql: bool = False):
+        """
+        批量 upsert 各媒体表（video/document/photo/animation）。
+        rows 每项格式类似：
+        {
+            "file_type": "video",
+            "file_unique_id": "AgAD...",
+           
+            "file_size": 123456,
+            "duration": 5,
+            "width": 640,
+            "height": 360,
+            "file_name": "xxx.mp4",
+            "create_time": datetime.now()
+        }
+        """
+        if not rows:
+            print("⚠️ upsert_media_bulk: 空列表，跳过。")
+            return 0
+
+        await cls.init_pool()
+        inserted_total = 0
+
+        # 按 file_type 分组：video/document/photo/animation
+        groups = {}
+        for r in rows:
+            ft = r.get("file_type")
+            if ft in ("v", "video"): ft = "video"
+            elif ft in ("d", "document"): ft = "document"
+            elif ft in ("p", "photo"): ft = "photo"
+            elif ft in ("n", "animation"): ft = "animation"
+            else:
+                continue
+            groups.setdefault(ft, []).append(r)
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            for ft, items in groups.items():
+                if not items:
+                    continue
+
+                # 清理字段：不同类型字段不同
+                clean_rows = []
+                for item in items:
+                    d = dict(item)
+                    d.pop("file_type", None)  # 表名用，不入列
+                    d.pop("file_id", None)    # ❗ 关键：媒体表不存 file_id
+                    if ft != "video":
+                        d.pop("duration", None)
+                    if ft == "document":
+                        d.pop("width", None)
+                        d.pop("height", None)
+                    clean_rows.append(d)
+
+                # 取出所有列名
+                keys = sorted({k for r in clean_rows for k in r.keys()})
+                # 删除 file_type (表名用，不入列)
+                if "file_type" in keys:
+                    keys.remove("file_type")
+
+                placeholders = ",".join(["%s"] * len(keys))
+                columns = ",".join(f"`{k}`" for k in keys)
+                updates = ",".join(f"`{k}`=VALUES(`{k}`)" for k in keys if k != "create_time")
+
+                base_sql = f"""
+                    INSERT INTO `{ft}` ({columns})
+                    VALUES {{values}}
+                    ON DUPLICATE KEY UPDATE {updates}
+                """
+
+                # 分批
+                from math import ceil
+                total_batches = ceil(len(clean_rows) / batch_size)
+                for b in range(total_batches):
+                    chunk = clean_rows[b*batch_size:(b+1)*batch_size]
+                    vals = []
+                    for r in chunk:
+                        vals.extend([r.get(k) for k in keys])
+
+                    value_block = ",".join(["(" + placeholders + ")"] * len(chunk))
+                    sql = base_sql.format(values=value_block)
+
+                    # 🧩 调试模式：打印完整 SQL（含值）
+                    if show_sql:
+                        def fmt(v):
+                            if v is None: return "NULL"
+                            elif isinstance(v, (int, float)): return str(v)
+                            elif isinstance(v, datetime): return f"'{v.strftime('%Y-%m-%d %H:%M:%S')}'"
+                            else: return f"'{str(v).replace("'", "''")}'"
+                        formatted_chunks = [
+                            "(" + ",".join(fmt(r.get(k)) for k in keys) + ")" for r in chunk
+                        ]
+                        print(f"\n📦 [Table {ft}] 批次 {b+1}/{total_batches} 实际执行 SQL：")
+                        print(base_sql.format(values=",".join(formatted_chunks)))
+
+                    await cur.execute(sql, vals)
+                    inserted_total += cur.rowcount
+                    if show_sql:
+                        print(f"✅ [{ft}] 批次 {b+1} 完成，影响行数：{cur.rowcount}")
+
+            await conn.commit()
+            print(f"✅ upsert_media_bulk 完成，总影响行数：{inserted_total}")
+        except Exception as e:
+            await conn.rollback()
+            print(f"❌ upsert_media_bulk 失败: {e}")
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+        return inserted_total
+
+
+    @classmethod
     async def insert_file_extension(cls, file_type, file_unique_id, file_id, bot_username, user_id):
         # 后台写入路径使用更小并发，避免争抢
         async with cls._bg_sem:
@@ -253,6 +366,78 @@ class AnanBOTPool(LYBase):
                 )
             finally:
                 await cls.release(conn, cur)
+
+
+    # in ananbot_utils.py (AnanBOTPool class)
+    @classmethod
+    async def insert_file_extension_bulk(cls, rows: list[dict], *, batch_size: int = 300):
+        """
+        rows: [{file_type, file_unique_id, file_id, bot_username|bot, user_id, create_time?}, ...]
+        批量写入 file_extension；分批多值 INSERT + ON DUPLICATE KEY UPDATE
+        """
+        if not rows:
+            return 0
+
+        await cls.init_pool()
+        inserted_total = 0
+
+        # 预处理/清洗字段名
+        normed = []
+        now = datetime.now()
+        for r in rows:
+            ft   = r.get("file_type")
+            fuid = r.get("file_unique_id")
+            fid  = r.get("file_id")
+            bot  = r.get("bot") or r.get("bot_username")
+            uid  = r.get("user_id")
+            if not (ft and fuid and fid and bot):
+                continue
+            normed.append((
+                ft, fuid, fid, bot, uid, r.get("create_time") or now
+            ))
+
+        if not normed:
+            return 0
+
+        sql = """
+            INSERT INTO file_extension
+                (file_type, file_unique_id, file_id, bot, user_id, create_time)
+            VALUES
+                {values}
+            ON DUPLICATE KEY UPDATE
+                -- 若 unique 冲突（(file_unique_id,file_id) 或 (file_id,bot)）：
+                -- 保持 file_id 不变，回写最新 bot/user_id/create_time
+                bot        = VALUES(bot),
+                user_id    = IFNULL(VALUES(user_id), user_id),
+                create_time= VALUES(create_time)
+        """
+
+        # 分批执行，控制单次 SQL 体量
+        from math import ceil
+        total_batches = ceil(len(normed) / batch_size)
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            for i in range(total_batches):
+                chunk = normed[i*batch_size:(i+1)*batch_size]
+                # 组装多值占位
+                placeholders = ",".join(["(%s,%s,%s,%s,%s,%s)"] * len(chunk))
+                flat_params = []
+                for tup in chunk:
+                    flat_params.extend(tup)
+
+                await cur.execute(sql.format(values=placeholders), flat_params)
+                inserted_total += cur.rowcount  # 注意：包含“插入/更新”的受影响行计数
+                # 显示执行的sql
+               
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+        return inserted_total
 
 
     @classmethod
@@ -853,6 +1038,219 @@ class AnanBOTPool(LYBase):
                 content_id = row[0] if row else ""
                 cls.cache.set(cache_key, content_id, ttl=30000)
                 return content_id
+
+
+
+    @classmethod
+    async def get_content_ids_by_fuids(cls, fuids: list[str]) -> dict[str, int]:
+        """
+        批量查询 source_id -> content_id 的映射。
+        """
+        if not fuids:
+            return {}
+        await cls.init_pool()
+        # 去重避免 IN 过长
+        fuids = list({f for f in fuids if f})
+        placeholders = ",".join(["%s"] * len(fuids))
+        sql = f"""
+            SELECT id, source_id 
+            FROM sora_content 
+            WHERE source_id IN ({placeholders})
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(sql, fuids)
+            rows = await cur.fetchall() or []
+            return {r["source_id"]: int(r["id"]) for r in rows}
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def insert_sora_content_media_bulk(cls, rows: list[dict], *, batch_size: int = 200) -> list[dict]:
+        """
+        批量 upsert 缺失的成员到 sora_content + 初始化 sora_media（file_id 可为空）
+        rows 每项：{
+            "file_unique_id": "...",   # source_id
+            "file_type": "v|d|p|n",    # 短码/全名均可，内部统一
+            "file_size": int,
+            "duration": int,
+            "owner_user_id": str|int,
+            "file_id": str|None,
+            "bot_username": str
+        }
+        返回：包含每条 {file_unique_id, content_id} 的列表
+        """
+        if not rows:
+            return []
+
+        # 统一类型
+        def norm_ft(ft: str) -> str:
+            m = {"v":"video","video":"video","d":"document","document":"document",
+                "p":"photo","photo":"photo","n":"animation","animation":"animation","a":"album","album":"album"}
+            return m.get((ft or "").lower(), "document")
+
+        await cls.init_pool()
+        # 先对 sora_content 做批量 upsert
+        from math import ceil
+        # 只保留必要列（sora_content 不吃 file_id/bot）
+        sc_rows = []
+        for r in rows:
+            sc_rows.append({
+                "source_id": r.get("file_unique_id"),
+                "file_type": norm_ft(r.get("file_type")),
+                "file_size": r.get("file_size", 0),
+                "duration": r.get("duration", 0),
+                "owner_user_id": r.get("owner_user_id", 0),
+            })
+        # 过滤空 source_id
+        sc_rows = [r for r in sc_rows if r["source_id"]]
+
+        # 组装多值 INSERT ... ON DUPLICATE
+        keys = ["source_id","file_type","file_size","duration","owner_user_id"]
+        placeholders = ",".join(["%s"] * len(keys))
+        updates = ",".join(f"`{k}`=VALUES(`{k}`)" for k in keys if k != "owner_user_id") + ", `stage`='pending'"
+        base_sql = f"""
+            INSERT INTO sora_content ({",".join(keys)}, stage)
+            VALUES {{values}}
+            ON DUPLICATE KEY UPDATE {updates}
+        """
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 分批 upsert sora_content
+            total_batches = ceil(len(sc_rows) / batch_size) or 1
+            for i in range(total_batches):
+                chunk = sc_rows[i*batch_size:(i+1)*batch_size]
+                if not chunk:
+                    continue
+                vals, blocks = [], []
+                for r in chunk:
+                    vals.extend([r[k] for k in keys] + ["pending"])
+                    blocks.append(f"({placeholders}, %s)")  # 多一个 stage
+                sql = base_sql.format(values=",".join(blocks))
+                await cur.execute(sql, vals)
+            # 为了拿 content_id，再查回（一次性 IN）
+            fuids = [r["source_id"] for r in sc_rows]
+            mapping = await cls.get_content_ids_by_fuids(fuids)
+
+            # 初始化 sora_media（把 file_id 与 bot_username 批量 upsert）
+            sm_triplets = []
+            for r in rows:
+                fuid = r.get("file_unique_id")
+                cid = mapping.get(fuid)
+                if not cid:
+                    continue
+                sm_triplets.append((
+                    int(cid),
+                    r.get("bot_username"),
+                    r.get("file_id") or "",
+                ))
+
+            if sm_triplets:
+                await cur.executemany(
+                    """
+                    INSERT INTO sora_media (content_id, source_bot_name, file_id)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                    file_id = VALUES(file_id)
+                    """,
+                    sm_triplets
+                )
+
+            await conn.commit()
+            return [{"file_unique_id": f, "content_id": mapping.get(f)} for f in fuids if mapping.get(f)]
+        except Exception:
+            try:
+                await conn.rollback()
+            except:
+                pass
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def insert_album_items_bulk(cls, content_id: int, members: list[tuple[int, str, int]]):
+        """
+        批量插入 album_items：
+        members: [(member_content_id, file_type_short, position), ...]
+        file_type_short: 'v'/'d'/'p'/'n'
+        """
+        if not members:
+            return 0
+        await cls.init_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.executemany(
+                """
+                INSERT IGNORE INTO album_items (content_id, member_content_id, file_type, position)
+                VALUES (%s, %s, %s, %s)
+                """,
+                [(content_id, mid, ft, pos) for (mid, ft, pos) in members]
+            )
+            affected = cur.rowcount
+            await conn.commit()
+            return affected
+        except Exception:
+            try:
+                await conn.rollback()
+            except:
+                pass
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def finalize_content_fields(cls, candidates,content_id, user_id, bot_username):
+        # 5) 批量补齐所有成员 content_id
+        fuids = [c.get("file_unique_id") for c in candidates if c.get("file_unique_id")]
+        exist_map = await cls.get_content_ids_by_fuids(fuids)  # {fuid: content_id}
+
+        missing_rows = []
+        for c in candidates:
+            fuid = c.get("file_unique_id")
+            if not fuid:
+                continue
+            if fuid not in exist_map:
+                missing_rows.append({
+                    "file_unique_id": fuid,
+                    "file_type": c.get("file_type"),
+                    "file_size": c.get("file_size", 0),
+                    "duration": c.get("duration", 0),
+                    "owner_user_id": user_id,
+                    "file_id": c.get("file_id"),
+                    "bot_username": bot_username,
+                })
+
+        # 批量插入缺失成员（含初始化 sora_media）
+        if missing_rows:
+            inserted = await cls.insert_sora_content_media_bulk(missing_rows)
+            for r in inserted:
+                exist_map[r["file_unique_id"]] = int(r["content_id"])
+
+        # 6) 批量写入 album_items（按 candidates 顺序设置 position）
+        members = []
+        pos = 1
+        def to_short(ft: str) -> str:
+            FT_SHORT = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
+            if not ft: return "d"
+            ft = ft.lower()
+            if ft in ("v","d","p","n","a"): return ft
+            return FT_SHORT.get(ft, "d")
+
+        for c in candidates:
+            fuid = c.get("file_unique_id")
+            member_cid = exist_map.get(fuid)
+            if not member_cid:
+                continue
+            members.append( (int(member_cid), to_short(c.get("file_type")), pos) )
+            pos += 1
+
+        if members:
+            await cls.insert_album_items_bulk(content_id, members)
+
 
 
     @classmethod

@@ -28,7 +28,7 @@ from aiogram.types import (
     InputMediaAnimation
 )
 
-
+from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora
 from aiogram.enums import ParseMode
 from utils.unit_converter import UnitConverter
 from utils.aes_crypto import AESCrypto
@@ -1187,6 +1187,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 print(f"❌ 解密失败C：{e}", flush=True)
+                await sync_sora(content_id)
                 return
 
             try:

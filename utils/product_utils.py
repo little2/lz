@@ -178,7 +178,13 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     try:
         # 发送到资源频道
         if tpl_data.get("guild_resource_chat_id"):
-            print(f"🏄 准备发送到(撸馆)资源频道 C={tpl_data['guild_resource_chat_id']} T={tpl_data.get("guild_resource_thread_id")}", flush=True)
+           
+            print(
+                f"🏄 准备发送到(撸馆)资源频道 C={tpl_data['guild_resource_chat_id']} "
+                f"T={tpl_data.get('guild_resource_thread_id')}",
+                flush=True
+            )
+
             retResource = await _bot.send_message(
                 chat_id=tpl_data["guild_resource_chat_id"],
                 message_thread_id=tpl_data.get("guild_resource_thread_id"),

@@ -91,13 +91,20 @@ class Media:
         mediamessage = None
         file_unique_id = ""
         file_id = ""
+        file_size = 0
+        height = 0
+        width = 0
         if message.photo:
             largest = message.photo[-1]
             file_id = largest.file_id
-            file_unique_id = largest.file_unique_i
+            file_unique_id = largest.file_unique_id
+            height = largest.height
+            width = largest.width
+            file_size = largest.file_size
             mediamessage = message.photo
             file_type = 'photo'
-      
+
+          
 
         elif message.document:
             file_type = 'document'
@@ -116,15 +123,15 @@ class Media:
                 "file_type": file_type,
                 "file_unique_id": file_unique_id or getattr(mediamessage, "file_unique_id", None),
                 "file_id": file_id or getattr(mediamessage, "file_id", None),
-                "file_size": getattr(mediamessage, "file_size", 0) or 0,
+                "file_size": file_size or getattr(mediamessage, "file_size", 0) or 0,
                 "duration": getattr(mediamessage, "duration", 0) or 0,
-                "width": getattr(mediamessage, "width", 0) or 0,
-                "height": getattr(mediamessage, "height", 0) or 0,
+                "width": width or getattr(mediamessage, "width", 0) or 0,
+                "height": height or getattr(mediamessage, "height", 0) or 0,
                 "file_name": getattr(mediamessage, "file_name", "") or "",
                 "mime_type": getattr(mediamessage, "mime_type", "") or "",
             }
             
-            print(f"{meta}")
+            # print(f"metameta==>{meta}")
             return meta
         
         print(f"{meta}")

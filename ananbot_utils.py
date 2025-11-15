@@ -292,8 +292,11 @@ class AnanBOTPool(LYBase):
                     if ft == "document":
                         d.pop("width", None)
                         d.pop("height", None)
+                    if ft == "photo":
+                        d.pop("mime_type", None)
+                    d['create_time'] = d.get('create_time') or datetime.now()
                     clean_rows.append(d)
-
+                # print(f"clean_rows=>{clean_rows}")
                 # 取出所有列名
                 keys = sorted({k for r in clean_rows for k in r.keys()})
                 # 删除 file_type (表名用，不入列)
@@ -820,7 +823,7 @@ class AnanBOTPool(LYBase):
 
 
     @classmethod
-    async def insert_album_item(cls, content_id: int, member_content_id: int, file_unique_id: str, file_type: str, position: int = 0):
+    async def insert_album_item(cls, content_id: int, member_content_id: int, file_unique_id: str | None = None, file_type: str | None = None, position: int = 0):
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(

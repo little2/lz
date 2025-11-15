@@ -2726,7 +2726,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     elif int(expire_ts) >= now_utc:
         discount_amount = int(fee * lz_var.xlj_discount_rate)
         xlj_final_price = fee - discount_amount
-        sender_fee = xlj_final_price
+        sender_fee = xlj_final_price * (-1)
         
         try:
             reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"

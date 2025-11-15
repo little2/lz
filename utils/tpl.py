@@ -101,7 +101,9 @@ class Tplate:
             file_name = row.get("file_name", "")
 
             total_size = total_size + int(file_size)
-            total_duration = total_duration + int(duration)
+
+            if duration!= None:
+                total_duration = total_duration + int(duration)
 
             if file_name:
                 file_name = f"| {file_name}"
@@ -109,7 +111,8 @@ class Tplate:
             if file_type == "v":
                 video_count += 1
                 video_total_size = video_total_size + int(file_size)
-                video_total_duration = video_total_duration + int(duration)
+                if duration!= None:
+                    video_total_duration = video_total_duration + int(duration)
                 album_list_text += f"　🎬 {UnitConverter.byte_to_human_readable(file_size)} | {UnitConverter.seconds_to_hms(duration)}\n"
             elif file_type == "d":
                 document_count += 1
@@ -120,13 +123,13 @@ class Tplate:
                 album_list_text += f"　🖼️ {UnitConverter.byte_to_human_readable(file_size)}\n"
 
 
-        summary_text += "\n\n📂 本资源夹包含：\r\n" 
+        summary_text += "📂 本资源夹包含：\r\n" 
         
 
 
         if video_count:
             summary_text += f"　　🎬 x{video_count} 　 {UnitConverter.byte_to_human_readable(video_total_size)} "
-            if video_total_duration > 0:
+            if video_total_duration and video_total_duration > 0:
                 summary_text += f"　　| {UnitConverter.seconds_to_hms(video_total_duration)} "
             summary_text += "\r\n"
             album_cont_list_text += f"🎬 x{video_count} 　"
@@ -138,7 +141,7 @@ class Tplate:
             album_cont_list_text += f"🖼️ x{photo_count}"
 
         if album_list_text :
-            list_text += "\n📂 资源列表：\n" + album_list_text.rstrip()
+            list_text += "\n📃 资源明细：\n" + album_list_text.rstrip()
         
         if album_cont_list_text :
             list_text += "\n\n📂 本资源夹包含：" + album_cont_list_text

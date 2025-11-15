@@ -275,6 +275,12 @@ async def get_list(content_id):
 
 @dp.callback_query(F.data.startswith("make_product:"))
 async def make_product(callback_query: CallbackQuery, state: FSMContext):
+    parts = callback_query.data.split(":")
+    content_id, file_type, file_unique_id, user_id = parts[1], parts[2], parts[3], parts[4]
+
+    await make_product_folder(callback_query, state= state)
+    return
+
     print(f"callback_query = {callback_query.data}", flush=True)
     parts = callback_query.data.split(":")
     content_id, file_type, file_unique_id, user_id = parts[1], parts[2], parts[3], parts[4]
@@ -291,6 +297,7 @@ async def make_product(callback_query: CallbackQuery, state: FSMContext):
         await AnanBOTPool.create_product(content_id, "默认商品", content, lz_var.default_point, file_type, user_id)
     else:
         print(f"product_id={product_id}")
+
     thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(content_id)
     await callback_query.message.delete()
     new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
@@ -313,23 +320,27 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
         chat_id = callback_query.message.chat.id
         holder_mid = callback_query.message.message_id  # 占位消息ID -> 我们的批量缓存键
 
-        # === 类型短码映射（只在本函数内使用，不独立出去）===
-        FT_SHORT = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
-        def to_short(ft: str) -> str:
-            if not ft:
-                return "d"
-            ft = ft.lower()
-            if ft in ("v", "d", "p", "n", "a"):
-                return ft
-            return FT_SHORT.get(ft, "d")
+
 
         # 1) 取候选成员（优先缓存）：_PENDING_ALBUM_MEMBERS[(chat_id, 占位消息ID)]
         candidates = _PENDING_ALBUM_MEMBERS.pop((chat_id, holder_mid), None)
-
+        # print(f"candidates==>{candidates} candidates for album from cache", flush=True)
         
 
         # 若缓存不存在（极少数情况），退化为仅当前这条
         if not candidates:
+            print(f"322=>No existsing pending members for album, fallback to single item", flush=True)
+            # === 类型短码映射（只在本函数内使用，不独立出去）===
+            FT_SHORT = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
+            def to_short(ft: str) -> str:
+                if not ft:
+                    return "d"
+                ft = ft.lower()
+                if ft in ("v", "d", "p", "n", "a"):
+                    return ft
+                return FT_SHORT.get(ft, "d")
+
+
             candidates = [{
                 "file_unique_id": primary_fuid,
                 "file_type": to_short(table),
@@ -359,11 +370,12 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
 
         spawn_once(
             f"upsert_media_bulk:{album_content_id}",
-            lambda:AnanBOTPool.upsert_media_bulk(candidates, show_sql=True)
+            lambda:AnanBOTPool.upsert_media_bulk(candidates, show_sql=False)
         )
 
 
         if not album_content_id:
+            print(f"🔍 make_product_folder: 创建新 album 本体", flush=True)
             # 造一个唯一的 source_id 供 album 本体使用（不与媒体冲突即可）
             album_fuid = f"album:{chat_id}:{holder_mid}:{int(time.time())}"
             # file_id 可以留空字符串，后续可再补封面
@@ -373,75 +385,41 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
             album_content_id = int(row["id"])
 
 
+       
+    except Exception as e:
+        print(f"❌ 390: {e}", flush=True)
+        return
+    
+    
+    try:
         # 3) 确保有 product（保持你现有逻辑）
-        await AnanBOTPool.create_product(album_content_id, "默认商品", None, lz_var.default_point, "a", user_id)
+        if(len(candidates) > 1):
+            await AnanBOTPool.create_product(album_content_id, "默认商品", None, lz_var.default_point, "album", user_id)
 
+            # 4) 把 album 的 sora_content 兜底设为 'a'
+            conn, cur = await AnanBOTPool.get_conn_cursor()
+            try:
+                await cur.execute("UPDATE sora_content SET file_type='a', stage='pending' WHERE id=%s", (album_content_id,))
+            finally:
+                await AnanBOTPool.release(conn, cur)
 
-
-        # 4) 把 album 的 sora_content 兜底设为 'a'
-        conn, cur = await AnanBOTPool.get_conn_cursor()
-        try:
-            await cur.execute("UPDATE sora_content SET file_type='a', stage='pending' WHERE id=%s", (album_content_id,))
-        finally:
-            await AnanBOTPool.release(conn, cur)
+        else:
+            await AnanBOTPool.create_product(album_content_id, "默认商品", None, lz_var.default_point, table, user_id)
 
         await AnanBOTPool.finalize_content_fields(candidates,album_content_id,user_id,bot_username)
 
-        # # 5) 批量补齐所有成员 content_id
-        # fuids = [c.get("file_unique_id") for c in candidates if c.get("file_unique_id")]
-        # exist_map = await AnanBOTPool.get_content_ids_by_fuids(fuids)  # {fuid: content_id}
-
-        # missing_rows = []
-        # for c in candidates:
-        #     fuid = c.get("file_unique_id")
-        #     if not fuid:
-        #         continue
-        #     if fuid not in exist_map:
-        #         missing_rows.append({
-        #             "file_unique_id": fuid,
-        #             "file_type": c.get("file_type"),
-        #             "file_size": c.get("file_size", 0),
-        #             "duration": c.get("duration", 0),
-        #             "owner_user_id": user_id,
-        #             "file_id": c.get("file_id"),
-        #             "bot_username": bot_username,
-        #         })
-
-        # # 批量插入缺失成员（含初始化 sora_media）
-        # if missing_rows:
-        #     inserted = await AnanBOTPool.insert_sora_content_media_bulk(missing_rows)
-        #     for r in inserted:
-        #         exist_map[r["file_unique_id"]] = int(r["content_id"])
-
-        # # 6) 批量写入 album_items（按 candidates 顺序设置 position）
-        # members = []
-        # pos = 1
-        # def to_short(ft: str) -> str:
-        #     FT_SHORT = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
-        #     if not ft: return "d"
-        #     ft = ft.lower()
-        #     if ft in ("v","d","p","n","a"): return ft
-        #     return FT_SHORT.get(ft, "d")
-
-        # for c in candidates:
-        #     fuid = c.get("file_unique_id")
-        #     member_cid = exist_map.get(fuid)
-        #     if not member_cid:
-        #         continue
-        #     members.append( (int(member_cid), to_short(c.get("file_type")), pos) )
-        #     pos += 1
-
-        # if members:
-        #     await AnanBOTPool.insert_album_items_bulk(album_content_id, members)
+      
 
         # 5) UI 反馈
         await callback_query.message.delete()
+        print(f"album_content_id=>{album_content_id}")
         thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(album_content_id)
+        print(f"thumb_file_id={thumb_file_id}, preview_text={preview_text}, preview_keyboard={preview_keyboard}", flush=True)
         new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
         
         _BATCH_BY_CHAT = {} 
     except Exception as e:
-        print(f"❌ make_product_folder ERROR: {e}", flush=True)
+        print(f"❌ 420: {e}", flush=True)
         try:
             await callback_query.answer("服务器目前拥挤中，因此还不能创建资源夹，请稍后再重试", show_alert=True)
         except:
@@ -451,7 +429,13 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
 
 
 async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboardMarkup]:
-    content_id = int(content_id)  # 兜底：/review 等场景传的是字符串
+
+    try:
+        content_id = int(content_id)  # 兜底：/review 等场景传的是字符串
+    except Exception as e:
+        print(f"❌ Error converting content_id to int: {e}", flush=True)
+      
+    print(f"🔍 get_product_tpl start for content_id={content_id}", flush=True)
     product_row = await get_product_info(content_id)
 
     print(f"🔍 get_product_tpl for content_id={content_id}", flush=True)
@@ -462,6 +446,7 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
 
     return thumb_file_id, preview_text, preview_keyboard
 
+
 async def get_product_info(content_id: int):
     
     # 统一初始化，避免未赋值
@@ -470,9 +455,9 @@ async def get_product_info(content_id: int):
     # 统一从工具函数取
     cached = get_cached_product(content_id)
     if cached is not None:
-  
         return cached
 
+    print(f"🔍 460:{content_id}", flush=True)
 
     # 查询是否已有同 source_id 的 product
     # 查找缩图 file_id
@@ -520,7 +505,7 @@ async def get_product_info(content_id: int):
         anonymous_button_text = "🐵 发表模式: 公开上传者"
 
 
-    content_list = await get_list(content_id)
+    
 
     preview_text = f"数据库ID:<code>{content_id}</code> <code>{file_unique_id}</code>"
     
@@ -530,9 +515,11 @@ async def get_product_info(content_id: int):
     if(product_info['tag']  and product_info['tag'].strip() != ''):
         preview_text += f"\n\n<i>{product_info['tag']}</i>"
 
-    if(content_list  and content_list.strip() != ''):
-        preview_text += f"\n\n{content_list}"
-        # preview_text += f"\n\n<i>{content_list}</i>"
+    if product_info['file_type'] in ['a', 'album']:
+        content_list = await get_list(content_id)
+        if(content_list  and content_list.strip() != ''):
+            preview_text += f"\n\n{content_list}"
+            # preview_text += f"\n\n<i>{content_list}</i>"
 
     # if review_status == 3 or review_status==4 or review_status==5:
     #     await AnanBOTPool.check_guild_manager(content_id)
@@ -1124,12 +1111,12 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
     chat_id = callback_query.message.chat.id
     message_id = callback_query.message.message_id
     album_cont_list = await get_list(content_id)  # 获取资源夹列表，更新状态
-    caption_text = f"{album_cont_list}\n\n⚠️ 注意\r\n📂 资源夹 ( Folder ) 是一个最小完整单位，里面的文件必须成组存在，不能拆开。\r\n\r\n常见场景：\r\n(1)压缩包分卷 + 预览图 : <i>例如 许昌棋社.zip ,许昌棋社.z01 , 许昌棋社.z02</i>\r\n(2)同一场次的拍摄内容（套图/视频）<i>例如: IMG_0001.JPG , IMG_0002.JPG, IMG_0003.MOV , 这三个文档都是 06/19 日九哥和红领巾激战拍摄的视频及照片</i>\r\n\r\n 如果你要整理跨场次、相同主题的作品，请使用 📚 合集 (Collection)。\r\n\r\n📥 请直接传送资源"
+    caption_text = f"{album_cont_list}\n\n⚠️ 注意\r\n📂 资源夹 ( Folder ) 是一个最小完整单位，里面的文件必须成组存在，不能拆开。\r\n\r\n常见场景：\r\n(1)压缩包分卷 + 预览图 : <i>例如 许昌棋社.zip ,许昌棋社.z01 , 许昌棋社.z02</i>\r\n(2)同一场次的拍摄内容（套图/视频）<i>例如: IMG_0001.JPG , IMG_0002.JPG, IMG_0003.MOV , 这三个文档都是 06/19 日九哥和红领巾激战拍摄的视频及照片</i>\r\n\r\n 如果你要整理跨场次、相同主题的作品，请使用 📚 合集 (Collection)。\r\n\r\n📥 请直接传送资源进行添加或选择添加完成"
 
    
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]
+        [InlineKeyboardButton(text="✅ 添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]
     ])
 
     try:
@@ -1147,17 +1134,7 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
     })
 
 
-async def _ensure_placeholder_once(message: Message, state: FSMContext):
-    # 再读一次 FSM，已有就直接返回
-    data = await state.get_data() or {}
-    if data.get("placeholder_msg_id"):
-        return
-    # 创建并写回
-    placeholder = await message.reply("⏳ 正在处理，请稍候...")
-    await state.update_data({
-        "placeholder_msg_id": placeholder.message_id,
-        "chat_id": message.chat.id
-    })
+
 
 
 @dp.message(F.chat.type == "private", F.content_type.in_({
@@ -1181,7 +1158,7 @@ async def receive_album_media(message: Message, state: FSMContext):
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
-        print(f"❌ 处理媒体信息失败: {e}", flush=True)
+        print(f"❌ 处理媒体信息失败1173: {e}", flush=True)
         return await message.answer(f"⚠️ 处理媒体信息失败，请稍后重试。")
 
     meta['content_id'] = content_id
@@ -1194,12 +1171,6 @@ async def receive_album_media(message: Message, state: FSMContext):
             message_id=message.message_id
         )
     )
-
-    # t_proc = spawn_once(
-    #     f"process_add_item_async:{message.message_id}",
-    #     lambda: _process_add_item_async(message, state, meta, placeholder_msg_id)
-    # )
-    # _track_task(content_id, t_proc)  # ← 新增：登记处理任务
 
     # --- 管理提示任务 ---
     key = (user_id, int(content_id))
@@ -1235,10 +1206,6 @@ async def receive_album_media(message: Message, state: FSMContext):
                     print("no candidate", flush=True)
                     return
 
-
-
-            
-                
                 bot_username = await get_bot_username()
 
                 # 批量写入 file_extension
@@ -1258,40 +1225,60 @@ async def receive_album_media(message: Message, state: FSMContext):
 
                 spawn_once(
                     f"upsert_media_bulk:{content_id}",
-                    lambda:AnanBOTPool.upsert_media_bulk(candidates, show_sql=False)
+                    lambda:AnanBOTPool.upsert_media_bulk(candidates, show_sql=True)
                 )
 
-                print(f"1263",flush=True)
+               
                 
                 product_info = await AnanBOTPool.get_existing_product(content_id)
-                print(f"product_info=>{product_info}",flush=True)
+               
                 product_type = product_info.get('file_type','')
-                print(f"product_type=>{product_type}",flush=True)
+                
                
                 if product_type not in {"a","album"} :
-                    print(f"product_type=>exist",flush=True)
+                   
 
                     conn, cur = await AnanBOTPool.get_conn_cursor()
                     try:
                         await cur.execute("UPDATE product SET file_type='album', stage='pending' WHERE content_id=%s", (content_id,))
                         await cur.execute("UPDATE sora_content SET file_type='a', stage='pending' WHERE id=%s", (content_id,))
-                        #TODO 补第一项
+                        
+                        #取 product_type 的第一个字
+                       
+                        type_code = product_type[0] if product_type else ""
+
+                        await AnanBOTPool.insert_album_item(
+                            content_id=content_id,
+                            member_content_id=content_id,
+                            file_type=type_code  # "v", "d", "p"
+                        )
+                      
                     except Exception as e:
                         print(f"{e}",flush=True)
                     finally:
                         await AnanBOTPool.release(conn, cur)
             
-                print(f">>>>1273 get_list",flush=True)
+                
                 await AnanBOTPool.finalize_content_fields(candidates,content_id,user_id,bot_username)
                 try:
-                    print(f">>>>1276 get_list")
+                   
                     list_text = await get_list(content_id)
-                    caption_text = f"{list_text}\n\n📥 请直接传送资源"
+                    caption_text = f"{list_text}\n\n📥 请直接传送资源进行添加或选择结束"
                     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📤添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]
+                        [InlineKeyboardButton(text="✅ 添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]
                     ])
-                    send_message = await bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=keyboard)
-                    print(f"{send_message}")
+
+                    send_message = await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=placeholder_msg_id,
+                        text=caption_text,
+                        reply_markup=keyboard,
+                    )
+
+                    invalidate_cached_product(content_id)
+
+                    # send_message = await bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=keyboard)
+                    
                 except Exception as e:
                     logging.exception(f"发送提示失败: {e}")
 
@@ -1325,166 +1312,6 @@ async def receive_album_media(message: Message, state: FSMContext):
     media_upload_tasks[key] = asyncio.create_task(delayed_finish_prompt(placeholder_msg_id))
 
 
-
-async def receive_album_media2(message: Message, state: FSMContext):
-    
-    # 立即反馈：占位消息
-    placeholder = await ensure_placeholder(message, state=state, bot=bot)
-   
-    file_type = message.content_type
-    bot_username = await get_bot_username()
-    user_id = str(message.from_user.id)
-
-    
-    data = await state.get_data()
-    content_id = int(data["content_id"])
-    chat_id = data["chat_id"]
-    # message_id = data["message_id"]
-    # placeholder_msg_id = data["placeholder_msg_id"] if "placeholder_msg_id" in data else None
-    placeholder_msg_id = data.get("placeholder_msg_id") or None
-    
-    # 立即反馈：占位消息
-    # await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-
-    # if not placeholder_msg_id:
-    #     placeholder = await message.answer("⏳ 正在处理，请稍候...")
-    #     placeholder_msg_id = placeholder.message_id
-    #     await state.update_data({"placeholder_msg_id": placeholder_msg_id})
-
-    # 先触发一次性“占位创建”，不等待完成（spawn_once 自带并发去重）
-    spawn_once(
-        ("placeholder", message.chat.id, content_id),
-        lambda:_ensure_placeholder_once(message, state)
-    )
-
-    meta =  await Media.extract_metadata_from_message(message)
-    # file = mes.file
-    # file_type = mes.file_type
-    # type_code = file_type[1]
-
-
-    # # 识别媒体属性（共通）
-    # if message.content_type == ContentType.PHOTO:
-    #     file = get_largest_photo(message.photo)
-    #     file_type = "photo"
-    #     type_code = "p"
-    # elif message.content_type == ContentType.VIDEO:
-    #     file = message.video
-    #     file_type = "video"
-    #     type_code = "v"
-    # elif message.content_type == ContentType.ANIMATION:
-    #     file = message.animation
-    #     file_type = "animation"
-    #     type_code = "n"
-    # else:
-    #     file = message.document
-    #     file_type = "document"
-    #     type_code = "d"
-
-    # file_unique_id = file.file_unique_id
-    # file_id = file.file_id
-    # user_id = int(message.from_user.id)
-    
-    # file_size = getattr(file, "file_size", 0)
-    # duration = getattr(file, "duration", 0)
-    # width = getattr(file, "width", 0)
-    # height = getattr(file, "height", 0)
-
-
-    # meta = {
-    #     "content_id": content_id,
-    #     "file_type":file_type,
-    #     "file_size": file_size,
-    #     "duration": duration,
-    #     "width": width,
-    #     "height": height,
-    #     "file_unique_id": file_unique_id,
-    #     "file_id": file_id
-    # }
-
-    meta['content_id'] = content_id
-
-    spawn_once(
-        f"copy_message:{message.message_id}",
-        lambda:lz_var.bot.copy_message(
-            chat_id=lz_var.x_man_bot_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id
-        )
-    )
-
-    t_proc = spawn_once(
-        f"process_add_item_async:{message.message_id}",
-        lambda: _process_add_item_async(message, state, meta, placeholder_msg_id)
-    )
-    _track_task(content_id, t_proc)  # ← 新增：登记处理任务
-
-    # spawn_once(
-    #     f"process_add_item_async:{message.message_id}",
-    #     lambda:_process_add_item_async(message, state, meta, placeholder_msg_id)
-    # )
-
-    # print(f"添加资源：{file_type} {file_unique_id} {file_id}", flush=True)
-
-    # --- 管理提示任务 ---
-    key = (user_id, int(content_id))
-    has_prompt_sent[key] = False
-
-    # 若已有旧任务，取消
-    old_task = media_upload_tasks.get(key)
-    if old_task and not old_task.done():
-        old_task.cancel()
-
-    # await message.delete()
-
-    # 创建新任务（3秒内无动作才触发）
-    async def delayed_finish_prompt():
-        try:
-            await asyncio.sleep(COLLECTION_PROMPT_DELAY)
-
-            # 等待所有该 content_id 的后台处理完毕（copy、落库、写入 album_items 等）
-            await _await_inflight(content_id)
-
-            current_state = await state.get_state()
-            if current_state == ProductPreviewFSM.waiting_for_album_media and not has_prompt_sent.get(key, False):
-                has_prompt_sent[key] = True  # ✅ 设置为已发送，防止重复
-
-                try:
-                    list_text = await get_list(content_id)
-                    caption_text = f"{list_text}\n\n📥 请直接传送资源"
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📤添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]
-                    ])
-                    send_message = await bot.send_message(chat_id=chat_id, text=caption_text, reply_markup=keyboard)
-                except Exception as e:
-                    logging.exception(f"发送提示失败: {e}")
-
-                try:
-                    data = await state.get_data() or {}
-                    placeholder_msg_id = data.get("placeholder_msg_id")
-                    r=await bot.delete_message(chat_id, placeholder_msg_id)
-                    print(f"删除占位消息结果: {r} {placeholder_msg_id}", flush=True)
-
-                    await state.clear()  # 👈 强制清除旧的 preview 状态
-                    await state.set_state(ProductPreviewFSM.waiting_for_album_media)
-                    await state.set_data({
-                        "content_id": content_id,
-                        "chat_id": send_message.chat.id,
-                        "placeholder_msg_id": send_message.message_id,
-                        "last_button_ts": datetime.now().timestamp()
-                    })
-
-
-                except Exception:
-                    pass
-
-                
-        except asyncio.CancelledError:
-            pass
-
-
-    # 存入新的 task
-    media_upload_tasks[key] = asyncio.create_task(delayed_finish_prompt())
 
 
 
@@ -1521,6 +1348,7 @@ async def done_add_items(callback_query: CallbackQuery, state: FSMContext):
     )
 
 
+# TODO : 11/15 可以废弃,用于单一文件的属性处理,现在改为批量处理涵盖
 async def _process_add_item_async(message: Message, state: FSMContext, meta: dict, placeholder_msg_id: int):
     bot_username = await get_bot_username()
     user_id = str(message.from_user.id)
@@ -1574,7 +1402,7 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
     except Exception:
         cur_price = lz_var.default_point
 
-    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格( {lz_var.default_point}-119)"
+    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格( {lz_var.default_point}-{(lz_var.default_point*5)})"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消", callback_data=f"cancel_set_price:{content_id}")]
     ])
@@ -1621,13 +1449,13 @@ async def receive_price_input(message: Message, state: FSMContext):
     message_id = data.get("message_id")
     
     price_str = message.text.strip()
-    if not price_str.isdigit() or not (lz_var.default_point <= int(price_str) <= 119):
+    if not price_str.isdigit() or not (lz_var.default_point <= int(price_str) <= (lz_var.default_point*5)):
         # await message.answer("❌ 请输入 34~102 的整数作为价格")
         # 回到菜单
         
         callback_id = data.get("callback_id")
         if callback_id:
-            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 {lz_var.default_point}~102 的整数作为价格", show_alert=True)
+            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 {lz_var.default_point}~{(lz_var.default_point*5)} 的整数作为价格", show_alert=True)
         else:
             await state.clear()
             thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -4421,6 +4249,10 @@ def _collect_batch_results(message, meta):
             "file_name": m.get("file_name", ""),
             "file_unique_id": m.get("file_unique_id", None),
             "file_id": m.get("file_id", None),
+            "width": m.get("width", 0),
+            "height": m.get("height", 0),
+            "mime_type": m.get("mime_type", ""),
+
             "create_time": datetime.now()
         }
    
@@ -4494,6 +4326,27 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
     meta['content_id'] = content_id
 
 
+    # 如果存在则直接跳出
+    product_row = await AnanBOTPool.get_existing_product(content_id)
+    if product_row:
+
+        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+        try:
+
+            photo_msg = await lz_var.bot.edit_message_media(
+                chat_id=message.chat.id,
+                message_id=placeholder_msg_id,
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+                reply_markup=preview_keyboard
+            )  
+
+
+        except Exception as e:
+            logging.exception(f"返回商品卡片失败: {e}")
+        print(f"⚠️ 内容已存在 content_id={content_id}，跳过创建投稿", flush=True)
+        return
+
+
     # 收集这一窗口的批量结果
     try:
         meta['batch_results'] = _collect_batch_results(message, meta)  # 会 pop 掉 _BATCH_BY_CHAT[chat_id]
@@ -4503,36 +4356,38 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
 
     try:
         results = meta.get("batch_results")  # 这里是我们在上一步塞进去的
+        _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
         if results and isinstance(results, list) and len(results) >= 2:
-            _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
+            
 
             try:
                 list_text_reslt = await Tplate.list_template(results)                
                 if list_text_reslt.get('opt_text'):
-                    caption_text = "检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)" + list_text_reslt.get('opt_text')
+                    caption_text = f"ㅤ\n检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)\n\n" + list_text_reslt.get('opt_text')
             except Exception as e:
                 print(f"⚠️ list_template 生成清单失败（忽略）：{e}", flush=True)
 
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"创建资源夹:{content_id}:{file_unique_id}:{user_id}",
+                        text=f"📂 创建资源夹",
                         callback_data=f"make_product_folder:{content_id}:{table}:{file_unique_id}:{user_id}"
                     ),
-                    InlineKeyboardButton(text="取消", callback_data="cancel_product")
+                    InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
                 ]
             ])  
         else:
+            
             # ===== 组装 caption：优先使用 batch_results（无 content_id 场景）=====
-            caption_text = f".\n检测到文件，是否需要创建为投稿？ \n\n🎈 创建后您仍可以升级为资源夹(即一个投稿下有多个媒体)，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
+            caption_text = f"ㅤ\n检测到文件，是否需要创建为投稿？ \n\n🎈 创建后您仍可以升级为资源夹(即一个投稿下有多个媒体)，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
      
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"创建{user_id}",
+                        text=f"📄 创建投稿",
                         callback_data=f"make_product:{content_id}:{table}:{file_unique_id}:{user_id}"
                     ),
-                    InlineKeyboardButton(text="取消", callback_data="cancel_product")
+                    InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
                 ]
             ])
 
@@ -4599,7 +4454,7 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
     await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
    
 
-    print(f"{message}", flush=True)
+    # print(f"{message}", flush=True)
     await lz_var.bot.copy_message(
         chat_id=lz_var.x_man_bot_id,
         from_chat_id=message.chat.id,
@@ -4621,7 +4476,7 @@ async def handle_media(message: Message, state: FSMContext):
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
-        print(f"❌ 处理媒体信息失败: {e}", flush=True)
+        print(f"❌ 处理媒体信息失败4621: {e}", flush=True)
         return await message.answer(f"⚠️ 处理媒体信息失败，请稍后重试。")
     
     spawn_once(
@@ -4720,7 +4575,7 @@ async def handle_media_old(message: Message, state: FSMContext):
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
-        print(f"❌ 处理媒体信息失败: {e}", flush=True)
+        print(f"❌ 处理媒体信息失败4720: {e}", flush=True)
         return await message.answer(f"⚠️ 处理媒体信息失败，请稍后重试。")
     
     timer.lap("-------Noe-------")

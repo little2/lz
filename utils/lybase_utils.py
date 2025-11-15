@@ -7,6 +7,9 @@ class LYBase:
         conn, cur = await cls.get_conn_cursor()
         user_info_row = None
 
+        if(transaction_data['sender_fee']>0):
+            transaction_data['sender_fee'] = abs(transaction_data['sender_fee'])*(-1)
+
         print(f"🔍 处理交易记录: {transaction_data}")
 
         if transaction_data.get('transaction_description', '') == '':

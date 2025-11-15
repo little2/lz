@@ -26,6 +26,7 @@ from handlers import lz_menu
 import lz_var
 import re
 
+from utils.product_utils import sync_sora, sync_album_items
 
 from lz_redis import RedisManager
 lz_var.redis_manager = RedisManager()
@@ -310,7 +311,7 @@ async def main():
         MySQLPool.init_pool(),   # MySQL
     )
 
-   
+    
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
     @dp.shutdown()
@@ -358,6 +359,7 @@ async def main():
             print("🚀 啟動 Polling 模式")
             lz_var.skins = await load_or_create_skins()
             # print(f"Skin {lz_var.skins}")
+            
             await dp.start_polling(bot, polling_timeout=10.0)
         
         

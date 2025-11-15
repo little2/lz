@@ -510,8 +510,72 @@ class PGPool:
         finally:
             await cls.release(conn)
 
+
+# lz_pgsql.py
+
     @classmethod
-    async def upsert_album_items_bulk(cls, rows: List[Dict[str, Any]]) -> int:
+    async def upsert_album_items_bulk(cls, rows):
+        """
+        将 MySQL 的 album_items 批量 upsert 到 PG.album_items
+        以 id 为主键对齐（MySQL / PG 使用同一套 id）
+        """
+        if not rows:
+            return 0
+
+        await cls.ensure_pool()
+
+        sql = """
+        INSERT INTO album_items (
+            id,
+            content_id,
+            member_content_id,
+            file_unique_id,
+            file_type,
+            "position",
+            stage,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            content_id        = EXCLUDED.content_id,
+            member_content_id = EXCLUDED.member_content_id,
+            file_unique_id    = EXCLUDED.file_unique_id,
+            file_type         = EXCLUDED.file_type,
+            "position"        = EXCLUDED."position",
+            stage             = EXCLUDED.stage,
+            updated_at        = EXCLUDED.updated_at
+        ;
+        """
+
+        # 从 MySQL 记录构出 payload；如果 MySQL 里有 created_at / updated_at 就带过去，没有就用 NOW()
+        from datetime import datetime
+
+        payload = []
+        now = datetime.now()
+        for r in rows:
+            payload.append((
+                int(r["id"]),
+                int(r["content_id"]),
+                int(r["member_content_id"]),
+                r.get("file_unique_id"),
+                r.get("file_type"),
+                int(r.get("position", 0)),
+                r.get("stage", "pending"),
+                r.get("created_at") or now,
+                r.get("updated_at") or now,
+            ))
+
+        async with cls._pool.acquire() as conn:
+            await conn.executemany(sql, payload)
+
+        return len(payload)
+
+
+    @classmethod
+    async def upsert_album_items_bulk2(cls, rows: List[Dict[str, Any]]) -> int:
         """
         批量 UPSERT 到 PostgreSQL 的 public.album_items
         冲突键： (content_id, member_content_id)

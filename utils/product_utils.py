@@ -121,6 +121,8 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             results = await db.get_album_list(content_id, lz_var.bot_username)
             if(results == []):
                 await sync_album_items(content_id)
+               
+                
                 results = await db.get_album_list(content_id, lz_var.bot_username)
             
             print(f"{results}", flush=True)

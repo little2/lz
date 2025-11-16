@@ -2190,7 +2190,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     resource_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}" 
 
 
-    extra_info = f"<a href='{resource_url}'>{product_info.get('id','')}</code> #<code>{product_info.get('source_id','')}</code>"
+    extra_info = f"<a href='{resource_url}'>{product_info.get('id','')}</a> #<code>{product_info.get('source_id','')}</code>"
 
     if review_status == 6:
         # 如果callback_query.message.caption 包含 "户外拍摄"或"不是正太片"，则打印相关信息

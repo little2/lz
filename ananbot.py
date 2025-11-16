@@ -2185,7 +2185,12 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         spawn_once(f"_reject_content:{content_id}", lambda:_reject_content(product_row))
         
 
-    extra_info = f"<code>{product_info.get('id','')}</code> #<code>{product_info.get('source_id','')}</code>"
+    aes = AESCrypto(AES_KEY)
+    encoded = aes.aes_encode(content_id)
+    resource_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}" 
+
+
+    extra_info = f"<a href='{resource_url}'>{product_info.get('id','')}</code> #<code>{product_info.get('source_id','')}</code>"
 
     if review_status == 6:
         # 如果callback_query.message.caption 包含 "户外拍摄"或"不是正太片"，则打印相关信息
@@ -2338,8 +2343,6 @@ async def _approve_content(product_row):
 
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
-
-
     resource_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}" 
 
     shorten_content = LZString.shorten_text(product_info.get('content',''))

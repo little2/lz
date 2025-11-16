@@ -2185,6 +2185,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         spawn_once(f"_reject_content:{content_id}", lambda:_reject_content(product_row))
         
 
+    me = await publish_bot.get_me()
+    publish_bot_username = me.username
+
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
     resource_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}" 

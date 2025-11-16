@@ -2379,7 +2379,8 @@ async def _approve_content(product_row):
                 chat_id=owner_user_id, 
                 text=text, 
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons),
+                disable_web_page_preview=True
                 )
         else:
             print(f"❌ 目标 chat 不存在或无法访问(2213): owner_user_id is None")

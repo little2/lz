@@ -44,3 +44,21 @@ class AESCrypto:
         plain = unpad(AES.new(self.key, AES.MODE_CBC, iv).decrypt(ciphertext), AES.block_size)
         return plain.decode('utf-8')
 
+    # 将 key 循环应用到每个字符
+    def xor_with_key(cls,data: bytes, key: str) -> bytes:
+        key_bytes = key.encode()
+        result = bytearray()
+        for i, b in enumerate(data):
+            result.append(b ^ key_bytes[i % len(key_bytes)])
+        return bytes(result)
+
+    def encrypt(cls, text: str, key: str) -> str:
+        # 先 XOR 混淆
+        mixed = cls.xor_with_key(text.encode(), key)
+        # 再 Base64 保证可传输
+        return base64.urlsafe_b64encode(mixed).decode()
+
+    def decrypt(cls, token: str, key: str) -> str:
+        raw = base64.urlsafe_b64decode(token.encode())
+        unmixed = cls.xor_with_key(raw, key)
+        return unmixed.decode()

@@ -154,9 +154,31 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 parse_mode="HTML",
                 reply_markup=kb
             )
-            print(f"  ✅ 发送到贤师楼(讨论)频道成幼", flush=True)
+            print(f"  ✅ 发送到贤师楼(讨论)频道成功", flush=True)
+
+
+
+
+
     except Exception as e:
         print(f"  ❌ 发送到贤师楼(讨论)频道失败1: {e}", flush=True)
+
+
+    try:
+        if content and tpl_data.get("guild_chat_id") != -1002675021976:
+            
+            retGuild = await _bot.send_message(
+                chat_id=-1002675021976,
+                message_thread_id=17,
+                text=content,
+                parse_mode="HTML",
+                reply_markup=kb
+            )
+            print(f"  ✅ 发送到萨莱区成功", flush=True)
+    
+    except Exception as e:
+        print(f"  ❌ 发送到萨莱区失败: {e}", flush=True)
+
 
     await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
     try:

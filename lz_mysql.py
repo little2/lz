@@ -79,6 +79,8 @@ class MySQLPool:
     #需要和 lyase_utils.py 整合
     @classmethod
     async def transaction_log(cls, transaction_data):
+       
+
         conn, cur = await cls.get_conn_cursor()
         print(f"🔍 处理交易记录: {transaction_data}")
 
@@ -144,6 +146,9 @@ class MySQLPool:
                 if not user_info_row or user_info_row['point'] < abs(transaction_data['sender_fee']):
                     return {'ok': '', 'status': 'insufficient_funds', 'transaction_data': transaction_data, 'user_info': user_info_row}
                 else:
+
+                    if transaction_data['sender_fee'] > 0:
+                        transaction_data['sender_fee'] = transaction_data['sender_fee'] * (-1)
                     # 扣除 sender point
                     await cur.execute("""
                         UPDATE user
@@ -193,6 +198,35 @@ class MySQLPool:
 
         finally:
             await cls.release(conn, cur)
+
+
+    @classmethod
+    async def find_transaction_by_description(cls, desc: str):
+        """
+        根据 transaction_description 查询一笔交易记录。
+        :param desc: 例如 "chat_id message_id"
+        :return: dict | None
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT *
+                FROM transaction
+                WHERE transaction_description = %s
+                LIMIT 1
+                """,
+                (desc,),
+            )
+            row = await cur.fetchone()
+            return row if row else None
+        except Exception as e:
+            print(f"⚠️ find_transaction_by_description 出错: {e}", flush=True)
+            return None
+        finally:
+            await cls.release(conn, cur)
+
+
 
     @classmethod
     async def in_block_list(cls, user_id):

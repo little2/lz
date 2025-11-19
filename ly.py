@@ -1,8 +1,9 @@
 import asyncio
 import json
+import os
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-
+from aiohttp import web
 from lz_mysql import MySQLPool
 
 # ======== 载入环境参数 ========
@@ -195,6 +196,8 @@ async def handle_private_json(event: events.NewMessage.Event):
     }, ensure_ascii=False))
 
 
+
+
 # ==================================================================
 # 启动 bot
 # ==================================================================
@@ -220,6 +223,10 @@ async def main():
 
     print("📡 开始监听群组指令与私聊 JSON ...")
 
+    # ✅ Render 环境用 PORT，否则本地用 8080
+    port = int(os.environ.get("PORT", 8080))
+    app = web.Application()
+    await web._run_app(app, host="0.0.0.0", port=port)
     await client.run_until_disconnected()
 
 

@@ -1628,6 +1628,8 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     
 
     photo = get_largest_photo(message.photo)
+    print(f"找到最大的photo = {photo}")
+    #TODO : get_largest_photo 也许有问题，看看是否真能找到最的
     file_unique_id = photo.file_unique_id
     file_id = photo.file_id
     width = photo.width
@@ -2738,6 +2740,7 @@ async def handle_search(message: Message, state: FSMContext):
         parts = param.split("_")   
         if not parts:  # 空串情况
             return await message.answer("❌ 无效的参数")
+        
 
     if parts[0] == "f" or parts[0] == "fix":
         try:
@@ -2758,7 +2761,8 @@ async def handle_search(message: Message, state: FSMContext):
             pass
     elif parts[0] == "s" or parts[0] == "suggest":
         try:
-            await report_content(message.from_user.id, parts[1], state)
+            file_unique_id = "_".join(parts[1:])  # 剩下的部分重新用 _ 拼接
+            await report_content(message.from_user.id, file_unique_id, state)
           
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)

@@ -510,7 +510,7 @@ class AnanBOTPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             content_rows = 0
-            print(f"{thumb_file_unique_id} {thumb_file_id} {content_id} {bot_username}", flush=True)
+            print(f"tfud={thumb_file_unique_id} tfid={thumb_file_id} cid={content_id} bot={bot_username}", flush=True)
             if thumb_file_unique_id!="":
                 # 1) 嘗試更新 sora_content（若該 content_id 不存在則不會有影響）
                 await cur.execute(
@@ -526,7 +526,7 @@ class AnanBOTPool(LYBase):
                 # print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
 
                 content_rows = cur.rowcount  # 受影響筆數（0 代表該 content_id 不存在）
-                print(f"✅ [X-MEDIA] 更新 sora_content 縮略圖", flush=True)
+                print(f"✅ [X-MEDIA] 更新 sora_content 縮略圖(thumb_file_unique_id)", flush=True)
 
             # 2) 對 sora_media 做 UPSERT（不存在則插入，存在則更新 thumb_file_id）
             # 依賴唯一鍵 uniq_content_bot (content_id, source_bot_name)

@@ -41,6 +41,16 @@ MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 META_BOT       = config.get('meta_bot', os.getenv('META_BOT', ''))
 
-COMMAND_RECEIVERS = os.getenv("COMMAND_RECEIVERS", "")
-# 从 COMMAND_RECEIVERS 抓出所有允许控制机器人的 ID
+# 读取 JSON 字串
+raw = os.getenv("COMMAND_RECEIVERS", "{}")
+
+# 尝试解析为 dict
+try:
+    COMMAND_RECEIVERS = json.loads(raw)
+except json.JSONDecodeError:
+    print("[ly_config] ❌ COMMAND_RECEIVERS JSON 格式错误，使用空 dict")
+    COMMAND_RECEIVERS = {}
+
+# 从 dict 中取得所有允许的 user_id（去重）
 ALLOWED_PRIVATE_IDS = set(COMMAND_RECEIVERS.values())
+

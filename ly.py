@@ -11,6 +11,7 @@ from ly_config import (
     API_ID,
     API_HASH,
     SESSION_STRING,
+    COMMAND_RECEIVERS
 )
 
 """

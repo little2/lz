@@ -2220,7 +2220,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     # await _reset_review_zone_button(button_str,ret_chat,ret_msg) 
     spawn_once(f"_reset_review_zone_button:{content_id}", lambda:_reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info) )
 
-    spawn_once(f"_review_next_product:{content_id}",lambda:_review_next_product(state) )
+    # spawn_once(f"_review_next_product:{content_id}",lambda:_review_next_product(state) )
 
 # 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
@@ -2712,14 +2712,16 @@ async def handle_cancel_anonymous_choice(callback_query: CallbackQuery, state: F
 
 # —— /review 指令 —— 
 @dp.message(F.chat.type == "private", F.text.startswith("/review"))
-async def handle_review_command(message: Message):
+async def handle_review_command(message: Message, state:FSMContext):
     """
     用法: /review [content_id]
     行为: 回覆 content_id 本身
     """
     parts = message.text.strip().split(maxsplit=1)
     if len(parts) != 2 or not parts[1].isdigit():
-        return await message.answer("❌ 使用格式: /review [content_id]")
+        await _review_next_product(state)
+        return
+        # return await message.answer("❌ 使用格式: /review [content_id]")
     
     content_id = parts[1]
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -3043,7 +3045,7 @@ async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMCont
 
     await AnanBOTPool.set_product_review_status(content_id, 11)  # 11 同步失败
 
-    spawn_once(f"_review_next_product:{content_id}",lambda:_review_next_product(state) )
+    # spawn_once(f"_review_next_product:{content_id}",lambda:_review_next_product(state) )
 
     result_kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=f"🆖 同步失效", callback_data="a=nothing")]]

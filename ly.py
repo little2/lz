@@ -11,7 +11,8 @@ from ly_config import (
     API_ID,
     API_HASH,
     SESSION_STRING,
-    COMMAND_RECEIVERS
+    COMMAND_RECEIVERS,
+    ALLOWED_PRIVATE_IDS
 )
 
 """
@@ -35,14 +36,16 @@ client = TelegramClient(
 # ==================================================================
 # 1) 群组指令: /hb [fee]  或  /play [fee]
 # ==================================================================
-@client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)$'))
+@client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)$'))
 async def handle_group_command(event: events.NewMessage.Event):
-
     if event.is_private:
         return
 
+    fee = abs(int(event.pattern_match.group(2)))   # 第一个数字
+    n2 = int(event.pattern_match.group(3))   # 第二个数字
+
     cmd = event.pattern_match.group(1).lower()
-    fee = abs(int(event.pattern_match.group(2)))
+
 
     # 沒有对应指令就忽略
     if cmd not in COMMAND_RECEIVERS:

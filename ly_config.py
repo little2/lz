@@ -40,3 +40,7 @@ MYSQL_DB        = config.get('db_name', os.getenv('MYSQL_DB_NAME', ''))
 MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 META_BOT       = config.get('meta_bot', os.getenv('META_BOT', ''))
+
+COMMAND_RECEIVERS = os.getenv("COMMAND_RECEIVERS", "")
+# 从 COMMAND_RECEIVERS 抓出所有允许控制机器人的 ID
+ALLOWED_PRIVATE_IDS = set(COMMAND_RECEIVERS.values())

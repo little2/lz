@@ -28,15 +28,7 @@ client = TelegramClient(
 # ======== 业务参数 ========
 
 
-# 指令 → 指定接收者 user_id
-COMMAND_RECEIVERS = {
-    "hb": 7839868969,      # /hb → user_id 1234567890
-    "play": 7038631858,    # /play → user_id 5512987393
-    "gift": 7839868969,    # 你未来可新增其他指令
-}
 
-# 从 COMMAND_RECEIVERS 抓出所有允许控制机器人的 ID
-ALLOWED_PRIVATE_IDS = set(COMMAND_RECEIVERS.values())
 
 
 # ==================================================================

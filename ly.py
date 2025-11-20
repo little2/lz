@@ -29,6 +29,19 @@ client = TelegramClient(
 
 # ======== 业务参数 ========
 
+async def notify_command_receivers_on_start():
+    """
+    机器人启动后，向 COMMAND_RECEIVERS 里所有的 id 发送一条 '/start' 私讯。
+    """
+    # 用 ALLOWED_PRIVATE_IDS，刚好就是 COMMAND_RECEIVERS 的所有 value
+    for uid in ALLOWED_PRIVATE_IDS:
+        try:
+            await client.send_message(uid, "/start")
+            print(f"📨 已向 {uid} 发送 /start", flush=True)
+            # 轻微 delay，避免瞬间大量发送（虽然人数不多也没关系）
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"⚠️ 发送 /start 给 {uid} 失败: {e}", flush=True)
 
 
 
@@ -216,6 +229,8 @@ async def main():
     print(f"📱 Phone Number : {phone}")
     print("======================================", flush=True)
     # =====================================
+
+    await notify_command_receivers_on_start()
 
     print("📡 开始监听群组指令与私聊 JSON ...")
 

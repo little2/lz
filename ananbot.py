@@ -435,10 +435,10 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
     except Exception as e:
         print(f"❌ Error converting content_id to int: {e}", flush=True)
       
-    print(f"🔍 get_product_tpl start for content_id={content_id}", flush=True)
+    # print(f"🔍 get_product_tpl start for content_id={content_id}", flush=True)
     product_row = await get_product_info(content_id)
 
-    print(f"🔍 get_product_tpl for content_id={content_id}", flush=True)
+    # print(f"🔍 get_product_tpl for content_id={content_id}", flush=True)
 
     thumb_file_id = product_row.get("thumb_file_id") or ""
     preview_text = product_row.get("preview_text") or ""

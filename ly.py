@@ -37,6 +37,8 @@ async def notify_command_receivers_on_start():
     for uid in ALLOWED_PRIVATE_IDS:
         try:
             await client.send_message(uid, "/start")
+            await asyncio.sleep(0.5)
+            await client.send_message(uid, "hi")
             print(f"📨 已向 {uid} 发送 /start", flush=True)
             # 轻微 delay，避免瞬间大量发送（虽然人数不多也没关系）
             await asyncio.sleep(0.5)

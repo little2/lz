@@ -81,7 +81,7 @@ async def handle_group_command(event: events.NewMessage.Event):
         "sender_fee": -fee,    # 扣款
         "receiver_fee": fee,   # 加款
     }
-
+    MySQLPool.ensure_pool()
     result = await MySQLPool.transaction_log(transaction_data)
     # status = result.get("status")
     print(f"🔍 交易结果: {result}")
@@ -133,6 +133,7 @@ async def handle_private_json(event: events.NewMessage.Event):
     # --- 需求 2: 查交易 ---
     if "chatinfo" in data:
         chatinfo = data["chatinfo"]
+        MySQLPool.ensure_pool()
         row = await MySQLPool.find_transaction_by_description(chatinfo)
 
         await event.reply(json.dumps({

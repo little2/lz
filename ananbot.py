@@ -2225,6 +2225,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 # 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
     ids = await AnanBOTPool.fetch_review_status_content_ids(2,1)
+
     if not ids:
        return
     for content_id in ids:
@@ -2276,7 +2277,7 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
         # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
         if ret_chat is not None and ret_msg is not None:
             await bot.delete_message(chat_id=ret_chat, message_id=ret_msg)
-            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML")
+            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML", disable_web_page_preview=True)
             print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
     except Exception as e:
         logging.exception(f"‼️更新原审核消息按钮失败: {e}")
@@ -2931,13 +2932,14 @@ async def send_to_review_group(content_id: int, state: FSMContext, chat_id = REV
     preview_text = f"{preview_text} #未审核"
 
     try:
-        await bot.send_message(
+        result = await bot.send_message(
             chat_id=chat_id,
             text=preview_text,
             reply_markup=kb,
             message_thread_id=thread_id,  # 指定话题
             parse_mode="HTML"
         )
+        print(f"✅ 发送到审核群组成功: message_id={result}", flush=True)
         invalidate_cached_product(content_id)
         
         return True, None

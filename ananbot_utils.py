@@ -5,7 +5,7 @@ from ananbot_config import DB_CONFIG
 from utils.lybase_utils import LYBase
 from utils.string_utils import LZString
 from utils.prof import SegTimer
-
+import uuid
 import asyncio
 import pymysql
 from typing import Optional
@@ -632,6 +632,76 @@ class AnanBOTPool(LYBase):
             return {"id": row["id"], "price": row["price"],"content": row['content'],"file_type":row['file_type'],"anonymous_mode":row['anonymous_mode'],"review_status":row['review_status'],"owner_user_id":row['owner_user_id']} if row else None
         finally:
             await cls.release(conn, cur)
+
+
+    @classmethod
+    async def get_or_create_pending_product(cls, user_id: int) -> int:
+        """
+        若该 user 已有 review_status=0/1 的产品 → 直接回传 product.content_id
+        若无 → 新建 sora_content(file_type='album') 再建 product，回传 content_id
+        """
+        await cls.init_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 1) 查找是否已有未完成商品（review_status=0 or 1）
+            await cur.execute(
+                """
+                SELECT content_id
+                  FROM product
+                 WHERE owner_user_id=%s
+                   AND review_status IN (0,1)
+                 LIMIT 1
+                """,
+                (user_id,)
+            )
+            row = await cur.fetchone()
+            if row:
+                # 已存在未完成商品 → 直接回传
+                return int(row["content_id"])
+
+            # 2) 没有 → 新建 sora_content
+            # 生成随机不重复 source_id（长度 36）
+            source_id = uuid.uuid4().hex
+
+            await cur.execute(
+                """
+                INSERT INTO sora_content (source_id, file_type, owner_user_id, stage)
+                VALUES (%s, 'album', %s, 'pending')
+                """,
+                (source_id, user_id)
+            )
+
+            # 取得新 content_id
+            await cur.execute("SELECT LAST_INSERT_ID() AS cid")
+            row = await cur.fetchone()
+            if not row:
+                raise Exception("Failed to create sora_content")
+            content_id = int(row["cid"])
+
+            # 3) 建立 product（文件类型 album）
+            # await cls.create_product(content_id, name='', desc='', price=34, file_type='album', user_id=user_id)
+            await cur.execute(
+                """
+                INSERT INTO product
+                    (content_id, file_type, owner_user_id, review_status, price,stage)
+                VALUES
+                    (%s, 'album', %s, 0, 34,'pending')
+                """,
+                (content_id, user_id)
+            )
+
+            await conn.commit()
+            return content_id
+
+        except Exception:
+            try:
+                await conn.rollback()
+            except:
+                pass
+            raise
+        finally:
+            await cls.release(conn, cur)
+
 
     #要和 lz_db.py 作整合
     @classmethod

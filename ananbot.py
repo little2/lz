@@ -14,9 +14,11 @@ from aiogram.types import (
     InputMediaPhoto,
     BufferedInputFile,
 )
+
+from aiogram.exceptions import TelegramRetryAfter
 from utils.tpl import Tplate
 from aiogram.enums import ChatAction,ContentType
-from aiogram.filters import Command
+from aiogram.filters import Command,CommandObject
 
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
@@ -67,6 +69,8 @@ PRODUCT_INFO_CACHE_MAX = 100  # 新增：最多缓存条数
 product_review_url_cache: dict[int, str] = {}
 
 DEFAULT_THUMB_FILE_ID = ""
+
+COPY_SEM = asyncio.Semaphore(1)  # 强制串行；你也可以改成 2
 
 # ===== 举报类型：全域配置 =====
 REPORT_TYPES: dict[int, str] = {
@@ -1111,8 +1115,6 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
     album_cont_list = await get_list(content_id)  # 获取资源夹列表，更新状态
     caption_text = f"{album_cont_list}\n\n⚠️ 注意\r\n📂 资源夹 ( Folder ) 是一个最小完整单位，里面的文件必须成组存在，不能拆开。\r\n\r\n常见场景：\r\n(1)压缩包分卷 + 预览图 : <i>例如 许昌棋社.zip ,许昌棋社.z01 , 许昌棋社.z02</i>\r\n(2)同一场次的拍摄内容（套图/视频）<i>例如: IMG_0001.JPG , IMG_0002.JPG, IMG_0003.MOV , 这三个文档都是 06/19 日九哥和红领巾激战拍摄的视频及照片</i>\r\n\r\n 如果你要整理跨场次、相同主题的作品，请使用 📚 合集 (Collection)。\r\n\r\n📥 请直接传送资源进行添加或选择添加完成"
 
-   
-    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ 添加完成并回设定页", callback_data=f"done_add_items:{content_id}")]
     ])
@@ -1133,6 +1135,32 @@ async def handle_add_items(callback_query: CallbackQuery, state: FSMContext):
 
 
 
+media_idle_tasks: dict[int, asyncio.Task] = {}  # chat_id -> debounce task
+
+
+def restart_debounce(task_map: dict, key, delay: float, coro_factory):
+    """
+    通用滑动防抖（停手窗）：
+    - 相同 key 的旧任务取消
+    - 新任务 sleep(delay)
+    - delay 内如果又来新事件，外部会再次调用并重置计时
+    """
+    old = task_map.get(key)
+    if old and not old.done():
+        old.cancel()
+
+    async def _runner():
+        try:
+            await asyncio.sleep(delay)
+            await coro_factory()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            traceback.print_exc()
+
+    task_map[key] = asyncio.create_task(_runner())
+    return task_map[key]
+
 
 
 @dp.message(F.chat.type == "private", F.content_type.in_({
@@ -1152,7 +1180,6 @@ async def receive_album_media(message: Message, state: FSMContext):
     try:
         #这一步是放入内存缓冲区，而不是立即写数据库。
         meta = await Media.extract_metadata_from_message(message)
-
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
@@ -1161,13 +1188,18 @@ async def receive_album_media(message: Message, state: FSMContext):
 
     meta['content_id'] = content_id
 
+    # spawn_once(
+    #     f"copy_message:{message.message_id}",
+    #     lambda:lz_var.bot.copy_message(
+    #         chat_id=lz_var.x_man_bot_id,
+    #         from_chat_id=message.chat.id,
+    #         message_id=message.message_id
+    #     )
+    # )
+
     spawn_once(
         f"copy_message:{message.message_id}",
-        lambda:lz_var.bot.copy_message(
-            chat_id=lz_var.x_man_bot_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id
-        )
+        lambda: safe_copy_message(message)
     )
 
     # --- 管理提示任务 ---
@@ -1175,11 +1207,12 @@ async def receive_album_media(message: Message, state: FSMContext):
     has_prompt_sent[key] = False
 
     # 若已有旧任务，取消
-    old_task = media_upload_tasks.get(key)
-    if old_task and not old_task.done():
-        old_task.cancel()
-
-    # await message.delete()
+    restart_debounce(
+        media_upload_tasks,             # ✅ 原本就是这个 dict
+        key=key,
+        delay=COLLECTION_PROMPT_DELAY,  # ✅ 共用常量
+        coro_factory=lambda: delayed_finish_prompt(placeholder_msg_id)
+    )
 
     # 创建新任务（3秒内无动作才触发）
     async def delayed_finish_prompt(placeholder_msg_id):
@@ -1307,7 +1340,6 @@ async def receive_album_media(message: Message, state: FSMContext):
 
 
     # 存入新的 task
-    media_upload_tasks[key] = asyncio.create_task(delayed_finish_prompt(placeholder_msg_id))
 
 
 
@@ -1881,6 +1913,37 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
 ############
 #  投稿     
 ############
+
+@dp.message(F.chat.type == "private", Command("post"))
+async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
+    '''
+    先判断是否存在 product 是属于状况 0 或 1, 若有则直接引用
+    若没有，则创建
+    '''
+    content_id = await AnanBOTPool.get_or_create_pending_product(user_id=int(message.from_user.id))
+    if content_id:
+
+        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+        try:
+
+            await lz_var.bot.send_photo(
+                chat_id=message.chat.id,
+                photo=thumb_file_id,
+                caption=preview_text,
+                parse_mode="HTML",
+                reply_markup=preview_keyboard
+            )  
+
+
+        except Exception as e:
+            logging.exception(f"返回商品卡片失败: {e}")
+        
+       
+
+   
+
+
+
 @dp.callback_query(F.data.startswith("submit_product:"))
 async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext):
     try:
@@ -1986,7 +2049,6 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
             await callback_query.answer(f"⚠️ 发送失败：{error}", show_alert=True)
         else:
             await callback_query.answer("⚠️ 发送失败：未知错误", show_alert=True)
-
 
 
 @dp.callback_query(F.data.startswith("cancel_publish:"))
@@ -2801,8 +2863,42 @@ async def handle_search(message: Message, state: FSMContext):
             pass
    
 
+from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
 
-from aiogram.filters import CommandObject
+
+@dp.message(Command("setcommand"))
+async def handle_set_comment_command(message: Message, state: FSMContext):
+
+    await bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
+    await bot.delete_my_commands(scope=BotCommandScopeAllPrivateChats())
+    await bot.delete_my_commands(scope=BotCommandScopeDefault())
+
+
+    # await bot.set_my_commands(
+    #     commands=[
+    #         BotCommand(command="sos", description="求救(呼叫小龙阳)"),
+    #         BotCommand(command="award", description="打赏(回覆)"),
+    #     ],
+    #     scope=BotCommandScopeAllGroupChats()
+    # )
+    await bot.set_my_commands(
+        commands=[
+            BotCommand(command="s", description="使用搜索"),
+            BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
+            BotCommand(command="start", description="首页菜单"),
+            BotCommand(command="sub", description="订阅通知"),
+            BotCommand(command="me", description="查看积分"),
+            BotCommand(command="rank", description="排行"),
+            BotCommand(command="all", description="所有文件"),
+            BotCommand(command="like", description="收藏文件"),
+            BotCommand(command="migrate_code", description="获取迁移码")
+        ],
+        scope=BotCommandScopeAllPrivateChats()
+    )
+    print("✅ 已设置命令列表", flush=True)
+
+
+
 
 
 ############
@@ -2876,11 +2972,8 @@ async def cmd_postreview(message: Message, command: CommandObject, state: FSMCon
                 await message.answer("⚠️ 发送失败：未知错误")
 
 
-
-
-
-@dp.message(F.chat.type == "private", Command("post"))
-async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
+@dp.message(F.chat.type == "private", Command("send"))
+async def cmd_send(message: Message, command: CommandObject, state: FSMContext):
     """
     用法: /post [content_id]
     行为: 去到指定群组(含话题ID)贴一则“请审核”文字并附带按钮
@@ -4475,11 +4568,88 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
         from_chat_id=message.chat.id,
         message_id=message.message_id
     )
+    
     pass
+
+
+
+async def safe_copy_message(message: Message, max_retry: int = 8):
+    async with COPY_SEM:
+        for i in range(max_retry):
+            try:
+                # 先小睡一下，避免贴脸输出
+                await asyncio.sleep(1)
+
+                return await lz_var.bot.copy_message(
+                    chat_id=lz_var.x_man_bot_id,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
+
+            except TelegramRetryAfter as e:
+                wait_s = int(getattr(e, "retry_after", 5))
+                print(f"⚠️ Copy floodwait: retry after {wait_s}s (try {i+1}/{max_retry})", flush=True)
+                await asyncio.sleep(wait_s)
+
+            except Exception as e:
+                print(f"❌ safe_copy_message 失败: {e}", flush=True)
+                return None
+
+        print("❌ safe_copy_message 超过最大重试次数", flush=True)
+        return None
+
 
 
 @dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO, ContentType.ANIMATION}))
 async def handle_media(message: Message, state: FSMContext):
+    chat_id = message.chat.id
+
+    # 1) 第一个媒体就立刻发 placeholder（ensure_placeholder 会复用，不会重复发）
+    placeholder = await ensure_placeholder(message, state=state, bot=bot)
+    placeholder_msg_id = placeholder.message_id
+
+    # 2) 抽 meta + 入缓冲
+    try:
+        meta = await Media.extract_metadata_from_message(message)
+        _buffer_meta_for_batch(message, meta)
+    except Exception as e:
+        print(f"❌ 处理媒体信息失败(handle_media): {e}", flush=True)
+        return await message.answer("⚠️ 处理媒体信息失败，请稍后重试。")
+
+    # 3) 维持 copy 行为
+    # spawn_once(
+    #     f"copy_message:{message.message_id}",
+    #     lambda: lz_var.bot.copy_message(
+    #         chat_id=lz_var.x_man_bot_id,
+    #         from_chat_id=message.chat.id,
+    #         message_id=message.message_id
+    #     )
+    # )
+
+    spawn_once(
+        f"copy_message:{message.message_id}",
+        lambda: safe_copy_message(message)
+    )
+
+    # 4) 用 COLLECTION_PROMPT_DELAY 做滑动停手窗
+    restart_debounce(
+        media_idle_tasks,
+        key=chat_id,
+        delay=COLLECTION_PROMPT_DELAY,   # ✅ 共用常量
+        coro_factory=lambda: _handle_batch_upload_async(
+            message=message,
+            state=state,
+            meta=meta,  # 代表参数，真正 batch 从 _BATCH_BY_CHAT 取
+            placeholder_msg_id=placeholder_msg_id
+        )
+    )
+
+
+
+
+
+
+async def handle_media_old(message: Message, state: FSMContext):
 
     # 立即反馈：占位消息
     placeholder = await ensure_placeholder(message, state=state, bot=bot)
@@ -4487,20 +4657,24 @@ async def handle_media(message: Message, state: FSMContext):
     try:
         #这一步是放入内存缓冲区，而不是立即写数据库。
         meta = await Media.extract_metadata_from_message(message)
-
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
         print(f"❌ 处理媒体信息失败4621: {e}", flush=True)
         return await message.answer(f"⚠️ 处理媒体信息失败，请稍后重试。")
     
+    # spawn_once(
+    #     f"copy_message:{message.message_id}",
+    #     lambda:lz_var.bot.copy_message(
+    #         chat_id=lz_var.x_man_bot_id,
+    #         from_chat_id=message.chat.id,
+    #         message_id=message.message_id
+    #     )
+    # )
+
     spawn_once(
         f"copy_message:{message.message_id}",
-        lambda:lz_var.bot.copy_message(
-            chat_id=lz_var.x_man_bot_id,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id
-        )
+        lambda: safe_copy_message(message)
     )
 
 

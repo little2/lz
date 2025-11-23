@@ -3343,11 +3343,12 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:
-        warn = f"⚠️ 没有找到 ID 为 {content_id} 的 Sora 内容记录"
+        await sync_sora(content_id)
+        warn = f"⚠️ 正在同步中，请稍后再试一次 ( ID : {content_id} )"
         empty_file_info = [None, None, None, None]
         empty_purchase_info = [None, 0, None]
         return warn, empty_file_info, empty_purchase_info
-        # return f"⚠️ 没有找到 ID 为 {content_id} 的 Sora 内容记录"
+        
     
 
 

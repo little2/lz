@@ -1737,24 +1737,25 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
             return await callback_query.answer("...⚠️ 无法取得 source_id", show_alert=True)
 
         source_id = row["source_id"]
-        print(f"...🔍 取得 source_id: {source_id} for content_id: {content_id}", flush=True)
+        print(f"...🔍 1.取得 source_id: {source_id} for content_id: {content_id}", flush=True)
         bot_username = await get_bot_username()
         
         thumb_file_unique_id = None
         thumb_file_id = None
 
         # Step 2: 取得 thumb_file_unique_id
-        print(f"...🔍 查询缩图信息 for source_id: {source_id}", flush=True)
+        print(f"...🔍 2.查询缩图信息 for source_id: {source_id}", flush=True)
         thumb_row = await AnanBOTPool.get_bid_thumbnail_by_source_id(source_id)
-        print(f"...🔍 取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
+        print(f"...🔍 2.取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
         
         # 遍寻 thumb_row
         if thumb_row:
-            print(f"...🔍 取得缩图信息: {thumb_row} for source_id: {source_id}", flush=True)
+            print(f"...🔍 3.取得缩图信息: {thumb_row} for source_id: {source_id}", flush=True)
             for sub_row in thumb_row:
                 thumb_file_unique_id = sub_row["thumb_file_unique_id"]
-                print(f"...🔍 取得缩图 unique_id: {thumb_file_unique_id} for source_id: {source_id}", flush=True)
+                
                 if sub_row['bot_name'] == bot_username:   
+                    print(f"...🔍 3.1 取得缩图 unique_id: {thumb_file_unique_id} for source_id: {source_id}", flush=True)
                     thumb_file_id = sub_row["thumb_file_id"]
 
         if thumb_file_unique_id is None and thumb_file_id is None:

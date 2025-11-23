@@ -159,6 +159,7 @@ class ProductPreviewFSM(StatesGroup):
     waiting_for_anonymous_choice = State(state="product_preview:waiting_for_anonymous_choice")
     waiting_for_report_type = State(state="report:waiting_for_type")
     waiting_for_report_reason = State(state="report:waiting_for_reason")
+    waiting_for_password_input = State(state="product_preview:waiting_for_password_input")
 
 async def health(request):
     return web.Response(text="✅ Bot 正常运行", status=200)
@@ -283,27 +284,7 @@ async def make_product(callback_query: CallbackQuery, state: FSMContext):
     await make_product_folder(callback_query, state= state)
     return
 
-    print(f"callback_query = {callback_query.data}", flush=True)
-    parts = callback_query.data.split(":")
-    content_id, file_type, file_unique_id, user_id = parts[1], parts[2], parts[3], parts[4]
 
-    product_id = await AnanBOTPool.get_existing_product(content_id)
-    if not product_id:
-        print(f"🔍 make_product: 创建新产品 content_id={content_id}", flush=True)
-        row = await AnanBOTPool.get_sora_content_by_id(content_id)
-        print(f"🔍 sora_content row: {row}", flush=True)
-        if row["content"]:
-            content = row["content"]
-        else:
-            content = "请修改描述"
-        await AnanBOTPool.create_product(content_id, "默认商品", content, lz_var.default_point, file_type, user_id)
-    else:
-        print(f"product_id={product_id}")
-
-    thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(content_id)
-    await callback_query.message.delete()
-    new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
-    await update_product_preview(content_id, thumb_file_id, state, new_msg)
 
 
 @dp.callback_query(F.data.startswith("make_product_folder:"))
@@ -430,7 +411,7 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
 
 
 
-async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboardMarkup]:
+async def get_product_tpl(content_id: int | str, check_mode: bool | None = False) -> tuple[str, str, InlineKeyboardMarkup]:
 
     try:
         content_id = int(content_id)  # 兜底：/review 等场景传的是字符串
@@ -438,7 +419,7 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
         print(f"❌ Error converting content_id to int: {e}", flush=True)
       
     # print(f"🔍 get_product_tpl start for content_id={content_id}", flush=True)
-    product_row = await get_product_info(content_id)
+    product_row = await get_product_info(content_id, check_mode=check_mode)
 
     # print(f"🔍 get_product_tpl for content_id={content_id}", flush=True)
 
@@ -449,15 +430,16 @@ async def get_product_tpl(content_id: int | str) -> tuple[str, str, InlineKeyboa
     return thumb_file_id, preview_text, preview_keyboard
 
 
-async def get_product_info(content_id: int):
+async def get_product_info(content_id: int, check_mode: bool | None = False) -> dict:
     
     # 统一初始化，避免未赋值
     buttons: list[list[InlineKeyboardButton]] = []
 
     # 统一从工具函数取
-    cached = get_cached_product(content_id)
-    if cached is not None:
-        return cached
+    if not check_mode:
+        cached = get_cached_product(content_id)
+        if cached is not None:
+            return cached
 
     print(f"🔍 460:{content_id}", flush=True)
 
@@ -509,7 +491,7 @@ async def get_product_info(content_id: int):
 
     
 
-    preview_text = f"数据库ID:<code>{content_id}</code> <code>{file_unique_id}</code>"
+    preview_text = f"ID:<code>{content_id}</code> <code>{file_unique_id}</code>"
     
     if(product_info['content']  and product_info['content'].strip() != ''):
         preview_text += f"\n\n{LZString.shorten_text(product_info['content'],300)}"
@@ -526,6 +508,9 @@ async def get_product_info(content_id: int):
     # if review_status == 3 or review_status==4 or review_status==5:
     #     await AnanBOTPool.check_guild_manager(content_id)
 
+
+    if(product_info['file_password']  and product_info['file_password'].strip() != ''):
+        preview_text += f"\n\n🔐 密码: <code>{product_info['file_password']}</code>  (点选复制)"
 
     if review_status == 4:
 
@@ -551,7 +536,7 @@ async def get_product_info(content_id: int):
            
 
     
-    if review_status <= 3:
+    if review_status <= 3 or check_mode:
     
         if review_status <= 1:
             # 按钮列表构建
@@ -574,7 +559,7 @@ async def get_product_info(content_id: int):
                 InlineKeyboardButton(text="🔒 密码", callback_data=f"set_password:{content_id}")
             ])
 
-        if review_status == 0 or review_status == 1:
+        if review_status == 0 or review_status == 1 or check_mode:
             buttons.extend([
                 [
                     InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}"),
@@ -600,14 +585,9 @@ async def get_product_info(content_id: int):
                     InlineKeyboardButton(text="✅ 通过审核并写入", callback_data=f"approve_product:{content_id}:6"),
                     InlineKeyboardButton(text="❌ 拒绝投稿", callback_data=f"approve_product:{content_id}:1")
                 ]
-
-
-
-
             ])
             # 待审核
         elif review_status == 3:
-            
             buttons.extend([
                 [
                     InlineKeyboardButton(text="🏷️ 标签", callback_data=f"tag_full:{content_id}")
@@ -2011,7 +1991,7 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
 
     # 1) 更新 bid_status=1
     try:
-        affected = await AnanBOTPool.set_product_review_status(content_id, 2)
+        affected = await AnanBOTPool.sumbit_to_review_product(content_id, 2, int(callback_query.from_user.id))
         if affected == 0:
             return await callback_query.answer("⚠️ 未找到对应商品，提交失败", show_alert=True)
     except Exception as e:
@@ -2484,6 +2464,8 @@ async def _sync_pg(content_id:int):
         print(f"🔍 已同步 content_id={content_id} 到 PG 数据库", flush=True)
     except Exception as e:
         logging.exception(f"同步 content_id={content_id} 到 PG 失败: {e}")
+
+
 ############
 #  content     
 ############
@@ -2594,7 +2576,8 @@ async def receive_content_input(message: Message, state: FSMContext):
 
         # ✅ 7) 弹出字数
         length = len(content_text)
-        await message.answer(f"📏 内容字数：{length}")
+        msg = await message.answer(f"📏 内容字数：{length}")
+        await Media.auto_self_delete(msg, 5)
 
     finally:
         timer.end()
@@ -2609,6 +2592,149 @@ async def cancel_set_content(callback_query: CallbackQuery, state: FSMContext):
         media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
         reply_markup=preview_keyboard
     )
+
+
+############
+#  设置密码     
+############
+@dp.callback_query(F.data.startswith("set_password:"))
+async def handle_set_password(callback_query: CallbackQuery, state: FSMContext):
+    """
+    进入“设置密码”输入页
+    callback_data: set_password:{content_id}[:overwrite]
+    """
+    parts = callback_query.data.split(":")
+    try:
+        content_id = int(parts[1])
+        overwrite = int(parts[2]) if len(parts) >= 3 else 0
+    except Exception:
+        return await callback_query.answer("⚠️ 参数错误", show_alert=True)
+
+    # 取当前密码（如果你 product 表里有 password 字段就从那取）
+    bot_username = await get_bot_username()
+    product_info = await AnanBOTPool.search_sora_content_by_id(content_id, bot_username)
+    current_pwd = (product_info or {}).get("password", "") or ""
+
+    caption = (
+        f"<code>{current_pwd}</code>  (点选复制)\r\n\r\n"
+        "🔐 请输入资源的解压/访问密码"
+    )
+
+    cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="取消，不修改", callback_data=f"cancel_set_password:{content_id}")]
+    ])
+
+    try:
+        await callback_query.message.edit_caption(
+            caption=caption,
+            reply_markup=cancel_keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        print(f"⚠️ 设置密码 edit_caption 失败: {e}", flush=True)
+
+    await state.set_state(ProductPreviewFSM.waiting_for_password_input)
+    await state.set_data({
+        "content_id": content_id,
+        "chat_id": callback_query.message.chat.id,
+        "message_id": callback_query.message.message_id,
+        "overwrite": overwrite,
+    })
+
+    asyncio.create_task(
+        clear_password_input_timeout(
+            state, content_id,
+            callback_query.message.chat.id,
+            callback_query.message.message_id
+        )
+    )
+
+async def clear_password_input_timeout(state: FSMContext, content_id: int, chat_id: int, message_id: int):
+    await asyncio.sleep(INPUT_TIMEOUT)
+    if await state.get_state() == ProductPreviewFSM.waiting_for_password_input:
+        await state.clear()
+        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+        try:
+            await bot.edit_message_media(
+                chat_id=chat_id,
+                message_id=message_id,
+                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+                reply_markup=preview_keyboard
+            )
+        except Exception as e:
+            print(f"⚠️ 设置密码超时恢复失败: {e}", flush=True)
+
+
+@dp.message(F.chat.type == "private", ProductPreviewFSM.waiting_for_password_input, F.text)
+async def receive_password_input(message: Message, state: FSMContext):
+    timer = SegTimer("receive_password_input", content_id="unknown")
+    try:
+        password_text = message.text.strip()  # 允许空字串作为“清除”
+        data = await state.get_data()
+
+        content_id = data["content_id"]
+        chat_id = data["chat_id"]
+        message_id = data["message_id"]
+        overwrite = int(data.get("overwrite", 0))
+        user_id = message.from_user.id
+        timer.ctx["content_id"] = content_id
+
+        timer.lap("state.get_data")
+
+        # （可选）长度保护，避免奇怪的大段文本
+        if len(password_text) > 100:
+            await message.answer("⚠️ 密码太长啦（<=100字）")
+            return
+
+        # 1) DB 更新（你要在 AnanBOTPool 里实现）
+        await AnanBOTPool.update_product_password(
+            content_id=content_id,
+            password=password_text
+        )
+        timer.lap("update_product_password")
+
+        # 2) 删用户输入消息
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        timer.lap("message.delete")
+
+        # 3) 清 FSM
+        await state.clear()
+        timer.lap("state.clear")
+
+        # 4) 缓存失效
+        invalidate_cached_product(content_id)
+        timer.lap("invalidate_cached_product")
+
+        # 5) 回卡片
+        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+        timer.lap("get_product_tpl")
+
+        await bot.edit_message_media(
+            chat_id=chat_id,
+            message_id=message_id,
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+            reply_markup=preview_keyboard
+        )
+        timer.lap("edit_message_media")
+
+    except Exception as e:
+        print(f"❌ receive_password_input 失败: {e}", flush=True)
+    finally:
+        timer.end()
+
+@dp.callback_query(F.data.startswith("cancel_set_password:"))
+async def cancel_set_password(callback_query: CallbackQuery, state: FSMContext):
+    content_id = int(callback_query.data.split(":")[1])
+    await state.clear()
+    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    await callback_query.message.edit_media(
+        media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+        reply_markup=preview_keyboard
+    )
+    await callback_query.answer("已取消，不做修改")
 
 
 ############
@@ -2773,6 +2899,28 @@ async def handle_cancel_anonymous_choice(callback_query: CallbackQuery, state: F
 
 
 
+# —— /check 指令 —— 
+@dp.message(F.chat.type == "private", F.text.startswith("/check"))
+async def handle_review_command(message: Message, state:FSMContext):
+    """
+    用法: /check [content_id]
+    行为: 回覆 content_id 本身
+    """
+    parts = message.text.strip().split(maxsplit=1)
+   
+        # return await message.answer("❌ 使用格式: /review [content_id]")
+    
+    aes = AESCrypto(AES_KEY)
+    content_id_encode = parts[1]
+    content_id_str = aes.aes_decode(content_id_encode)
+    content_id = int(content_id_str)
+
+    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id, check_mode=True)
+    newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+    await update_product_preview(content_id, thumb_file_id, state , newsend)
+    # await message.answer(content_id)
+
+
 # —— /review 指令 —— 
 @dp.message(F.chat.type == "private", F.text.startswith("/review"))
 async def handle_review_command(message: Message, state:FSMContext):
@@ -2791,6 +2939,7 @@ async def handle_review_command(message: Message, state:FSMContext):
     
     newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
     # await message.answer(content_id)
+    await update_product_preview(content_id, thumb_file_id, state , newsend)
 
 
 @dp.message(Command("start"))
@@ -2804,7 +2953,7 @@ async def handle_search(message: Message, state: FSMContext):
         param = args[1].strip()
         parts = param.split("_")   
         if not parts:  # 空串情况
-            return await message.answer("❌ 无效的参数")
+            return await message.answer("❌ 无效的参数1")
         
 
     if parts[0] == "f" or parts[0] == "fix":
@@ -2812,7 +2961,7 @@ async def handle_search(message: Message, state: FSMContext):
             aes = AESCrypto(AES_KEY)
             kind_index = parts[1]
             if(kind_index != 'r'):
-                return await message.answer("❌ 无效的参数")
+                return await message.answer("❌ 无效的参数2")
             
             encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
             content_id_str = aes.aes_decode(encoded)
@@ -2827,8 +2976,7 @@ async def handle_search(message: Message, state: FSMContext):
     elif parts[0] == "s" or parts[0] == "suggest":
         try:
             file_unique_id = "_".join(parts[1:])  # 剩下的部分重新用 _ 拼接
-            await report_content(message.from_user.id, file_unique_id, state)
-          
+            await report_content(message.from_user.id, file_unique_id, state)       
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)
     elif parts[0] == "a" or parts[0] == "admin":
@@ -2844,14 +2992,14 @@ async def handle_search(message: Message, state: FSMContext):
             if(kind_index != '9'):
                 
                 print(f"⚠️ 无效的参数: {kind_index}", flush=True)
-                return await message.answer("❌ 无效的参数")
+                return await message.answer("❌ 无效的参数3")
             
             encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
             source_id_str = aes.aes_decode(encoded)
             decode_row = source_id_str.split("|")
 
             if(decode_row[0]!='p'):
-                return await message.answer("❌ 无效的参数2")
+                return await message.answer("❌ 无效的参数4")
 
             content_id = int(decode_row[1])
             
@@ -3200,8 +3348,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     # print(f"{product_row}", flush=True)
 
     product_info = product_row.get("product_info") or {}
-    # print(f"{content_id} -> {product_info['review_status']}", flush=True)
-    # thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+
     '''
     审核状态
     0   编辑中(投稿者)
@@ -3308,7 +3455,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
 
 
     # #先发资源
-    if not file_id:
+    if not file_id and file_type != "a" and file_type != "album":
         invalidate_cached_product(content_id)
         await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
         await Media.fetch_file_by_file_uid_from_x(state, source_id, 10)
@@ -3346,9 +3493,9 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
     # spawn_once(f"sync_bid_product:{content_id}", lambda:AnanBOTPool.sync_bid_product())
     
 
-    if file_id :
+    if file_id or (file_type == "a" or file_type == "album"):
         try:
-            # print(f"{file_type}")
+            print(f"{file_type}")
             if file_type == "photo" or file_type == "p":
                 await bot.send_photo(chat_id=user_id, photo=file_id)
             elif file_type == "video" or file_type == "v":
@@ -3361,7 +3508,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
                 rows = await AnanBOTPool.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
                
                 productInfomation = await build_product_material(rows)
-               
+                print(f"发送相册 {productInfomation}")
                 await Media.send_media_group(callback_query, productInfomation, 1, content_id, source_id)
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问(3098): {e}")

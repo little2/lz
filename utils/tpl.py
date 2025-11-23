@@ -100,7 +100,11 @@ class Tplate:
             duration = row.get("duration", 0)
             file_name = row.get("file_name", "")
 
-            total_size = total_size + int(file_size)
+            if file_size!= None:
+                total_size = total_size + int(file_size)    
+            else:
+                total_size = 0
+                file_size = 0
 
             if duration!= None:
                 total_duration = total_duration + int(duration)

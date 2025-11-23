@@ -278,6 +278,13 @@ class Media:
                     return {'ok':False,'message':'发送媒体组失败，请稍后再试'}
 
                 
+                box_dict = material_status.get("box", {})  # dict: {1:{...}, 2:{...}}
+                # 盒子数量（组数）
+                box_quantity = len(box_dict)  
+                if ( box_quantity <= 1):
+                    await callback.answer()
+                    return
+
 
                 msg = callback.message
                 kb = msg.reply_markup
@@ -371,6 +378,14 @@ class Media:
                 # 可选：给个轻量反馈，去掉“加载中”状态
                 await callback.answer()
 
+    @classmethod
+    async def auto_self_delete(cls, message, delay_seconds: int = 5):
+        try:
+            await asyncio.sleep(delay_seconds)
+            await message.delete()
+        except Exception:
+            pass
+        
 
 
     @classmethod

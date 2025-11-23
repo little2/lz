@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from lz_memory_cache import MemoryCache
 import lz_var
 import asyncio
+from utils.prof import SegTimer
 
 class MySQLPool:
     _pool = None
@@ -79,10 +80,12 @@ class MySQLPool:
     #需要和 lyase_utils.py 整合
     @classmethod
     async def transaction_log(cls, transaction_data):
-       
+        timer = SegTimer("transaction_log", content_id="unknown")
 
+        timer.lap("get_conn_cursor")
         conn, cur = await cls.get_conn_cursor()
-        print(f"🔍 处理交易记录: {transaction_data}")
+        timer.lap("get_conn_cursor-END")
+        # print(f"🔍 处理交易记录: {transaction_data}")
 
         user_info_row = None
 
@@ -112,11 +115,15 @@ class MySQLPool:
             where_sql = ' AND '.join(where_clauses)
 
             # 查询是否已有相同记录
+            timer.lap("查询是否已有相同记录")
+
             await cur.execute(f"""
                 SELECT transaction_id FROM transaction
                 WHERE {where_sql}
                 LIMIT 1
             """, params)
+
+            timer.lap("查询是否已有相同记录END")
 
             transaction_result = await cur.fetchone()
 
@@ -130,7 +137,7 @@ class MySQLPool:
             # 更新 sender point
             if transaction_data.get('sender_id', '') != '':
 
-            
+                timer.lap("user_info_row")
                 try:
                     await cur.execute("""
                         SELECT * 
@@ -173,6 +180,8 @@ class MySQLPool:
             insert_columns = ', '.join(transaction_data.keys())
             insert_placeholders = ', '.join(['%s'] * len(transaction_data))
             insert_values = list(transaction_data.values())
+
+            timer.lap("INSERT")
 
             await cur.execute(f"""
                 INSERT INTO transaction ({insert_columns})
@@ -250,7 +259,7 @@ class MySQLPool:
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
                 LEFT JOIN product p ON s.id = p.content_id
                 LEFT JOIN guild g ON p.guild_id = g.guild_id
-                WHERE s.id = %s AND s.valid_state != 4 ORDER BY s.id DESC
+                WHERE s.id = %s  ORDER BY s.id DESC
                 '''
             , (lz_var.bot_username, content_id))
             row = await cursor.fetchone()

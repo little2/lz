@@ -324,8 +324,10 @@ class PGPool:
                 owner_user_id = mysql_row.get("owner_user_id")
                 stage = mysql_row.get("stage", "updated")
                 plan_update_timestamp = mysql_row.get("plan_update_timestamp")
+                
                 thumb_hash = mysql_row.get("thumb_hash")
                 valid_state = mysql_row.get("valid_state", 1)
+                file_password = mysql_row.get("file_password", "").strip()
 
                 # content_seg：同义词替换 + jieba 分词（与检索一致）
                 norm = cls.replace_synonym(content)
@@ -336,12 +338,12 @@ class PGPool:
                         id, source_id, file_type, content, content_seg,
                         file_size, duration, tag,
                         thumb_file_unique_id, owner_user_id, stage,
-                        plan_update_timestamp, thumb_hash, valid_state
+                        plan_update_timestamp, thumb_hash, valid_state, file_password
                     ) VALUES (
                         $1, $2, $3, $4, $5,
                         $6, $7, $8,
                         $9, $10, $11,
-                        $12, $13, $14
+                        $12, $13, $14, $15
                     )
                     ON CONFLICT (id)
                     DO UPDATE SET
@@ -364,7 +366,8 @@ class PGPool:
                         stage = 'pending',
                         plan_update_timestamp= EXCLUDED.plan_update_timestamp,
                         thumb_hash           = EXCLUDED.thumb_hash,
-                        valid_state          = EXCLUDED.valid_state
+                        valid_state          = EXCLUDED.valid_state,
+                        file_password        = EXCLUDED.file_password
                         
                 """
                 tag_ret1 = await conn.execute(
@@ -372,7 +375,7 @@ class PGPool:
                     content_id, source_id, file_type, content, content_seg,
                     file_size, duration, tag,
                     thumb_file_unique_id, owner_user_id, stage,
-                    plan_update_timestamp, thumb_hash, valid_state
+                    plan_update_timestamp, thumb_hash, valid_state, file_password
                 )
                 try:
                     affected1 = int(tag_ret1.split()[-1])

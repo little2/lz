@@ -16,7 +16,7 @@ from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, Telegram
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
- 
+from utils.prof import SegTimer
 from aiogram.types import (
     Message,
     BufferedInputFile,
@@ -212,7 +212,7 @@ async def _edit_caption_or_text(
         if media_attr:
             # ——————————— 有媒体的情况 ———————————
             if photo:
-                print(f"‼️ 编辑消息，换图 + caption {chat_id} {message_id}", flush=True)
+                # print(f"‼️ 编辑消息，换图 + caption {chat_id} {message_id}", flush=True)
                 # 明确要换图：用传入的 photo
                 current_message = await lz_var.bot.edit_message_media(
                     chat_id=chat_id,
@@ -1128,7 +1128,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
 
             try:
-                caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤㅤ." 
+                caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤ." 
                 if parts[0]!="f" and current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
                     try:
                         
@@ -1177,17 +1177,24 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 # //
   
 
+            
+            content_id = int(content_id_str)  # ✅ 关键修正
+            print(f"🔍 1148-解码得到 content_id: {content_id}", flush=True)
             try:
-                content_id = int(content_id_str)  # ✅ 关键修正
-                print(f"🔍 1148-解码得到 content_id: {content_id}", flush=True)
                 if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                     product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])
+                   
             except Exception as e:
+               
                 # tb = traceback.format_exc()
                 await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
-                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 print(f"❌ 解密失败C：{e}", flush=True)
-                await sync_sora(content_id)
+                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                try:
+                    await sync_sora(content_id)
+                except Exception as e2:
+                    print(f"❌ 解密失败D：{e2}", flush=True)
+                
                 return
 
             try:
@@ -1320,6 +1327,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     # })
     # print(f"_build_product_info: {content_id}, {search_key_index}, {search_from}, {current_pos}", flush=True)
     # ✅ 调用并解包返回的三个值
+    
     result_sora = await load_sora_content_by_id(content_id, state, search_key_index, search_from)
     
     ret_content, file_info, purchase_info = result_sora
@@ -1369,7 +1377,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     
     
    
-    if file_id:
+    if file_id or file_type in ['album', 'a']:
         resource_icon = "💎"
     else:
         resource_icon = "🔄"
@@ -2616,11 +2624,14 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
+
     content_id = callback.data.split(":")[1]
     redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None
 
     result = await load_sora_content_by_id(int(content_id), state)
     # print("Returned==>:", result)
+
+    
 
     ret_content, file_info, purchase_info = result
     source_id = file_info[0] if len(file_info) > 0 else None
@@ -2634,14 +2645,18 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     reply_text = ''
     answer_text = ''
     
+    if ret_content.startswith("⚠️"):
+        await callback.answer(ret_content, parse_mode="HTML")
+        return
+
     if purchase_condition is not None:
         await callback.answer(f"⚠️ 该资源请到专属的机器人兑换", show_alert=True)
         return
 
 
-    if not file_id:
+    if not file_id and (file_type != 'a' and file_type !='album') :
         print("❌ 没有找到匹配记录 source_id")
-        await callback.answer("👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。", show_alert=True)
+        await callback.answer(f"👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。{file_type}", show_alert=True)
         # await callback.message.reply("👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。")
         # await lz_var.bot.delete_message(
         #     chat_id=callback.message.chat.id,
@@ -2661,8 +2676,9 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             return datetime.fromtimestamp(int(ts), tz).strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             return str(ts)
-
+    
     expire_ts = await db.get_latest_membership_expire(from_user_id)
+   
     now_utc = int(datetime.now(timezone.utc).timestamp())
 
     # 统一在会员判断之后再计算费用
@@ -2684,7 +2700,14 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
             )],
         ])
-        await callback.message.reply(text, reply_markup=kb)
+        notify_msg = await callback.message.reply(text, reply_markup=kb)
+        
+        spawn_once(
+            f"notify_msg:{notify_msg.message_id}",
+            lambda: Media.auto_self_delete(notify_msg, 7)
+        )
+
+       
         
         if( redeem_type == 'xlj'):
             await callback.answer()
@@ -2704,20 +2727,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
             )],
         ])
-        msg = await callback.message.reply(text, reply_markup=kb)
-        
-        # 在当前函数中定义一个局部异步任务（不污染全局）
-        async def _del_after_delay():
-            await asyncio.sleep(7)
-            try:
-                await msg.delete()
-            except Exception as e:
-                print(f"⚠️ 删除消息失败: {e}", flush=True)
+        notify_msg = await callback.message.reply(text, reply_markup=kb)
+       
 
-        # 启动异步任务，不阻塞主逻辑
-        asyncio.create_task(_del_after_delay())
-
-
+        spawn_once(
+            f"notify_msg:{notify_msg.message_id}",
+            lambda: Media.auto_self_delete(notify_msg, 7)
+        )
 
         if( redeem_type == 'xlj'):
             await callback.answer()
@@ -2741,9 +2757,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
     
 
-    await MySQLPool.ensure_pool()
-
-
+    timer = SegTimer("menu", content_id="unknown")
+    timer.lap("开始交易记录")
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': receiver_id,
@@ -2752,8 +2767,9 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         'sender_fee': sender_fee,
         'receiver_fee': receiver_fee
     })
+    timer.lap("结束")
 
-
+    
 
 
 
@@ -2770,6 +2786,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         user_point = int(user_info.get('point') or 0)
     except (TypeError, ValueError):
         user_point = 0
+
+
 
     print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
 
@@ -2796,6 +2814,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             encoded = aes.aes_encode(content_id)
 
             try:
+                timer.lap("交易通知")
                 #  $group_text = "<a href='tg://user?id=" . $user_info['id'] . "'>" . $user_title . "</a>";
                 receiver_fullname = await MySQLPool.get_user_name(receiver_id)
                 sender_fullname = await MySQLPool.get_user_name(from_user_id)
@@ -2810,6 +2829,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                     text=notice_text,
                     disable_web_page_preview=True
                 )
+               
             except Exception as e:
                 print(f"❌ 发送兑换通知失败: {e}", flush=True)
 
@@ -2824,7 +2844,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         if lz_var.UPLOADER_BOT_NAME and source_id:
             feedback_kb = InlineKeyboardMarkup(inline_keyboard=[[
                 InlineKeyboardButton(
-                    text="⚠️ 反馈内容",
+                    text="⚠️ 举报内容",
                     url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
                 )
             ]])
@@ -2836,54 +2856,27 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 send_content_kwargs["reply_to_message_id"] = callback.message.message_id
 
             if file_type == "album" or file_type == "a":
-                
+               
                 productInfomation = await get_product_material(content_id)
                 if not productInfomation:
-                     await callback.answer(f"资源同步中，请稍等一下再试，请看看别的资源吧 {content_id}", show_alert=True)
+                     await callback.answer(f"资源同步中，请稍等一下再试，请先看看别的资源吧 {content_id}", show_alert=True)
                      return   
-                # else:
-                #     print(f"1892=>{productInfomation}")
+
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id)
-                #return {'ok':False,'message':'资源同步中，请稍后再试，请看看别的资源吧'}
-                if not result.get('ok'):
+                
+                
+                if result and not result.get('ok'):
                     await callback.answer(result.get('message'), show_alert=True)
                     return
-
-                    
-            elif file_type == "photo" or file_type == "p":
-
-              
-               
+            elif file_type == "photo" or file_type == "p":  
                 send_content_kwargs["photo"] = file_id
                 sr = await lz_var.bot.send_photo(**send_content_kwargs)
-
-                # await lz_var.bot.send_photo(
-                #     chat_id=from_user_id,
-                #     photo=file_id,
-                #     reply_to_message_id=callback.message.message_id,
-                #     reply_markup=feedback_kb
-                # )
             elif file_type == "video" or file_type == "v":
                 send_content_kwargs["video"] = file_id
                 sr = await lz_var.bot.send_video(**send_content_kwargs)
-
-
-                # await lz_var.bot.send_video(
-                #     chat_id=from_user_id,
-                #     video=file_id,
-                #     reply_to_message_id=callback.message.message_id,
-                #     reply_markup=feedback_kb
-                # )
             elif file_type == "document" or file_type == "d":
                 send_content_kwargs["document"] = file_id
                 sr = await lz_var.bot.send_document(**send_content_kwargs)
-
-                # await lz_var.bot.send_document(
-                #     chat_id=from_user_id,
-                #     document=file_id,
-                #     reply_to_message_id=callback.message.message_id,
-                #     reply_markup=feedback_kb
-                # )
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问(2886): {e}")
 
@@ -3151,6 +3144,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     record = await db.search_sora_content_by_id(content_id)
     # print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
+       
          # 取出字段，并做基本安全处理
         fee = record.get('fee', lz_var.default_point)
         if fee is None or fee < 0:
@@ -3185,7 +3179,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 lambda: Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
             )
 
-            # thumb_file_id = await Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
+           
             # 设置当下要获取的 thumb 是什么,若从背景取得图片时，可以直接更新 (fetch_thumb_file_unique_id 且 menu_message 存在)
             # state_data = await state.get_data()
             # menu_message = state_data.get("menu_message")
@@ -3200,9 +3194,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             else:
                 print("❌ menu_message 不存在，无法设置 fetch_thumb_file_unique_id")
             
-            # print(f"🔍 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
-            # spawn_once(f"thumb_file_unique_id:{thumb_file_unique_id}", Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10))
-            
+    
         if not thumb_file_id:
             print("❌ 在延展库没有，用预设图")
             
@@ -3236,6 +3228,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                         print(f"✅ 取到的 thumb_file_id: {thumb_file_id}")
                     # 处理找不到的情况
                     
+       
         list_text = ''
 
         if content:
@@ -3244,12 +3237,19 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 
         if product_type == "album" or product_type == "a":
             
-            results = await db.get_album_list(content_id, lz_var.bot_username)
-            list_text = await Tplate.list_template(results)
-            content = content +  "\r\n" + list_text['opt_text'] 
+            try:
+                results = await db.get_album_list(content_id, lz_var.bot_username)
+                
+                list_text = await Tplate.list_template(results)
+                content = content +  "\r\n" + list_text['opt_text'] 
+            except Exception as e:
+                print(f"❌ 载入相册列表内容失败: {e}")
+                #列出出错的行数
+                traceback.print_exc()
+                content = content +  "\r\n" + "⚠️ 相册内容加载失败，请稍后再试。"
             
             
-                      
+        print("🔍 处理标签和内容长度")          
 
 
         ret_content = ""
@@ -3282,7 +3282,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 
 
         if search_key_index:
-            
+            print(f"🔍 载入搜索附加信息: {search_key_index} from {search_from}")
             if search_from == "cm" or search_from == "cf":
                 
                 clt_info = await MySQLPool.get_user_collection_by_id(collection_id=int(search_key_index))
@@ -3298,10 +3298,10 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if ret_content:
             tag_length = len(ret_content)
     
-
-        if not file_id and source_id:
+        print(F"标签长度 {tag_length}", flush=True)
+        if not file_id and source_id and (file_type != 'a' and file_type !='album') :
             # 不阻塞：丢到后台做补拉
-            # spawn_once(f"fild_id:{source_id}", Media.fetch_file_by_file_uid_from_x(state, source_id, 10))
+       
             spawn_once(
                 f"fild_id:{source_id}",
                 lambda: Media.fetch_file_by_file_uid_from_x(state, source_id, 10 )
@@ -3317,7 +3317,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         # 计算可用空间
         available_content_length = max_total_length - tag_length - 50  # 预留额外描述字符
         
-       
+        print(f"长度 {available_content_length}", flush=True)
         # print(f"长度 {available_content_length}")
 
 
@@ -3343,7 +3343,12 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:
-        return f"⚠️ 没有找到 ID 为 {content_id} 的 Sora 内容记录"
+        await sync_sora(content_id)
+        warn = f"⚠️ 正在同步中，请稍后再试一次 ( ID : {content_id} )"
+        empty_file_info = [None, None, None, None]
+        empty_purchase_info = [None, 0, None]
+        return warn, empty_file_info, empty_purchase_info
+        
     
 
 

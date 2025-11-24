@@ -5,7 +5,7 @@ from ananbot_config import DB_CONFIG
 from utils.lybase_utils import LYBase
 from utils.string_utils import LZString
 from utils.prof import SegTimer
-
+import uuid
 import asyncio
 import pymysql
 from typing import Optional
@@ -567,6 +567,46 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
 
+    @classmethod
+    async def update_product_password(cls, content_id: int, password: str, user_id: int = 0, overwrite: int = 0):
+        """
+        更新 sora_content.file_password
+        - password: 字符串（允许空 => 清除密码）
+        - overwrite: 保留参数结构与 update_product_content 一致（暂时不需要处理媒体表）
+        """
+        timer = SegTimer("update_product_password", content_id=content_id, overwrite=int(overwrite))
+
+        try:
+            await cls.init_pool()
+            async with cls._pool.acquire() as conn:
+                async with conn.cursor() as cur:
+                    timer.lap("acquire_conn_and_cursor")
+
+                    # 这里不需要像 update_product_content 那样处理媒体表 caption，
+                    # 只需更新 sora_content.file_password。
+                    await cur.execute(
+                        """
+                        UPDATE sora_content
+                           SET file_password = %s,
+                               stage         = 'pending'
+                         WHERE id = %s
+                        """,
+                        (password, content_id)
+                    )
+                    timer.lap("update_sora_content_password")
+
+                await conn.commit()
+                timer.lap("commit")
+
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            print(f"[update_product_password] ERROR: {e}", flush=True)
+            raise
+        finally:
+            timer.end()
 
 
     @classmethod
@@ -633,6 +673,78 @@ class AnanBOTPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+
+    @classmethod
+    async def get_or_create_pending_product(cls, user_id: int) -> int:
+        """
+        若该 user 已有 review_status=0/1 的产品 → 直接回传 product.content_id
+        若无 → 新建 sora_content(file_type='album') 再建 product，回传 content_id
+        """
+        await cls.init_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 1) 查找是否已有未完成商品（review_status=0 or 1）
+            await cur.execute(
+                """
+                SELECT content_id
+                  FROM product
+                 WHERE owner_user_id=%s
+                   AND review_status IN (0,1)
+                 LIMIT 1
+                """,
+                (user_id,)
+            )
+            row = await cur.fetchone()
+            if row:
+                # 已存在未完成商品 → 直接回传
+                return int(row["content_id"])
+
+            # 2) 没有 → 新建 sora_content
+            # 生成随机不重复 source_id（长度 36）
+            source_id = uuid.uuid4().hex
+            # 只取前28个字符，避免过长
+            source_id = f"X_{source_id[:27]}"
+
+            await cur.execute(
+                """
+                INSERT INTO sora_content (source_id, file_type, owner_user_id, stage)
+                VALUES (%s, 'album', %s, 'pending')
+                """,
+                (source_id, user_id)
+            )
+
+            # 取得新 content_id
+            await cur.execute("SELECT LAST_INSERT_ID() AS cid")
+            row = await cur.fetchone()
+            if not row:
+                raise Exception("Failed to create sora_content")
+            content_id = int(row["cid"])
+
+            # 3) 建立 product（文件类型 album）
+            # await cls.create_product(content_id, name='', desc='', price=34, file_type='album', user_id=user_id)
+            await cur.execute(
+                """
+                INSERT INTO product
+                    (content_id, file_type, owner_user_id, review_status, price,stage)
+                VALUES
+                    (%s, 'album', %s, 0, 34,'pending')
+                """,
+                (content_id, user_id)
+            )
+
+            await conn.commit()
+            return content_id
+
+        except Exception:
+            try:
+                await conn.rollback()
+            except:
+                pass
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
     #要和 lz_db.py 作整合
     @classmethod
     async def search_sora_content_by_id(cls, content_id: int,bot_username: str):
@@ -647,7 +759,7 @@ class AnanBOTPool(LYBase):
         try:
             await cursor.execute('''
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
-                    s.thumb_file_unique_id,
+                    s.thumb_file_unique_id, s.file_password,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
                     p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status, p.anonymous_mode, p.id as product_id,
                     g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id, g.guild_chat_id, g.guild_thread_id
@@ -1254,8 +1366,6 @@ class AnanBOTPool(LYBase):
         if members:
             await cls.insert_album_items_bulk(content_id, members)
 
-
-
     @classmethod
     async def get_tags_for_file(cls, file_unique_id: str) -> list[str]:
         async with cls._pool.acquire() as conn:
@@ -1564,6 +1674,8 @@ class AnanBOTPool(LYBase):
 
     
 
+
+
     @classmethod
     async def get_product_review_status(cls, content_id: int) -> int | None:
         """
@@ -1621,6 +1733,33 @@ class AnanBOTPool(LYBase):
             return affected
         finally:
             await cls.release(conn, cur)
+
+
+    @classmethod
+    async def sumbit_to_review_product(cls, content_id: int, review_status:int, owner_user_id: int) -> int:
+        """
+        将 product.review_status 设为指定值（默认 1），返回受影响行数。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                UPDATE product
+                   SET review_status=%s,
+                       updated_at=NOW(), 
+                       	owner_user_id = %s,
+                       stage='pending'
+                 WHERE content_id=%s
+                """,
+                (review_status, owner_user_id, content_id)
+            )
+            affected = cur.rowcount
+            await conn.commit()
+            return affected
+        finally:
+            await cls.release(conn, cur)
+
+
 
     @classmethod
     async def refine_product_content(cls, content_id: int) -> bool:

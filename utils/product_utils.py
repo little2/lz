@@ -319,7 +319,7 @@ async def sync_sora(content_id: int):
 
     # 1) 拉 MySQL 源数据
     mysql_row = await MySQLPool.search_sora_content_by_id(int(content_id))
-    print(f"[sync_sora_content] MySQL row = {mysql_row} for content_id={content_id}", flush=True)
+    print(f"01[sync_sora_content] MySQL row = {mysql_row} for content_id={content_id}", flush=True)
 
     # 2) 先做 PG 端 UPSERT
     upsert_count = 0
@@ -328,7 +328,12 @@ async def sync_sora(content_id: int):
     print(f"[upsert_sora] Upsert to PG = {upsert_count}", flush=True)
 
     # 3) Album 相关的同步
-    album_sync_summary = await sync_album_items(content_id)
+    try:
+        album_sync_summary = await sync_album_items(content_id)
+    except Exception as e:
+        print(f"[sync_sora] sync_album_items error: {e}", flush=True)
+        album_sync_summary = None
+    
 
 
 

@@ -1,24 +1,31 @@
 import asyncio
 import json
 import os
+from datetime import datetime
+
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from aiohttp import web
+
 from lz_mysql import MySQLPool
 
-# ======== 载入环境参数 ========
+from pg_stats_db import PGStatsDB
+from group_stats_tracker import GroupStatsTracker
+
+# ======== 载入配置 ========
 from ly_config import (
     API_ID,
     API_HASH,
     SESSION_STRING,
     COMMAND_RECEIVERS,
-    ALLOWED_PRIVATE_IDS
+    ALLOWED_PRIVATE_IDS,
+    ALLOWED_GROUP_IDS,
+    PG_DSN,
+    PG_MIN_SIZE,
+    PG_MAX_SIZE,
+    STAT_FLUSH_INTERVAL,
+    STAT_FLUSH_BATCH_SIZE
 )
-
-"""
-本版本只使用 SESSION_STRING 登录。
-不再使用 USER_SESSION、本地文件 session、PHONE_NUMBER 等。
-"""
 
 # ======== Telethon 启动方式 ========
 client = TelegramClient(
@@ -27,222 +34,174 @@ client = TelegramClient(
     api_hash=API_HASH
 )
 
-# ======== 业务参数 ========
+# ======== 设置群组发言统计（class classmethod 风格） ========
+GroupStatsTracker.configure(
+    client,
+    flush_interval=STAT_FLUSH_INTERVAL,
+    flush_batch_size=STAT_FLUSH_BATCH_SIZE
+)
+
 
 async def notify_command_receivers_on_start():
-    """
-    机器人启动后，向 COMMAND_RECEIVERS 里所有的 id 发送一条 '/start' 私讯。
-    """
-    # 用 ALLOWED_PRIVATE_IDS，刚好就是 COMMAND_RECEIVERS 的所有 value
     for uid in ALLOWED_PRIVATE_IDS:
         try:
             await client.send_message(uid, "/start")
             await asyncio.sleep(0.5)
             await client.send_message(uid, "hi")
             print(f"📨 已向 {uid} 发送 /start", flush=True)
-            # 轻微 delay，避免瞬间大量发送（虽然人数不多也没关系）
-            await asyncio.sleep(0.5)
         except Exception as e:
             print(f"⚠️ 发送 /start 给 {uid} 失败: {e}", flush=True)
 
 
-
-
 # ==================================================================
-# 1) 群组指令: /hb [fee]  或  /play [fee]
+# 指令 /hb fee n2
 # ==================================================================
-@client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)$'))
-async def handle_group_command(event: events.NewMessage.Event):
+@client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$'))
+async def handle_group_command(event):
     if event.is_private:
         return
 
-    fee = abs(int(event.pattern_match.group(2)))   # 第一个数字
-    n2 = int(event.pattern_match.group(3))   # 第二个数字
-
     cmd = event.pattern_match.group(1).lower()
+    fee = abs(int(event.pattern_match.group(2)))
+    n2 = int(event.pattern_match.group(3))
+    extra_text = event.pattern_match.group(4)  # 可选，可为 None
 
-
-    # 沒有对应指令就忽略
     if cmd not in COMMAND_RECEIVERS:
         return
 
     receiver_id = COMMAND_RECEIVERS[cmd]
-
     sender_id = event.sender_id
     chat_id = event.chat_id
-    message_id = event.id
+    msg_id = event.id
 
-    # sender_fee 一律扣分 → 使用负值
+
+    # ====== 新增：群组白名单过滤 ======
+    if chat_id not in ALLOWED_GROUP_IDS:
+        # 不在白名单 → 直接忽略，不处理、不回覆
+        return
+    # =================================
+
     transaction_data = {
         "sender_id": sender_id,
         "receiver_id": receiver_id,
         "transaction_type": cmd,
-        "transaction_description": f"{chat_id}_{message_id}",
-        "sender_fee": -fee,    # 扣款
-        "receiver_fee": fee,   # 加款
+        "transaction_description": f"{chat_id}_{msg_id}",
+        "sender_fee": -fee,
+        "receiver_fee": fee,
     }
+
     MySQLPool.ensure_pool()
     result = await MySQLPool.transaction_log(transaction_data)
-    # status = result.get("status")
-    print(f"🔍 交易结果: {result}")
-   
+    print("🔍 交易结果:", result)
 
     if result.get("ok") == "1":
         await event.reply(
-            f"✅ 交易成功\n"
-            f"指令: /{cmd}\n"
-            f"扣分: {fee}\n"
-            f"接收者: {receiver_id}\n"
-            f"记录: {chat_id}_{message_id}\n"
-           
+            f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id}"
         )
     else:
-        await event.reply(f"⚠️ 交易失败")
+        await event.reply("⚠️ 交易失败")
 
 
 # ==================================================================
-# 2 & 3) 私聊 JSON：检查交易 or 创建 payment
+# 私聊 JSON 处理
 # ==================================================================
 @client.on(events.NewMessage)
-async def handle_private_json(event: events.NewMessage.Event):
-
+async def handle_private_json(event):
     if not event.is_private:
         return
 
-    text = event.raw_text.strip()
-
-    # ====== 新增：私信 /hello ======
-    if text == "/hello":
+    if event.raw_text.strip() == "/hello":
         await event.reply("hi")
         return
-    # =================================
 
-
-    # ❗只有列在 COMMAND_RECEIVERS 的 user_id 才能私信控制
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
         return
 
     # 尝试解析 JSON
     try:
-        data = json.loads(event.raw_text.strip())
+        data = json.loads(event.raw_text)
         if not isinstance(data, dict):
             return
     except Exception:
         return
-
-    # --- 需求 2: 查交易 ---
-    if "chatinfo" in data:
-        chatinfo = data["chatinfo"]
-        MySQLPool.ensure_pool()
-        row = await MySQLPool.find_transaction_by_description(chatinfo)
-
+    
+    MySQLPool.ensure_pool()
+    # === 查交易 ===
+    if "chatinfo" in data:    
+        row = await MySQLPool.find_transaction_by_description(data["chatinfo"])
         await event.reply(json.dumps({
             "ok": 1 if row else 0,
-            "chatinfo": chatinfo
-        }, ensure_ascii=False))
+            "chatinfo": data["chatinfo"]
+        }))
         return
 
-    # --- 需求 3: payment ---
-    if "receiver_id" in data and "receiver_fee" in data:
-        receiver_id = int(data["receiver_id"])
-        receiver_fee = int(data["receiver_fee"])
-        memo = data.get("memo", "")
-        # 令 transaction_description 为当成时间
-        from datetime import datetime
-        times = datetime.now().strftime("%Y%m%d%H%M%S")  # 作为
-        
+    # === payment ===
+    elif "receiver_id" in data and "receiver_fee" in data:
+        rid = int(data["receiver_id"])
+        fee = int(data["receiver_fee"])
+        memo = data.get("sender_id", "")
+        keyword = data.get("keyword", "")
+
+       
 
         result = await MySQLPool.transaction_log({
             "sender_id": event.sender_id,
-            "receiver_id": receiver_id,
+            "receiver_id": rid,
             "transaction_type": "payment",
-            "transaction_description": times,
-            "sender_fee": -receiver_fee,
-            "receiver_fee": receiver_fee,
-            "memo": memo
-        })
-
-        await event.reply(json.dumps({
-            "ok": 1 if result.get("ok") == "1" else None,
-            "status": result.get("status"),
-            "receiver_id": receiver_id,
-            "receiver_fee": receiver_fee,
-            "memo": memo
-        }, ensure_ascii=False))
-        return
-
-    # --- 需求 4: payment ---
-    if "receiver_id" in data and "fee" in data and "sender_id" in data and "keyword" in data:
-        receiver_id = int(data["receiver_id"])
-        sender_id = int(data["sender_id"])
-        fee = abs(int(data["fee"]))
-        sender_fee = fee * (-1)
-        receiver_fee = int(fee*0.6)
-        keyword = data.get("keyword", "")
-        # 令 transaction_description 为当成时间
-      
-        result = await MySQLPool.transaction_log({
-            "sender_id": sender_id,
-            "receiver_id": receiver_id,
-            "transaction_type": "proxy",
             "transaction_description": keyword,
-            "sender_fee": sender_fee,
-            "receiver_fee": receiver_fee,
-            "memo": event.sender_id
+            "sender_fee": -fee,
+            "receiver_fee": fee,
+            "memo": memo
         })
-         
+
         await event.reply(json.dumps({
-            "ok": 1 if result.get("ok") == "1" else None,
+            "ok": 1 if result.get("ok") == "1" else 0,
             "status": result.get("status"),
-            "receiver_id": receiver_id,
-            "receiver_fee": receiver_fee,
-            "memo": keyword,
-            "transaction_id": (result.get("transaction_data")).get("transaction_id")
-        }, ensure_ascii=False))
+            "transaction_id": result.get("transaction_id"),
+            "receiver_id": rid,
+            "receiver_fee": fee,
+        }))
         return
 
-    # 其他格式
-    await event.reply(json.dumps({
-        "ok": 0,
-        "error": "unknown_json_format"
-    }, ensure_ascii=False))
-
-
+    await event.reply(json.dumps({"ok": 0, "error": "unknown_json"}))
 
 
 # ==================================================================
 # 启动 bot
 # ==================================================================
 async def main():
+
+    # ===== MySQL 初始化 =====
     await MySQLPool.init_pool()
-    print("🤖 ly (human-bot) 只使用 Session String 启动中...", flush=True)
+
+    # ===== PostgreSQL 初始化 =====
+    await PGStatsDB.init_pool(PG_DSN, PG_MIN_SIZE, PG_MAX_SIZE)
+    await PGStatsDB.ensure_table()
+
+    # ===== 启动后台统计器 =====
+    await GroupStatsTracker.start_background_tasks()
+
+    print("🤖 ly bot 启动中(SESSION_STRING)...")
 
     await client.start()
 
-    # ====== 获取自身帐号资讯 ======
     me = await client.get_me()
-    user_id = me.id
-    full_name = (me.first_name or "") + " " + (me.last_name or "")
-    phone = me.phone
-
-    print("======================================")
-    print("🤖 Telethon 已上线")
-    print(f"👤 User ID      : {user_id}")
-    print(f"📛 Full Name    : {full_name.strip()}")
-    print(f"📱 Phone Number : {phone}")
-    print("======================================", flush=True)
-    # =====================================
+    print("已登入:", me.id, me.first_name)
 
     await notify_command_receivers_on_start()
 
-    print("📡 开始监听群组指令与私聊 JSON ...")
+    print("📡 开始监听所有事件...")
 
-    # ✅ Render 环境用 PORT，否则本地用 8080
+    # Render 用 PORT
     port = int(os.environ.get("PORT", 8080))
     app = web.Application()
     await web._run_app(app, host="0.0.0.0", port=port)
+
     await client.run_until_disconnected()
 
+    # 优雅关闭
+    await GroupStatsTracker.stop_background_tasks()
+    await PGStatsDB.close_pool()
 
 
 if __name__ == "__main__":

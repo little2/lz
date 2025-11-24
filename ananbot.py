@@ -3447,7 +3447,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
         if not tx or not tx.get("transaction_id"):
             await bot.send_message(
                 chat_id=user_id,
-                text=f"<a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报",
+                text=f"<a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报，如果你确实兑换过，请使用的兑换的账号向 @{lz_var.helper_bot_name} 进行反馈。",
                 parse_mode="HTML"
             )
 

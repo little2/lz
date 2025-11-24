@@ -41,16 +41,37 @@ MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 META_BOT       = config.get('meta_bot', os.getenv('META_BOT', ''))
 
+
+'''
+ALLOWED_GROUP_IDS = {
+    -1001234567890,   # 示例：学院群
+    -1005566778899,   # 示例：工作群
+    -1009988776655,   # 示例：测试群
+}
+'''
+
 # 读取 JSON 字串
 raw = os.getenv("COMMAND_RECEIVERS", "{}")
-
+raw2 = os.getenv("ALLOWED_GROUP_IDS", "{-1001234567890, -1005566778899, -1009988776655}")
 # 尝试解析为 dict
 try:
     COMMAND_RECEIVERS = json.loads(raw)
+    ALLOWED_GROUP_IDS = json.loads(raw2)
 except json.JSONDecodeError:
     print("[ly_config] ❌ COMMAND_RECEIVERS JSON 格式错误，使用空 dict")
     COMMAND_RECEIVERS = {}
+    ALLOWED_GROUP_IDS = {}
 
 # 从 dict 中取得所有允许的 user_id（去重）
 ALLOWED_PRIVATE_IDS = set(COMMAND_RECEIVERS.values())
+
+
+PG_DSN = os.getenv("PG_DSN", "postgresql://user:password@127.0.0.1:5432/telebot")
+STAT_FLUSH_INTERVAL = 5          # 每 5 秒刷一次库
+STAT_FLUSH_BATCH_SIZE = 500      # 缓冲累计到 500 条键值就强制刷库
+
+PG_MIN_SIZE = 1 
+PG_MAX_SIZE = 5 
+
+
 

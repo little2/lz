@@ -12,6 +12,9 @@ from lz_mysql import MySQLPool
 from pg_stats_db import PGStatsDB
 from group_stats_tracker import GroupStatsTracker
 
+from telethon.tl.functions.contacts import ImportContactsRequest
+from telethon.tl.types import InputPhoneContact
+
 # ======== 载入配置 ========
 from ly_config import (
     API_ID,
@@ -24,7 +27,8 @@ from ly_config import (
     PG_MIN_SIZE,
     PG_MAX_SIZE,
     STAT_FLUSH_INTERVAL,
-    STAT_FLUSH_BATCH_SIZE
+    STAT_FLUSH_BATCH_SIZE,
+    TARGET_USER_ID
 )
 
 # ======== Telethon 启动方式 ========
@@ -52,6 +56,34 @@ async def notify_command_receivers_on_start():
         except Exception as e:
             print(f"⚠️ 发送 /start 给 {uid} 失败: {e}", flush=True)
 
+async def add_contact():
+
+    # 构造一个要导入的联系人
+    contact = InputPhoneContact(
+        client_id=0, 
+        phone="+18023051359", 
+        first_name="DrXP", 
+        last_name=""
+    )
+
+    result = await client(ImportContactsRequest([contact]))
+    print("导入结果:", result)
+    target = await client.get_entity(TARGET_USER_ID)     # 7038631858
+
+
+    me = await client.get_me()
+    await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
+
+async def join(invite_hash):
+    from telethon.tl.functions.messages import ImportChatInviteRequest
+    try:
+        await client(ImportChatInviteRequest(invite_hash))
+        print("已成功加入群组")
+    except Exception as e:
+        if 'InviteRequestSentError' in str(e):
+            print("加入请求已发送，等待审批")
+        else:
+            print(f"失败-加入群组: {invite_hash} {e}")
 
 # ==================================================================
 # 指令 /hb fee n2
@@ -59,6 +91,7 @@ async def notify_command_receivers_on_start():
 @client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$'))
 async def handle_group_command(event):
     if event.is_private:
+        print(f"不是群组消息，忽略。")
         return
 
     cmd = event.pattern_match.group(1).lower()
@@ -67,6 +100,7 @@ async def handle_group_command(event):
     extra_text = event.pattern_match.group(4)  # 可选，可为 None
 
     if cmd not in COMMAND_RECEIVERS:
+        print(f"未知指令 /{cmd}，忽略。")
         return
 
     receiver_id = COMMAND_RECEIVERS[cmd]
@@ -77,6 +111,7 @@ async def handle_group_command(event):
 
     # ====== 新增：群组白名单过滤 ======
     if chat_id not in ALLOWED_GROUP_IDS:
+        print(f"{chat_id} 不在白名单 → 直接忽略，不处理、不回覆")
         # 不在白名单 → 直接忽略，不处理、不回覆
         return
     # =================================
@@ -90,13 +125,13 @@ async def handle_group_command(event):
         "receiver_fee": fee,
     }
 
-    MySQLPool.ensure_pool()
+    await MySQLPool.ensure_pool()
     result = await MySQLPool.transaction_log(transaction_data)
     print("🔍 交易结果:", result)
 
     if result.get("ok") == "1":
         await event.reply(
-            f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id}"
+            f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
         )
     else:
         await event.reply("⚠️ 交易失败")
@@ -109,12 +144,37 @@ async def handle_group_command(event):
 async def handle_private_json(event):
     if not event.is_private:
         return
+    
 
-    if event.raw_text.strip() == "/hello":
+
+    text = event.raw_text.strip()
+
+    if text == "/hello":
         await event.reply("hi")
         return
 
+    elif text == "/addcontact":
+        await add_contact()
+        return
+
+    elif text.startswith("/join"):
+        # 这里 text 可能是：
+        # /join
+        # /join https://t.me/xxxx
+        # /join@bot something
+        # /join_xxx （若你只想匹配 '/join ' 带空格的，也可改 startswith("/join ")）
+
+        # 若需要解析后面的参数，可 split
+        parts = text.split(maxsplit=1)
+        cmd = parts[0]            # "/join"
+        link = parts[1] if len(parts) > 1 else None
+        print(f"尝试加入群组，link={link}")
+        if link:
+            await join(link)
+        return
+
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
+        print(f"用户 {event.sender_id} 不在允许名单，忽略。")
         return
 
     # 尝试解析 JSON
@@ -123,9 +183,10 @@ async def handle_private_json(event):
         if not isinstance(data, dict):
             return
     except Exception:
+        print(f"📩 私人消息非 JSON，忽略。")
         return
-    
-    MySQLPool.ensure_pool()
+    print(f"📩 收到私人 JSON 请求: {data}",flush=True)
+    await MySQLPool.ensure_pool()
     # === 查交易 ===
     if "chatinfo" in data:    
         row = await MySQLPool.find_transaction_by_description(data["chatinfo"])
@@ -137,12 +198,11 @@ async def handle_private_json(event):
 
     # === payment ===
     elif "receiver_id" in data and "receiver_fee" in data:
+        print(f"处理 payment 请求: {data}",flush=True)
         rid = int(data["receiver_id"])
         fee = int(data["receiver_fee"])
         memo = data.get("sender_id", "")
         keyword = data.get("keyword", "")
-
-       
 
         result = await MySQLPool.transaction_log({
             "sender_id": event.sender_id,
@@ -153,11 +213,11 @@ async def handle_private_json(event):
             "receiver_fee": fee,
             "memo": memo
         })
-
+        
         await event.reply(json.dumps({
             "ok": 1 if result.get("ok") == "1" else 0,
             "status": result.get("status"),
-            "transaction_id": result.get("transaction_id"),
+            "transaction_id": (result.get("transaction_data", "")).get("transaction_id", ""),
             "receiver_id": rid,
             "receiver_fee": fee,
         }))
@@ -170,7 +230,7 @@ async def handle_private_json(event):
 # 启动 bot
 # ==================================================================
 async def main():
-
+   
     # ===== MySQL 初始化 =====
     await MySQLPool.init_pool()
 
@@ -185,8 +245,23 @@ async def main():
 
     await client.start()
 
+
+
+
+    # ====== 获取自身帐号资讯 ======
     me = await client.get_me()
-    print("已登入:", me.id, me.first_name)
+    user_id = me.id
+    full_name = (me.first_name or "") + " " + (me.last_name or "")
+    phone = me.phone
+
+    print("======================================")
+    print("🤖 Telethon 已上线")
+    print(f"👤 User ID      : {user_id}")
+    print(f"📛 Full Name    : {full_name.strip()}")
+    print(f"📱 Phone Number : {phone}")
+    print("======================================", flush=True)
+    # =====================================
+
 
     await notify_command_receivers_on_start()
 

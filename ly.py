@@ -47,6 +47,10 @@ GroupStatsTracker.configure(
 
 
 async def notify_command_receivers_on_start():
+    target = await client.get_entity(TARGET_USER_ID)     # 7038631858
+    me = await client.get_me()
+    await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
+    return
     for uid in ALLOWED_PRIVATE_IDS:
         try:
             await client.send_message(uid, "/start")
@@ -156,7 +160,23 @@ async def handle_private_json(event):
     elif text == "/addcontact":
         await add_contact()
         return
+    elif text.startswith("/tell"):
+        parts = text.split(maxsplit=2)
+        # parts: ["/say", "7038631858", "hi there"]
+        if len(parts) < 3:
+            # await event.reply("用法：/say <user_id 或 @username> <内容>")
+            return
 
+        _, uid, word = parts
+
+        # uid 如果是纯数字，转 int 更稳
+        if uid.isdigit():
+            uid = int(uid)
+
+        await client.send_message(uid, word)
+        return
+       
+        
     elif text.startswith("/join"):
         # 这里 text 可能是：
         # /join

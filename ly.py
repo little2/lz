@@ -51,14 +51,7 @@ async def notify_command_receivers_on_start():
     me = await client.get_me()
     await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
     return
-    for uid in ALLOWED_PRIVATE_IDS:
-        try:
-            await client.send_message(uid, "/start")
-            await asyncio.sleep(0.5)
-            await client.send_message(uid, "hi")
-            print(f"📨 已向 {uid} 发送 /start", flush=True)
-        except Exception as e:
-            print(f"⚠️ 发送 /start 给 {uid} 失败: {e}", flush=True)
+   
 
 async def add_contact():
 
@@ -95,16 +88,16 @@ async def join(invite_hash):
 @client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$'))
 async def handle_group_command(event):
     if event.is_private:
-        print(f"不是群组消息，忽略。")
+        print(f"不是群组消息，忽略。",flush=True)
         return
 
     cmd = event.pattern_match.group(1).lower()
     fee = abs(int(event.pattern_match.group(2)))
-    n2 = int(event.pattern_match.group(3))
+    cnt = int(event.pattern_match.group(3))
     extra_text = event.pattern_match.group(4)  # 可选，可为 None
 
     if cmd not in COMMAND_RECEIVERS:
-        print(f"未知指令 /{cmd}，忽略。")
+        print(f"未知指令 /{cmd}，忽略。",flush=True)
         return
 
     receiver_id = COMMAND_RECEIVERS[cmd]
@@ -115,10 +108,19 @@ async def handle_group_command(event):
 
     # ====== 新增：群组白名单过滤 ======
     if chat_id not in ALLOWED_GROUP_IDS:
-        print(f"{chat_id} 不在白名单 → 直接忽略，不处理、不回覆")
+        print(f"{chat_id} 不在白名单 → 直接忽略，不处理、不回覆",flush=True)
         # 不在白名单 → 直接忽略，不处理、不回覆
         return
     # =================================
+
+    if fee < 2:
+        return
+    elif fee < cnt:
+        return
+    elif fee >666:
+        return
+    elif cnt > 60:
+        return
 
     transaction_data = {
         "sender_id": sender_id,
@@ -133,12 +135,12 @@ async def handle_group_command(event):
     result = await MySQLPool.transaction_log(transaction_data)
     print("🔍 交易结果:", result)
 
-    if result.get("ok") == "1":
-        await event.reply(
-            f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
-        )
-    else:
-        await event.reply("⚠️ 交易失败")
+    # if result.get("ok") == "1":
+    #     await event.reply(
+    #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
+    #     )
+    # else:
+    #     await event.reply("⚠️ 交易失败")
 
 
 # ==================================================================

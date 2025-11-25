@@ -6,6 +6,43 @@ from lz_memory_cache import MemoryCache
 import lz_var
 import asyncio
 from utils.prof import SegTimer
+from functools import wraps 
+
+
+def reconnecting(func):
+    """
+    通用断线重连装饰器：
+    - 只针对 aiomysql.OperationalError
+    - 若错误码为 2006 / 2013 → 认为是断线，重建连接池 + 自动重试一次
+    - 第二次仍失败 / 其它错误 → 直接抛出
+    """
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        # 对于 @classmethod 来说，args[0] 会是 cls
+        cls = args[0] if args else None
+
+        for attempt in (1, 2):
+            try:
+                return await func(*args, **kwargs)
+            except aiomysql.OperationalError as e:
+                code = e.args[0] if e.args else None
+                msg = e.args[1] if len(e.args) > 1 else ""
+
+                # 没有 cls，或不是断线错误，或已经重试过一次 → 直接抛
+                if not cls or code not in (2006, 2013) or attempt == 2:
+                    print(f"❌ [MySQLPool] OperationalError {code}: {msg}", flush=True)
+                    raise
+
+                # 第一次遇到 2006/2013 → 重建连接池，再重跑一次整个方法
+                print(f"⚠️ [MySQLPool] 侦测到断线 {code}: {msg} → 重建连接池并重试一次", flush=True)
+                try:
+                    await cls._rebuild_pool()
+                except Exception as e2:
+                    print(f"❌ [MySQLPool] 重建连接池失败: {e2}", flush=True)
+                    raise
+                # for 循环继续，进入第二轮
+    return wrapper
+
 
 class MySQLPool:
     _pool = None
@@ -76,9 +113,26 @@ class MySQLPool:
                 print("🛑 MySQL 连接池已关闭")
 
 
+    @classmethod
+    async def _rebuild_pool(cls):
+        """
+        强制重建连接池，用于 2006/2013 等断线错误后的自愈。
+        """
+        async with cls._lock:
+            if cls._pool:
+                try:
+                    cls._pool.close()
+                    await cls._pool.wait_closed()
+                except Exception as e:
+                    print(f"⚠️ [MySQLPool] 关闭旧连接池出错: {e}", flush=True)
+            cls._pool = None
+            print("🔄 [MySQLPool] 重建 MySQL 连接池中…", flush=True)
+            await cls.init_pool()
+
 
     #需要和 lyase_utils.py 整合
     @classmethod
+    @reconnecting
     async def transaction_log(cls, transaction_data):
         timer = SegTimer("transaction_log", content_id="unknown")
 
@@ -210,6 +264,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def find_transaction_by_description(cls, desc: str):
         """
         根据 transaction_description 查询一笔交易记录。
@@ -238,6 +293,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def in_block_list(cls, user_id):
         # 这里可以实现 block list 检查逻辑
         # 目前直接写 False
@@ -245,6 +301,7 @@ class MySQLPool:
     
    
     @classmethod
+    @reconnecting
     async def search_sora_content_by_id(cls, content_id: int):
         await cls.ensure_pool()  # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()
@@ -276,6 +333,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def set_sora_content_by_id(cls, content_id: int, update_data: dict):
         await cls.ensure_pool()   # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()
@@ -294,6 +352,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def fetch_file_by_file_uid(cls, source_id: str):
         conn, cursor = await cls.get_conn_cursor()
         try:
@@ -336,6 +395,7 @@ class MySQLPool:
         return None
 
     @classmethod
+    @reconnecting
     async def set_product_review_status(cls, content_id: int, review_status: int):
         conn, cursor = await cls.get_conn_cursor()
         try:
@@ -350,6 +410,7 @@ class MySQLPool:
             await cls.release(conn, cursor)
 
     @classmethod
+    @reconnecting
     async def get_pending_product(cls):
         """取得最多 1 笔待送审的 product (guild_id 不为空且 review_status=6)"""
         conn, cursor = await cls.get_conn_cursor()
@@ -373,6 +434,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def create_user_collection(
         cls,
         user_id: int,
@@ -400,6 +462,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def update_user_collection(
         cls,
         collection_id: int,
@@ -436,6 +499,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def get_user_collection_by_id(cls, collection_id: int) -> Optional[Dict[str, Any]]:
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -465,6 +529,7 @@ class MySQLPool:
     #     pass
 
     @classmethod
+    @reconnecting
     async def delete_cache(cls, prefix: str):
         if not cls.cache:
             return
@@ -473,6 +538,7 @@ class MySQLPool:
             del cls.cache[k]
 
     @classmethod
+    @reconnecting
     async def list_user_collections(
         cls, user_id: int, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
@@ -511,6 +577,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def list_user_favorite_collections(
         cls, user_id: int, limit: int = 50, offset: int = 0
     ) -> list[dict]:
@@ -556,6 +623,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def get_collection_detail_with_cover(cls, collection_id: int, bot_name: str = "luzaitestbot") -> dict | None:
         """
         返回 user_collection 全字段 + cover 对应的 file_id（若有）。
@@ -578,6 +646,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def list_collection_files_file_id(cls, collection_id: int, limit: int, offset: int) -> tuple[list[dict], bool]:
         """
         列出合集里文件的 file_id 列表（按 sort 排序）。
@@ -605,6 +674,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def is_collection_favorited(cls, user_id: int, collection_id: int) -> bool:
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -620,6 +690,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def add_collection_favorite(cls, user_id: int, collection_id: int) -> bool:
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -637,6 +708,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def remove_collection_favorite(cls, user_id: int, collection_id: int) -> bool:
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -654,6 +726,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def upsert_news_content(cls, tpl_data: dict) -> dict:
         """
         插入或更新 news_content。
@@ -704,6 +777,7 @@ class MySQLPool:
 
     
     @classmethod
+    @reconnecting
     async def fetch_valid_xlj_memberships(cls, user_id: int | str = None) -> list[dict]:
         """
         查询 MySQL membership 表，条件：
@@ -749,6 +823,7 @@ class MySQLPool:
  
 
     @classmethod
+    @reconnecting
     async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
         """
         返回 (合集数量, 第一条合集ID或None)。
@@ -773,6 +848,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def get_clt_files_by_clt_id(cls, collection_id: int) -> list[dict]:
         """
         查询某个合集的所有文件
@@ -797,6 +873,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def create_default_collection(cls, user_id: int, title: str = "未命名合集") -> int | None:
         """
         创建默认合集并返回新建ID；失败返回 None。
@@ -828,6 +905,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
         """
         把 content_id 加入某个合集。已存在则不报错（联合主键去重）。
@@ -850,6 +928,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def remove_content_from_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
         """
         把 content_id 移出
@@ -870,6 +949,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def search_history_upload(cls, user_id: int) -> list[dict]:
         """
         查询某个用户的所有上传历史
@@ -906,6 +986,7 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def search_history_redeem(cls, user_id: int) -> list[dict]:
         """
         查询某个用户的所有兑换历史
@@ -941,6 +1022,7 @@ class MySQLPool:
             #
 
     @classmethod
+    @reconnecting
     async def get_album_list(cls, content_id: int, bot_name: str) -> dict:
         """
         查询某个 album 下的所有成员文件，并生成文本列表。
@@ -968,6 +1050,7 @@ class MySQLPool:
 
     
     @classmethod
+    @reconnecting
     async def list_album_items_by_content_id(cls, content_id: int) -> list[dict]:
         """
         取出某个相簿（content_id）的所有 album_items 行。
@@ -1003,6 +1086,7 @@ class MySQLPool:
 
 
     @classmethod
+    @reconnecting
     async def fetch_task_value_by_title(cls, title: str) -> str | None:
         """
         读取 task_rec 中 task_title=title 的最新一笔 task_value
@@ -1039,6 +1123,7 @@ class MySQLPool:
                 await cls.release(conn, cur)
 
     @classmethod
+    @reconnecting
     async def get_user_name(cls,user_id: int):
 
         if user_id is None or user_id == 0:

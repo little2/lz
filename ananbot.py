@@ -2955,9 +2955,10 @@ async def handle_search(message: Message, state: FSMContext):
         parts = param.split("_")   
         if not parts:  # 空串情况
             return await message.answer("❌ 无效的参数1")
-        
+    if param == "upload":
+        await message.answer(f"📦 请直接上传视频/文件", parse_mode="HTML")    
 
-    if parts[0] == "f" or parts[0] == "fix":
+    elif parts[0] == "f" or parts[0] == "fix":
         try:
             aes = AESCrypto(AES_KEY)
             kind_index = parts[1]

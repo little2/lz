@@ -3249,7 +3249,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 content = content +  "\r\n" + "⚠️ 相册内容加载失败，请稍后再试。"
             
             
-        print("🔍 处理标签和内容长度")          
+        # print("🔍 处理标签和内容长度")          
 
 
         ret_content = ""
@@ -3282,7 +3282,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 
 
         if search_key_index:
-            print(f"🔍 载入搜索附加信息: {search_key_index} from {search_from}")
+            # print(f"🔍 载入搜索附加信息: {search_key_index} from {search_from}")
             if search_from == "cm" or search_from == "cf":
                 
                 clt_info = await MySQLPool.get_user_collection_by_id(collection_id=int(search_key_index))
@@ -3298,7 +3298,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if ret_content:
             tag_length = len(ret_content)
     
-        print(F"标签长度 {tag_length}", flush=True)
+        # print(F"标签长度 {tag_length}", flush=True)
         if not file_id and source_id and (file_type != 'a' and file_type !='album') :
             # 不阻塞：丢到后台做补拉
        
@@ -3317,7 +3317,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         # 计算可用空间
         available_content_length = max_total_length - tag_length - 50  # 预留额外描述字符
         
-        print(f"长度 {available_content_length}", flush=True)
+        # print(f"长度 {available_content_length}", flush=True)
         # print(f"长度 {available_content_length}")
 
 

@@ -132,7 +132,6 @@ class MySQLPool:
 
     #需要和 lyase_utils.py 整合
     @classmethod
-    @reconnecting
     async def transaction_log(cls, transaction_data):
         timer = SegTimer("transaction_log", content_id="unknown")
 

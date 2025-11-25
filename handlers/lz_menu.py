@@ -1113,7 +1113,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             try:
                 aes = AESCrypto(AES_KEY)
                 content_id_str = aes.aes_decode(encoded)
-                print(f"🔍 解码得到 content_id_str: {content_id_str}", flush=True)
+                
 
                 # date = await state.get_data()
                 # clti_message = date.get("menu_message")
@@ -1160,7 +1160,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     )
 
                     # print(f"clti_message={clti_message}",flush=True)
-                print(f"🔍 设置当前消息为 loading 动画", flush=True)
+                
                 await MenuBase.set_menu_status(state, {
                     "current_message": current_message,
                     "current_chat_id": current_message.chat.id,
@@ -1179,7 +1179,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
             
             content_id = int(content_id_str)  # ✅ 关键修正
-            print(f"🔍 1148-解码得到 content_id: {content_id}", flush=True)
+            
             try:
                 if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                     product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])

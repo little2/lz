@@ -82,12 +82,12 @@ async def join(invite_hash):
     from telethon.tl.functions.messages import ImportChatInviteRequest
     try:
         await client(ImportChatInviteRequest(invite_hash))
-        print("已成功加入群组")
+        print("已成功加入群组",flush=True)
     except Exception as e:
         if 'InviteRequestSentError' in str(e):
-            print("加入请求已发送，等待审批")
+            print("加入请求已发送，等待审批",flush=True)
         else:
-            print(f"失败-加入群组: {invite_hash} {e}")
+            print(f"失败-加入群组: {invite_hash} {e}", flush=True)
 
 # ==================================================================
 # 指令 /hb fee n2

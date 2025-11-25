@@ -81,7 +81,7 @@ class PGStatsDB:
         """
         if not items:
             return
-
+       
         sql = """
         INSERT INTO tg_msg_stats_daily
             (stat_date, user_id, chat_id, thread_id, msg_type, from_bot, hour, cnt)

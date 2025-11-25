@@ -127,7 +127,7 @@ class GroupStatsTracker:
                 return
             items = list(cls._buffer.items())
             cls._buffer.clear()
-
+        
         await PGStatsDB.upsert_daily_counts(items)
 
     @classmethod

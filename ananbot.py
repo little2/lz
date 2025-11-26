@@ -4467,7 +4467,8 @@ async def clear_removetag_timeout(state: FSMContext, chat_id: int):
 
 @dp.message(F.chat.type == "private", F.text)
 async def handle_text(message: Message):
-    await message.answer("哥哥，我在呢，输入视频参数或描述，会有时间限制，时间过了，请哥哥记得再一次点击按钮，再输入")
+    msg = await message.answer("哥哥，我在呢，输入视频参数或描述，会有时间限制，时间过了，请哥哥记得再一次点击按钮，再输入")
+    Media.auto_self_delete(msg, delay=7)
 
 
 

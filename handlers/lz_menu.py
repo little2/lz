@@ -2815,6 +2815,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
             try:
                 timer.lap("交易通知")
+                if receiver_id == 0:
+                    return
                 #  $group_text = "<a href='tg://user?id=" . $user_info['id'] . "'>" . $user_title . "</a>";
                 receiver_fullname = await MySQLPool.get_user_name(receiver_id)
                 sender_fullname = await MySQLPool.get_user_name(from_user_id)
@@ -2822,13 +2824,22 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname}</a>"
                 sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname}</a>"
                 notice_text = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
-                receiver_id = 7038631858
+                # receiver_id = 7038631858
+
                 await lz_var.bot.send_message(
                     parse_mode="HTML",
                     chat_id=receiver_id,
                     text=notice_text,
                     disable_web_page_preview=True
                 )
+
+                if receiver_id != 7038631858:
+                    await lz_var.bot.send_message(
+                        parse_mode="HTML",
+                        chat_id=receiver_id,
+                        text=notice_text,
+                        disable_web_page_preview=True
+                    )
                
             except Exception as e:
                 print(f"❌ 发送兑换通知失败: {e}", flush=True)

@@ -682,8 +682,8 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
 
     # ===== 新增：按规格分组展开 =====
     GROUPS = [
-        {'age', 'eth', 'face', 'feedback', 'nudity','par'},
-        { 'act', 'pro', 'fetish','att', 'position', 'hardcore''att', 'position', 'hardcore'}
+        {'age',  'face', 'act', 'nudity','par', 'fetish','att'},
+        { 'feedback', 'pro','eth', 'position', 'hardcore', 'position', 'hardcore'}
         
     ]
     expanded_codes = None

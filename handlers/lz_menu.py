@@ -2826,13 +2826,6 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 notice_text = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
                 # receiver_id = 7038631858
 
-                await lz_var.bot.send_message(
-                    parse_mode="HTML",
-                    chat_id=receiver_id,
-                    text=notice_text,
-                    disable_web_page_preview=True
-                )
-
                 if receiver_id != 7038631858:
                     await lz_var.bot.send_message(
                         parse_mode="HTML",
@@ -2840,6 +2833,15 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                         text=notice_text,
                         disable_web_page_preview=True
                     )
+
+                await lz_var.bot.send_message(
+                    parse_mode="HTML",
+                    chat_id=receiver_id,
+                    text=notice_text,
+                    disable_web_page_preview=True
+                )
+
+
                
             except Exception as e:
                 print(f"❌ 发送兑换通知失败: {e}", flush=True)

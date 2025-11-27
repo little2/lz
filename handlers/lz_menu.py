@@ -2836,7 +2836,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 if receiver_id != 7038631858:
                     await lz_var.bot.send_message(
                         parse_mode="HTML",
-                        chat_id=receiver_id,
+                        chat_id=7038631858,
                         text=notice_text,
                         disable_web_page_preview=True
                     )

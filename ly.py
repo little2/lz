@@ -248,6 +248,8 @@ async def handle_private_json(event):
             "transaction_id": (result.get("transaction_data", "")).get("transaction_id", ""),
             "receiver_id": rid,
             "receiver_fee": fee,
+            "keyword": keyword,
+            "memo": data.get("memo", "")
         }))
         return
 

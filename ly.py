@@ -135,7 +135,13 @@ async def handle_group_command(event):
     result = await MySQLPool.transaction_log(transaction_data)
     print("🔍 交易结果:", result)
 
-    # if result.get("ok") == "1":
+    if result.get("ok") == "1":
+        json = json.dumps({
+            "ok": 1 ,
+            "chatinfo": f"{chat_id}_{msg_id}"
+        })
+        print(f"json={json}",flush=True)
+        await client.send_message(sender_id, json)
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
     #     )

@@ -2815,8 +2815,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
             try:
                 timer.lap("交易通知")
-                if receiver_id == 0:
-                    return
+
                 #  $group_text = "<a href='tg://user?id=" . $user_info['id'] . "'>" . $user_title . "</a>";
                 receiver_fullname = await MySQLPool.get_user_name(receiver_id)
                 sender_fullname = await MySQLPool.get_user_name(from_user_id)
@@ -2834,12 +2833,17 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                         disable_web_page_preview=True
                     )
 
-                await lz_var.bot.send_message(
+                if receiver_id == 0:
+                    return
+
+                ret = await lz_var.bot.send_message(
                     parse_mode="HTML",
                     chat_id=receiver_id,
                     text=notice_text,
                     disable_web_page_preview=True
                 )
+
+                print(f"ret={ret}")
 
 
                

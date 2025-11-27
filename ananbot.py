@@ -13,6 +13,7 @@ from aiogram.types import (
     CallbackQuery,
     InputMediaPhoto,
     BufferedInputFile,
+    CopyTextButton
 )
 
 from aiogram.exceptions import TelegramRetryAfter
@@ -457,6 +458,12 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     file_type = product_info.get('file_type', '')
     content = product_info.get('content', '')
     
+    aes = AESCrypto(AES_KEY)
+    encoded = aes.aes_encode(content_id)
+
+    shared_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+
+
     '''
     审核状态
     0   编辑中(投稿者)
@@ -618,11 +625,19 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
             ]
         ])
     elif review_status == 6:
-        buttons = [[InlineKeyboardButton(text="通过审核,等待上架", callback_data=f"none")]]
+        buttons = [
+            [InlineKeyboardButton(text="通过审核,等待上架", callback_data=f"none")],
+            [
+                InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+            ]
+        ]
     elif review_status == 7:
         buttons = [[InlineKeyboardButton(text="通过审核,但上架失败", callback_data=f"none")]]
     elif review_status == 9:
-        buttons = [[InlineKeyboardButton(text="通过审核,已上架", callback_data=f"none")]]
+        buttons = [[InlineKeyboardButton(text="通过审核,已上架", callback_data=f"none")],
+            [
+                InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+            ]]
     elif review_status == 10:
         buttons = [[InlineKeyboardButton(text="资源已失效", callback_data=f"none")]]
     elif review_status == 11:

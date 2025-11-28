@@ -3702,16 +3702,23 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
         trade_url = await AnanBOTPool.get_trade_url(file_unique_id)
 
         # Step 1: 交易记录校验
-        tx = await AnanBOTPool.find_user_reportable_transaction(user_id, file_unique_id)
-        if not tx or not tx.get("transaction_id"):
-            await bot.send_message(
-                chat_id=user_id,
-                text=f"<a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报，如果你确实兑换过，请使用的兑换的账号向 @{lz_var.helper_bot_name} 进行反馈。",
-                parse_mode="HTML"
-            )
+        try:
+            tx = await AnanBOTPool.find_user_reportable_transaction(user_id, file_unique_id)
+            if not tx or not tx.get("transaction_id"):
+                configuration_chat_id = -1002030683460
 
-            if model != "admin":
-                return False
+                await bot.send_message(
+                    chat_id=lz_var.configuration_chat_id,
+                    message_thread_id=lz_var.configuration_thread_id,
+                    text=f"{user_id} <a href='{trade_url}'>{file_unique_id}</a> 需要有兑换纪录才能举报，如果你确实兑换过，请使用的兑换的账号向 @{lz_var.helper_bot_name} 进行反馈。",
+                    parse_mode="HTML"
+                )
+
+                # if model != "admin":
+                #     return False
+        except Exception as e:
+            print(f"[report] 交易记录校验失败 user_id={user_id} file_unique_id={file_unique_id}: {e}")
+           
            
 
         # Step 2: 是否已有举报在处理中

@@ -3700,12 +3700,14 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
     """
     try:
         trade_url = await AnanBOTPool.get_trade_url(file_unique_id)
+        transaction_id = 0
 
         # Step 1: 交易记录校验
         try:
             tx = await AnanBOTPool.find_user_reportable_transaction(user_id, file_unique_id)
+            transaction_id = tx.get("transaction_id") if tx else 0
             if not tx or not tx.get("transaction_id"):
-                configuration_chat_id = -1002030683460
+                
 
                 await bot.send_message(
                     chat_id=lz_var.configuration_chat_id,
@@ -3719,7 +3721,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
         except Exception as e:
             print(f"[report] 交易记录校验失败 user_id={user_id} file_unique_id={file_unique_id}: {e}")
            
-           
+        
 
         # Step 2: 是否已有举报在处理中
         existing = await AnanBOTPool.find_existing_report(file_unique_id)
@@ -3739,7 +3741,7 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
                 return False
 
         # Step 3: 举报类型按钮（短文案，防止 TG 截断）
-        kb = build_report_type_keyboard(file_unique_id, tx['transaction_id'])
+        kb = build_report_type_keyboard(file_unique_id, transaction_id)
 
         
         content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)

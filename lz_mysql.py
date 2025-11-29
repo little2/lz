@@ -135,9 +135,9 @@ class MySQLPool:
     async def transaction_log(cls, transaction_data):
         timer = SegTimer("transaction_log", content_id="unknown")
 
-        timer.lap("get_conn_cursor")
+        # timer.lap("get_conn_cursor")
         conn, cur = await cls.get_conn_cursor()
-        timer.lap("get_conn_cursor-END")
+        # timer.lap("get_conn_cursor-END")
         # print(f"🔍 处理交易记录: {transaction_data}")
 
         user_info_row = None
@@ -168,7 +168,7 @@ class MySQLPool:
             where_sql = ' AND '.join(where_clauses)
 
             # 查询是否已有相同记录
-            timer.lap("查询是否已有相同记录")
+            # timer.lap("查询是否已有相同记录")
 
             await cur.execute(f"""
                 SELECT transaction_id FROM transaction
@@ -176,7 +176,7 @@ class MySQLPool:
                 LIMIT 1
             """, params)
 
-            timer.lap("查询是否已有相同记录END")
+            # timer.lap("查询是否已有相同记录END")
 
             transaction_result = await cur.fetchone()
 
@@ -234,7 +234,7 @@ class MySQLPool:
             insert_placeholders = ', '.join(['%s'] * len(transaction_data))
             insert_values = list(transaction_data.values())
 
-            timer.lap("INSERT")
+            # timer.lap("INSERT")
 
             await cur.execute(f"""
                 INSERT INTO transaction ({insert_columns})

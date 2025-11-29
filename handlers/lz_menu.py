@@ -2789,7 +2789,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
 
-    print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
+    # print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
 
     if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
 
@@ -2798,7 +2798,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             if user_point > 0:
                 reply_text += f"，当前积分余额: {user_point}。"
 
-            print(f"💬 回复内容: {reply_text}", flush=True)
+            # print(f"💬 回复内容: {reply_text}", flush=True)
         elif result.get('status') == 'insert':
             
             reply_text += f"✅ 兑换成功，已扣除 {sender_fee} 积分"

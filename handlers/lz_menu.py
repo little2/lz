@@ -2628,10 +2628,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     content_id = callback.data.split(":")[1]
     redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None
 
+    timer = SegTimer("handle_redeem", content_id=f"{content_id}")
+    print(f"开始交易记录")
+
+    timer.lap("2634 load_sora_content_by_id")
     result = await load_sora_content_by_id(int(content_id), state)
     # print("Returned==>:", result)
-
-    
 
     ret_content, file_info, purchase_info = result
     source_id = file_info[0] if len(file_info) > 0 else None
@@ -2646,15 +2648,19 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     answer_text = ''
     
     if ret_content.startswith("⚠️"):
+
+        timer.lap("⚠️")
         await callback.answer(ret_content, parse_mode="HTML")
         return
 
     if purchase_condition is not None:
+        timer.lap("purchase_condition")
         await callback.answer(f"⚠️ 该资源请到专属的机器人兑换", show_alert=True)
         return
 
 
     if not file_id and (file_type != 'a' and file_type !='album') :
+        timer.lap("没有找到匹配记录")
         print("❌ 没有找到匹配记录 source_id")
         await callback.answer(f"👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。{file_type}", show_alert=True)
         # await callback.message.reply("👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。")
@@ -2677,6 +2683,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         except Exception:
             return str(ts)
     
+
+    timer.lap("2687 get_latest_membership_expire")
     expire_ts = await db.get_latest_membership_expire(from_user_id)
    
     now_utc = int(datetime.now(timezone.utc).timestamp())
@@ -2700,6 +2708,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
             )],
         ])
+        timer.lap("不是小懒觉会员")
         notify_msg = await callback.message.reply(text, reply_markup=kb)
         
         spawn_once(
@@ -2728,7 +2737,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             )],
         ])
         notify_msg = await callback.message.reply(text, reply_markup=kb)
-       
+        timer.lap("小懒觉会员逾期")
 
         spawn_once(
             f"notify_msg:{notify_msg.message_id}",
@@ -2741,6 +2750,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     elif int(expire_ts) >= now_utc:
+        timer.lap("2753 是小懒觉会员")
         discount_amount = int(fee * lz_var.xlj_discount_rate)
         xlj_final_price = fee - discount_amount
         sender_fee = xlj_final_price * (-1)
@@ -2757,8 +2767,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
     
 
-    timer = SegTimer("menu", content_id="unknown")
-    timer.lap("开始交易记录")
+
+    timer.lap("2771 开始交易记录")
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': receiver_id,
@@ -2767,8 +2777,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         'sender_fee': sender_fee,
         'receiver_fee': receiver_fee
     })
-    timer.lap("结束")
-
+    timer.lap("2780 结束")
+    print(f"结束")
     
 
 
@@ -2790,7 +2800,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     # print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
-
+    timer.lap(f"判断交易结果{result.get('status')}")
     if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
 
         if result.get('status') == 'exist':
@@ -2828,6 +2838,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 # receiver_id = 7038631858
 
                 if receiver_id != 7038631858 :
+                    timer.lap(f"传送给管理员")
                     await lz_var.bot.send_message(
                         parse_mode="HTML",
                         chat_id=7038631858,
@@ -2835,17 +2846,20 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                         disable_web_page_preview=True
                     )   
                 
-                if receiver_id == 0:
-                    return
+                if receiver_id != 0:
+                    try:
+                        timer.lap(f"传送给资源拥有者 {receiver_id}")
+                        ret = await lz_var.bot.send_message(
+                            parse_mode="HTML",
+                            chat_id=receiver_id,
+                            text=notice_text_author,
+                            disable_web_page_preview=True
+                        )
 
-                ret = await lz_var.bot.send_message(
-                    parse_mode="HTML",
-                    chat_id=receiver_id,
-                    text=notice_text_author,
-                    disable_web_page_preview=True
-                )
+                        print(f"ret={ret}")
+                    except Exception as e:
+                        print(f"❌ 发送兑换通知给资源拥有者失败: {e}", flush=True)
 
-                print(f"ret={ret}")
 
 
                
@@ -2874,6 +2888,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             if callback.message.message_id is not None:
                 send_content_kwargs["reply_to_message_id"] = callback.message.message_id
 
+            timer.lap(f"资源类型{file_type}处理")
+
             if file_type == "album" or file_type == "a":
                
                 productInfomation = await get_product_material(content_id)
@@ -2899,6 +2915,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         except Exception as e:
             print(f"❌ 目标 chat 不存在或无法访问(2886): {e}")
 
+
+        timer.lap(f"结束全部流程 {reply_text}")
         await callback.answer(reply_text, show_alert=True)
         
         # TODO : 删除兑换消息，改为复制一条新的消息

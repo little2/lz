@@ -11,6 +11,9 @@ import pymysql
 from typing import Optional
 from lz_memory_cache import MemoryCache
 import lz_var
+from lz_config import AES_KEY
+from utils.aes_crypto import AESCrypto
+
 
 class AnanBOTPool(LYBase):
     _pool = None
@@ -2021,7 +2024,11 @@ class AnanBOTPool(LYBase):
         这里给一个可运行的占位实现；你可按你的业务改成真实落地页。
         """
         # TODO: 若你有真实落地页，请改成你的域名规则
-        return f"https://trade/{file_unique_id}"
+        content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
+        aes = AESCrypto(AES_KEY)
+        encoded = aes.aes_encode(content_id)
+        shared_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+        return shared_url
 
     @classmethod
     async def find_user_reportable_transaction(cls, user_id: int, file_unique_id: str) -> dict | None:

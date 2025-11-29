@@ -2435,7 +2435,7 @@ async def _approve_content(product_row):
 
     try:
         # 通知上传者
-        if owner_user_id and owner_user_id is not None:
+        if owner_user_id and owner_user_id != 666666 and owner_user_id is not None and owner_user_id > 0 :
             await bot.send_message(
                 chat_id=owner_user_id, 
                 text=text, 
@@ -2444,7 +2444,7 @@ async def _approve_content(product_row):
                 disable_web_page_preview=True
                 )
         else:
-            print(f"❌ 目标 chat 不存在或无法访问(2213): owner_user_id is None")
+            print(f"❌ 目标 chat 不存在或无法或不需要访问(2213): owner_user_id is {owner_user_id}")
     except Exception as e:
         print(f"❌ 目标 chat 不存在或无法访问(2220): chat_id = {owner_user_id} : {e}")
 
@@ -3197,7 +3197,7 @@ async def send_to_review_group(content_id: int, state: FSMContext, chat_id = REV
             message_thread_id=thread_id,  # 指定话题
             parse_mode="HTML"
         )
-        print(f"✅ 发送到审核群组成功: message_id={result}", flush=True)
+        print(f"✅ 发送到审核群组成功:", flush=True)
         invalidate_cached_product(content_id)
         
         return True, None
@@ -3707,8 +3707,6 @@ async def report_content(user_id: int, file_unique_id: str, state: FSMContext, m
             tx = await AnanBOTPool.find_user_reportable_transaction(user_id, file_unique_id)
             transaction_id = tx.get("transaction_id") if tx else 0
             if not tx or not tx.get("transaction_id"):
-                
-
                 await bot.send_message(
                     chat_id=lz_var.configuration_chat_id,
                     message_thread_id=lz_var.configuration_thread_id,
@@ -3840,8 +3838,9 @@ async def handle_report_reason_text(message: Message, state: FSMContext):
     user_id = data.get("report_user_id")
 
     reason = message.text.strip()
-    if not file_unique_id or not transaction_id or not report_type:
+    if not file_unique_id or not report_type:
         await state.clear()
+        print(f"{file_unique_id} {report_type}")
         return await message.answer("⚠️ 缺少举报信息，请重试。")
 
     # 入库：调用你自家的 DB 封装方法（需在 AnanBOTPool 中实现）
@@ -4086,14 +4085,15 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
 
             try:
                 # 通知举报人
-                await bot.send_message(
-                    chat_id=sender_id,
-                    text=reply_msg,
-                    parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
-                )
+                if sender_id:
+                    await bot.send_message(
+                        chat_id=sender_id,
+                        text=reply_msg,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+                    )
             except Exception as e:
-                print(f"❌ 目标 chat 不存在或无法访问(3654): {e}")
+                print(f"❌ 目标 chat 不存在或无法访问(3654): {e} sender_id={sender_id} reply_msg={reply_msg}")
 
 
             # 更新 report 状态
@@ -4125,7 +4125,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         next_file_unique_id = report_row['file_unique_id'] if report_row else None
         report_id = report_row['report_id']
         print(f"下一个待裁定 {next_file_unique_id}", flush=True)
-        if next_file_unique_id:
+        if next_file_unique_id and next_file_unique_id is not None:
             next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
             result , error = await send_to_review_group(next_content_id, state, chat_id=REPORT_REVIEW_CHAT_ID, thread_id=REPORT_REVIEW_THREAD_ID)
             await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中

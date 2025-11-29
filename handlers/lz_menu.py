@@ -2822,24 +2822,26 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 share_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
                 owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname}</a>"
                 sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname}</a>"
-                notice_text = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
+                notice_text_author = f"🔔 你分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户兑换，获得 {receiver_fee} 积分分成！"
+                notice_text_manager = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
+
                 # receiver_id = 7038631858
 
-                if receiver_id != 7038631858:
+                if receiver_id != 7038631858 :
                     await lz_var.bot.send_message(
                         parse_mode="HTML",
                         chat_id=7038631858,
-                        text=notice_text,
+                        text=notice_text_manager,
                         disable_web_page_preview=True
-                    )
-
+                    )   
+                
                 if receiver_id == 0:
                     return
 
                 ret = await lz_var.bot.send_message(
                     parse_mode="HTML",
                     chat_id=receiver_id,
-                    text=notice_text,
+                    text=notice_text_author,
                     disable_web_page_preview=True
                 )
 

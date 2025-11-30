@@ -38,8 +38,6 @@ MYSQL_USER      = config.get('db_user', os.getenv('MYSQL_DB_USER', ''))
 MYSQL_PASSWORD  = config.get('db_password', os.getenv('MYSQL_DB_PASSWORD', ''))
 MYSQL_DB        = config.get('db_name', os.getenv('MYSQL_DB_NAME', ''))
 MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
-
-META_BOT       = config.get('meta_bot', os.getenv('META_BOT', ''))
-
-KEY_USER_ID       = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
+META_BOT        = config.get('meta_bot', os.getenv('META_BOT', ''))
+KEY_USER_ID     = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
 

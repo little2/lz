@@ -40,3 +40,6 @@ MYSQL_DB        = config.get('db_name', os.getenv('MYSQL_DB_NAME', ''))
 MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 META_BOT       = config.get('meta_bot', os.getenv('META_BOT', ''))
+
+KEY_USER_ID       = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
+

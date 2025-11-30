@@ -4068,11 +4068,30 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
             # ])
 
         elif decision == "N":  # 不认可举报
-            reply_msg += (
-                f"举报内容不成立。\n若密文失效，请在获取密文的消息点击 '❌ 失效' 即会更换新的密文。\n"
-                f"若仍无法更换，请等待资源持有者重新上传，再重新兑换一次即可获得新密文或连结（免积分）。\n"
-                f"自动审核机制可能会有误判的情形，如果您对审核的结果有建议，可以再透过以下「教务处小助手」和专人沟通。\n"
-            )
+            reply_msg = textwrap.dedent(f'''\
+                我们已经查看你的举报，再次谢谢你愿意花时间协助龙阳学院做得更好。
+
+                这次的结果是：举报内容不成立
+
+                我们明白在处理描述或标签这种较主观的内容时，审核机制可能无法面面俱到。为了不误伤那些认真分享的用户，我们会尽可能以宽容与合理的方式做出判断。
+                                        
+                某些分类本身就容易出现认知差异，例如偏大的小鲜肉是否该如何归类为正太，这在咱们圈子里都有各自的理解。
+                为了让所有人更容易辨识，我们会要求必须标上较清晰的分类或标签（例如少年_高中），以保障所有用户的使用体验。
+                
+                若你觉得审核的标准还有改进空间，也很欢迎你透过下方的「教务处小助手」告诉我们。
+
+                你的每一次反馈，都会让平台变得更好。
+                ''') 
+
+
+            
+
+
+            # reply_msg += (
+            #     f"举报内容不成立。\n若密文失效，请在获取密文的消息点击 '❌ 失效' 即会更换新的密文。\n"
+            #     f"若仍无法更换，请等待资源持有者重新上传，再重新兑换一次即可获得新密文或连结（免积分）。\n"
+            #     f"自动审核机制可能会有误判的情形，或是在内容描述以及标签上，我们会采如果您对审核的结果有建议，可以再透过以下「教务处小助手」和专人沟通。\n"
+            # )
 
             #helper_bot_name
             option_buttons = []
@@ -4119,7 +4138,12 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         invalidate_cached_product(content_id)
 
         # 找下一个
+        spawn_once(
+            f"sync_sora:{content_id}",
+            lambda:sync_sora(content_id)
+        )
         
+
         report_row = await AnanBOTPool.get_next_report_to_judge()
         print(f"下一个待裁定 {report_row}", flush=True)
         next_file_unique_id = report_row['file_unique_id'] if report_row else None

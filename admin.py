@@ -28,7 +28,8 @@ from ly_config import (
     PG_MAX_SIZE,
     STAT_FLUSH_INTERVAL,
     STAT_FLUSH_BATCH_SIZE,
-    KEY_USER_ID
+    KEY_USER_ID,
+    BOT_INIT
 )
 
 # ======== Telethon 启动方式 ========
@@ -46,12 +47,27 @@ GroupStatsTracker.configure(
 )
 
 
+# async def notify_command_bot_on_start():
+#     for bot_username in BOT_INIT:
+#         target = await client.get_entity(bot_username)
+#         me = await client.get_me()
+#         await client.send_message(target, f"/start")
+#     return
+
+async def notify_command_bot_on_start():
+    for username in BOT_INIT:
+        if not username.startswith("@"):
+            username = "@" + username
+        try:
+            await client.send_message(username, "/start")
+        except Exception as e:
+            print(f"给 {username} 发送 /start 失败: {e}")
+
 async def notify_command_receivers_on_start():
     target = await client.get_entity(KEY_USER_ID)     # 7550420493
     me = await client.get_me()
     await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
-    return
-   
+    return   
 
 async def add_contact():
 
@@ -173,7 +189,7 @@ async def handle_private_json(event):
         return
     elif text.startswith("/tell"):
         parts = text.split(maxsplit=2)
-        
+        # parts: ["/say", "7550420493", "hi there"]
         if len(parts) < 3:
             # await event.reply("用法：/say <user_id 或 @username> <内容>")
             return
@@ -272,16 +288,13 @@ async def main():
     await PGStatsDB.ensure_table()
 
     # ===== 启动后台统计器 =====
-    await GroupStatsTracker.start_background_tasks()
-
-    print("🤖 ly bot 启动中(SESSION_STRING)...")
-
-    await client.start()
-
+    # print("🤖 ly bot 启动中(SESSION_STRING)...")
+    # await GroupStatsTracker.start_background_tasks()
 
 
 
     # ====== 获取自身帐号资讯 ======
+    await client.start()
     me = await client.get_me()
     user_id = me.id
     full_name = (me.first_name or "") + " " + (me.last_name or "")
@@ -296,7 +309,8 @@ async def main():
     # =====================================
 
 
-    await notify_command_receivers_on_start()
+    # await notify_command_receivers_on_start()
+    await notify_command_bot_on_start()
 
     print("📡 开始监听所有事件...")
 

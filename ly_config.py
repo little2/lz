@@ -79,7 +79,11 @@ STAT_FLUSH_BATCH_SIZE = 500      # 缓冲累计到 500 条键值就强制刷库
 PG_MIN_SIZE = 1 
 PG_MAX_SIZE = 5 
 
-TARGET_USER_ID = 7038631858  
+KEY_USER_ID = os.getenv("KEY_USER_ID")  
+raw = os.getenv("BOT_INIT", "")
+BOT_INIT = [x.strip() for x in raw.split(",") if x.strip()]
+
+
 
 
 

@@ -40,7 +40,7 @@ from typing import Coroutine
 import asyncio
 import os
 from lz_db import db
-from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE
+from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID
 import lz_var
 import traceback
 import random
@@ -2835,13 +2835,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 notice_text_author = f"🔔 你分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户兑换，获得 {receiver_fee} 积分分成！"
                 notice_text_manager = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
 
-                # receiver_id = 7038631858
+               
 
-                if receiver_id != 7038631858 :
+                if receiver_id != KEY_USER_ID :
                     timer.lap(f"传送给管理员")
                     await lz_var.bot.send_message(
                         parse_mode="HTML",
-                        chat_id=7038631858,
+                        chat_id=KEY_USER_ID,
                         text=notice_text_manager,
                         disable_web_page_preview=True
                     )   

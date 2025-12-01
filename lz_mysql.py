@@ -1109,3 +1109,97 @@ class MySQLPool:
         except Exception as e:
             print(f"❌ 获取用户资料失败: {e}")
             return "未知用户"
+
+    @classmethod
+    async def list_transactions_for_sync(
+        cls,
+        start_transaction_id: int,
+        sender_id: int,
+        limit: int = 500,
+    ) -> list[dict]:
+        """
+        取出需要同步到 PostgreSQL 的 transaction 记录：
+          - transaction_id > start_transaction_id
+          - sender_id = 指定 user
+          - 最多 limit 笔（默认 500）
+        结果按 transaction_id 升序，方便你后续增量推进。
+        """
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+                SELECT
+                    transaction_id,
+                    sender_id,
+                    sender_fee,
+                    receiver_id,
+                    receiver_fee,
+                    transaction_type,
+                    transaction_description,
+                    transaction_timestamp,
+                    memo
+                FROM transaction
+                WHERE transaction_id > %s
+                  AND sender_id = %s
+                ORDER BY transaction_id ASC
+                LIMIT %s
+            """
+            await cur.execute(
+                sql,
+                (
+                    int(start_transaction_id),
+                    int(sender_id),
+                    int(limit),
+                ),
+            )
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ list_transactions_for_sync 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def list_product_for_sync(
+        cls,
+        user_id: int,
+        limit: int = 500,
+    ) -> list[dict]:
+        """
+        取出需要同步到 PostgreSQL 的 product 记录：
+          - owner_user_id = 指定 user_id
+          - 最多 limit 笔（默认 500）
+        结果按 content_id 升序，方便后续扩展做增量。
+        """
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+                SELECT
+                    content_id,
+                    price,
+                    file_type,
+                    owner_user_id,
+                    purchase_condition,
+                    guild_id
+                FROM product
+                WHERE owner_user_id = %s
+                ORDER BY content_id ASC
+                LIMIT %s
+            """
+            await cur.execute(
+                sql,
+                (
+                    int(user_id),
+                    int(limit),
+                ),
+            )
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ list_product_for_sync 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)

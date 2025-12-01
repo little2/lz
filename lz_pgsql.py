@@ -650,3 +650,280 @@ class PGPool:
                 return 0
         finally:
             await cls.release(conn)
+
+
+
+    # ========= Transaction 相关 =========
+    @classmethod
+    async def get_max_transaction_id_for_sender(cls, sender_id: int) -> int:
+        """
+        查出 PostgreSQL 中指定 sender_id 的最大 transaction_id。
+        若没有任何记录，回传 0。
+        """
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            # 注意表名：
+            # 如果你在 PG 里建的是：
+            #   CREATE TABLE "transaction" (...)
+            # 就需要双引号；如果是 create table transaction (...)，就把引号拿掉。
+            sql = 'SELECT max(transaction_id) FROM "transaction" WHERE sender_id = $1'
+            max_id = await conn.fetchval(sql, int(sender_id))
+            return int(max_id) if max_id is not None else 0
+        except Exception as e:
+            print(f"⚠️ [PG] get_max_transaction_id_for_sender 出错: {e}", flush=True)
+            return 0
+        finally:
+            await cls.release(conn)
+
+
+    @classmethod
+    async def upsert_transactions_bulk(cls, rows: list[dict]) -> int:
+        """
+        将 MySQL 的 transaction 记录批量 upsert 到 PostgreSQL 的 transaction 表。
+        规则：
+          - 以 transaction_id 为主键
+          - 冲突时更新除主键外的所有字段
+        返回：受影响行数（近似：= 输入 rows 数量）
+        """
+        if not rows:
+            return 0
+
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            payload = []
+            for r in rows:
+                payload.append(
+                    (
+                        int(r["transaction_id"]),
+                        int(r["sender_id"]),
+                        int(r.get("sender_fee", 0)),
+                        int(r.get("receiver_id", 0)),
+                        int(r.get("receiver_fee", 0)),
+                        r.get("transaction_type"),
+                        r.get("transaction_description"),
+                        int(r.get("transaction_timestamp", 0)),
+                        r.get("memo"),
+                    )
+                )
+
+            sql = """
+                INSERT INTO transaction (
+                    transaction_id,
+                    sender_id,
+                    sender_fee,
+                    receiver_id,
+                    receiver_fee,
+                    transaction_type,
+                    transaction_description,
+                    transaction_timestamp,
+                    memo
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $7, $8, $9
+                )
+                ON CONFLICT (transaction_id)
+                DO UPDATE SET
+                    sender_id               = EXCLUDED.sender_id,
+                    sender_fee              = EXCLUDED.sender_fee,
+                    receiver_id             = EXCLUDED.receiver_id,
+                    receiver_fee            = EXCLUDED.receiver_fee,
+                    transaction_type        = EXCLUDED.transaction_type,
+                    transaction_description = EXCLUDED.transaction_description,
+                    transaction_timestamp   = EXCLUDED.transaction_timestamp,
+                    memo                    = EXCLUDED.memo
+            """
+
+            async with conn.transaction():
+                await conn.executemany(sql, payload)
+
+            return len(payload)
+        except Exception as e:
+            print(f"⚠️ upsert_transactions_bulk 出错: {e}", flush=True)
+            return 0
+        finally:
+            await cls.release(conn)
+
+
+
+    @classmethod
+    async def search_history_redeem(cls, user_id: int) -> list[dict]:
+        """
+        查询某个用户的所有兑换历史（PostgreSQL 版）
+
+        对应 MySQL 版:
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM transaction t
+            LEFT JOIN sora_content sc ON t.transaction_description = sc.source_id
+            WHERE t.sender_id = ? AND t.transaction_type='confirm_buy'
+              AND sc.valid_state != 4
+            ORDER BY t.transaction_id DESC
+        """
+
+        cache_key = f"pg:history:redeem:{user_id}"
+        if cls.cache:
+            cached = cls.cache.get(cache_key)
+            if cached:
+                print(f"🔹 PG MemoryCache hit for {cache_key}")
+                return cached
+
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            sql = """
+                SELECT
+                    sc.id,
+                    sc.source_id,
+                    sc.file_type,
+                    sc.content
+                FROM "transaction" t
+                LEFT JOIN sora_content sc
+                    ON t.transaction_description = sc.source_id
+                WHERE t.sender_id = $1
+                  AND t.transaction_type = 'confirm_buy'
+                  AND sc.valid_state != 4
+                ORDER BY t.transaction_id DESC
+            """
+            rows = await conn.fetch(sql, int(user_id))
+            result = [dict(r) for r in rows] if rows else []
+
+            if cls.cache:
+                cls.cache.set(cache_key, result, ttl=300)
+                print(f"🔹 PG MemoryCache set for {cache_key}, {len(result)} items")
+
+            return result
+        except Exception as e:
+            print(f"⚠️ [PG] search_history_redeem 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn)
+
+
+
+    @classmethod
+    async def search_history_upload(cls, user_id: int) -> List[Dict[str, Any]]:
+        """
+        查询某个用户的所有上传历史（PostgreSQL 版本）
+
+        对应 MySQL 版：
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM product p
+            LEFT JOIN sora_content sc ON p.content_id = sc.id
+            WHERE p.owner_user_id = ? AND sc.valid_state != 4
+            ORDER BY sc.id DESC
+        """
+
+        cache_key = f"pg:history:upload:{user_id}"
+
+        # 内存缓存（短期，减轻 DB 压力）
+        if cls.cache:
+            cached = cls.cache.get(cache_key)
+            if cached:
+                print(f"🔹 PG MemoryCache hit for {cache_key}")
+                return cached
+
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            sql = """
+                SELECT
+                    sc.id,
+                    sc.source_id,
+                    sc.file_type,
+                    sc.content
+                FROM product p
+                LEFT JOIN sora_content sc
+                    ON p.content_id = sc.id
+                WHERE p.owner_user_id = $1
+                  AND sc.valid_state != 4
+                ORDER BY sc.id DESC
+            """
+            rows = await conn.fetch(sql, int(user_id))
+            result = [dict(r) for r in rows] if rows else []
+
+            if cls.cache:
+                cls.cache.set(cache_key, result, ttl=300)
+                print(f"🔹 PG MemoryCache set for {cache_key}, {len(result)} items")
+
+            return result
+        except Exception as e:
+            print(f"⚠️ [PG] search_history_upload 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn)
+
+
+    @classmethod
+    async def upsert_product_bulk_from_mysql(cls, rows: List[Dict[str, Any]]) -> int:
+        """
+        将 MySQL 的 product 记录批量 upsert 到 PostgreSQL 的 public.product 表。
+
+        规则：
+          - 以 content_id 为冲突键 (UNIQUE / PK)
+          - 冲突时更新：price, file_type, owner_user_id, purchase_condition, guild_id
+          - created_at 使用新插入时的 NOW()，更新时仅改 updated_at
+
+        返回：受影响的行数（近似等于 rows 长度）
+        """
+        if not rows:
+            return 0
+
+        await cls.ensure_pool()
+
+        # 准备批量参数
+        payload: List[Tuple] = []
+        for r in rows:
+            content_id = int(r["content_id"])
+            try:
+                price = int(r.get("price") or 0)
+            except Exception:
+                price = 0
+
+            file_type = r.get("file_type")
+            owner_user_id = r.get("owner_user_id")
+            owner_user_id = int(owner_user_id) if owner_user_id is not None else None
+            purchase_condition = r.get("purchase_condition")
+            guild_id = r.get("guild_id")
+
+            payload.append(
+                (
+                    content_id,
+                    price,
+                    file_type,
+                    owner_user_id,
+                    purchase_condition,
+                    guild_id,
+                )
+            )
+
+        sql = """
+            INSERT INTO product (
+                content_id,
+                price,
+                file_type,
+                owner_user_id,
+                purchase_condition,
+                guild_id,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, NOW(), NOW()
+            )
+            ON CONFLICT (content_id) DO UPDATE SET
+                price              = EXCLUDED.price,
+                file_type          = EXCLUDED.file_type,
+                owner_user_id      = EXCLUDED.owner_user_id,
+                purchase_condition = EXCLUDED.purchase_condition,
+                guild_id           = EXCLUDED.guild_id,
+                updated_at         = NOW()
+        """
+
+        # 和 upsert_album_items_bulk 风格保持一致
+        async with cls._pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.executemany(sql, payload)
+
+        return len(payload)

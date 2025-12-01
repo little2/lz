@@ -174,7 +174,7 @@ class DB:
                     ts_rank_cd(content_seg_tsv, to_tsquery('simple', $2))
                 ) AS rank
             FROM sora_content
-            WHERE {' AND '.join(where_parts)}
+            WHERE {' AND '.join(where_parts)} AND valid_state != 4
             ORDER BY rank DESC, id DESC
             LIMIT ${len(params)+1}
         """

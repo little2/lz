@@ -28,7 +28,7 @@ from aiogram.types import (
     InputMediaAnimation
 )
 
-from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora
+from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora,sync_product
 from aiogram.enums import ParseMode
 from utils.unit_converter import UnitConverter
 from utils.aes_crypto import AESCrypto
@@ -57,7 +57,7 @@ from lz_pgsql import PGPool
 
 
 from utils.string_utils import LZString
-from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase
+from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
 
 import functools
 import traceback
@@ -865,11 +865,21 @@ async def _build_pagination(callback_function, keyword_id:int | None = -1, page:
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何结果"}
     elif callback_function in {"fd_pid"}:
-        result = await MySQLPool.search_history_redeem(keyword_id)
+       
+        spawn_once(
+            f"sync_transactions:{keyword_id}",
+            lambda: sync_transactions(keyword_id)
+        )
+        result = await PGPool.search_history_redeem(keyword_id)
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何兑换纪录"}
     elif callback_function in {"ul_pid"}:
-        result = await MySQLPool.search_history_upload(keyword_id)
+        spawn_once(
+            f"sync_product:{keyword_id}",
+            lambda: sync_product(keyword_id)
+        )
+
+        result = await PGPool.search_history_upload(keyword_id)
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何上传纪录"}            
 
@@ -1393,9 +1403,9 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"⬅️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+                InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
                 InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-                InlineKeyboardButton(text=f"➡️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+                InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],
             [
                 InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
@@ -1467,8 +1477,11 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}")
+                InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+                InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],
+
             [
                 InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
             ],

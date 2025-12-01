@@ -2275,7 +2275,7 @@ class AnanBOTPool(LYBase):
                 LEFT JOIN sora_content s ON b.file_unique_id = s.source_id
                 WHERE b.content_id IS NULL AND CHAR_LENGTH(s.content) > 30
                 AND b.file_unique_id IS NOT NULL
-                AND s.id IS NOT NULL
+                AND s.id IS NOT NULL AND s.valid_status != 4
                 LIMIT 10
             """)
             rows = await cur.fetchall()

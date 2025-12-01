@@ -26,7 +26,7 @@ from handlers import lz_menu
 import lz_var
 import re
 
-from utils.product_utils import sync_sora, sync_album_items
+from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state
 
 from lz_redis import RedisManager
 lz_var.redis_manager = RedisManager()
@@ -312,6 +312,12 @@ async def main():
     )
 
     
+
+    while True:
+        summary = await check_and_fix_sora_valid_state(limit=1000)
+        if summary["checked"] == 0:
+            break
+
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
     @dp.shutdown()

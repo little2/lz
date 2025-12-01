@@ -335,6 +335,266 @@ async def sync_sora(content_id: int):
         album_sync_summary = None
     
 
+async def sync_product(user_id: int):
+    """
+    单向同步：以 MySQL 为源，将某个用户的 product 记录同步到 PostgreSQL。
+
+    规则：
+      - 仅同步 owner_user_id = user_id 的记录
+      - 单次最多 500 笔
+      - MySQL 存在 → PG upsert（存在更新，不存在插入）
+
+    返回示例：
+    {
+        "user_id": 123456789,
+        "mysql_count": 10,
+        "pg_upserted": 10,
+    }
+    """
+    # 确保两端连接池已就绪（幂等）
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    # 1) 从 MySQL 拉该用户的 product 记录（最多 500 笔）
+    limit = 500
+    mysql_rows = await MySQLPool.list_product_for_sync(
+        user_id=user_id,
+        limit=limit,
+    )
+    count_mysql = len(mysql_rows)
+    print(
+        f"[sync_product] MySQL rows = {count_mysql} for user_id={user_id}",
+        flush=True,
+    )
+
+    if not mysql_rows:
+        summary = {
+            "user_id": int(user_id),
+            "mysql_count": 0,
+            "pg_upserted": 0,
+        }
+        print(f"[sync_product] Done (no data): {summary}", flush=True)
+        return summary
+
+    # 2) 批量 upsert 到 PostgreSQL
+    pg_upserted = await PGPool.upsert_product_bulk_from_mysql(mysql_rows)
+
+    summary = {
+        "user_id": int(user_id),
+        "mysql_count": count_mysql,
+        "pg_upserted": pg_upserted,
+    }
+    print(f"[sync_product] Done: {summary}", flush=True)
+    return summary
+
+
+
+
+async def sync_transactions(user_id: int):
+    # 1) 先看看这个 sender 在 PG 里已经同步到哪一笔
+    await PGPool.init_pool()
+    last_tx_id = await PGPool.get_max_transaction_id_for_sender(user_id) or 0
+
+    # 2) 从这个 transaction_id 之后继续同步 MySQL → PG
+    summary = await sync_transactions_from_mysql(
+        start_transaction_id=last_tx_id,
+        sender_id=user_id,
+        limit=500,
+    )
+    print(summary)
+
+async def sync_transactions_from_mysql(
+    start_transaction_id: int,
+    sender_id: int,
+    limit: int = 500,
+):
+    """
+    单向同步：以 MySQL 为源，将 transaction 记录同步到 PostgreSQL。
+
+    规则：
+      - 仅同步 transaction_id > start_transaction_id 的记录
+      - 且 sender_id = 指定用户
+      - 单次最多 limit 笔（默认 500）
+
+    用法示例：
+      await sync_transactions_from_mysql(0, 123456789)
+      # → 从 transaction_id > 0 开始，同步 sender_id=123456789 的前 500 笔
+
+    建议：你可以在外层 while 调用，直到 mysql_count < limit 为止，实现增量追赶。
+    """
+    # 1) 确保两端连接池已就绪（幂等）
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    # 2) 从 MySQL 抓需要同步的记录（最多 limit 笔）
+    mysql_rows = await MySQLPool.list_transactions_for_sync(
+        start_transaction_id=start_transaction_id,
+        sender_id=sender_id,
+        limit=limit,
+    )
+    count_mysql = len(mysql_rows)
+    print(
+        f"[sync_transactions] MySQL rows = {count_mysql} "
+        f"for sender_id={sender_id}, start_transaction_id={start_transaction_id}",
+        flush=True,
+    )
+
+    if not mysql_rows:
+        # 没有可同步的资料，直接返回
+        return {
+            "sender_id": int(sender_id),
+            "mysql_count": 0,
+            "pg_upserted": 0,
+            "last_transaction_id": int(start_transaction_id),
+        }
+
+    # 3) 批量 upsert 到 PostgreSQL
+    pg_upserted = await PGPool.upsert_transactions_bulk(mysql_rows)
+    max_tx_id = max(int(r["transaction_id"]) for r in mysql_rows)
+
+    summary = {
+        "sender_id": int(sender_id),
+        "mysql_count": count_mysql,
+        "pg_upserted": pg_upserted,
+        "last_transaction_id": max_tx_id,
+    }
+    print(f"[sync_transactions] Done: {summary}", flush=True)
+    return summary
+
+
+async def check_and_fix_sora_valid_state(limit: int = 1000):
+    """
+    检查 MySQL.sora_content 中 valid_state = 1 的记录，
+    通过 LEFT JOIN file_extension(file_unique_id = source_id) 判断文件是否存在：
+      - 若存在 → valid_state = 9
+      - 若不存在 → valid_state = 4
+
+    并将相同的 valid_state 同步更新到 PostgreSQL.sora_content。
+
+    :param limit: 本次最多处理多少条，避免一次性扫太大表；可多次循环调用。
+    :return: 简单统计结果 dict
+    """
+
+    # 1) 确保连接池就绪
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    # -------------------------------
+    # 2) 从 MySQL 抓出待处理的记录
+    # -------------------------------
+    conn, cur = await MySQLPool.get_conn_cursor()
+    rows = []
+    try:
+        sql = """
+            SELECT
+                sc.id,
+                sc.source_id,
+                CASE
+                    WHEN fe.file_unique_id IS NULL THEN 4
+                    ELSE 9
+                END AS new_valid_state
+            FROM sora_content sc
+            LEFT JOIN file_extension fe
+                ON fe.file_unique_id = sc.source_id
+            WHERE sc.valid_state = 1
+            LIMIT %s
+        """
+        await cur.execute(sql, (int(limit),))
+        rows = await cur.fetchall()
+    except Exception as e:
+        print(f"⚠️ [check_and_fix_sora_valid_state] MySQL 查询出错: {e}", flush=True)
+        await MySQLPool.release(conn, cur)
+        return {
+            "checked": 0,
+            "updated_mysql": 0,
+            "updated_pg": 0,
+        }
+    finally:
+        await MySQLPool.release(conn, cur)
+
+    if not rows:
+        print("[check_and_fix_sora_valid_state] 没有 valid_state=1 的记录需要处理。", flush=True)
+        return {
+            "checked": 0,
+            "updated_mysql": 0,
+            "updated_pg": 0,
+        }
+
+    checked_count = len(rows)
+
+    # ------------------------------------
+    # 3) 在 MySQL 中批量更新 valid_state
+    # ------------------------------------
+    ids_9 = [int(r["id"]) for r in rows if int(r["new_valid_state"]) == 9]
+    ids_4 = [int(r["id"]) for r in rows if int(r["new_valid_state"]) == 4]
+
+    updated_mysql = 0
+    conn, cur = await MySQLPool.get_conn_cursor()
+    try:
+        if ids_9:
+            placeholders = ",".join(["%s"] * len(ids_9))
+            sql9 = f"UPDATE sora_content SET valid_state = 9 WHERE id IN ({placeholders})"
+            await cur.execute(sql9, ids_9)
+            updated_mysql += cur.rowcount or 0
+
+        if ids_4:
+            placeholders = ",".join(["%s"] * len(ids_4))
+            sql4 = f"UPDATE sora_content SET valid_state = 4 WHERE id IN ({placeholders})"
+            await cur.execute(sql4, ids_4)
+            updated_mysql += cur.rowcount or 0
+
+            
+            sql10 = f"UPDATE product SET review_status = 10 WHERE content_id IN ({placeholders})"
+            await cur.execute(sql10, ids_4)
+            # print(f"{ids_4} -> set review_status=10 for {cur.rowcount or 0} products", flush=True)
+
+
+    except Exception as e:
+        print(f"⚠️ [check_and_fix_sora_valid_state] MySQL 更新出错: {e}", flush=True)
+    finally:
+        await MySQLPool.release(conn, cur)
+
+    # ----------------------------------------
+    # 4) 同步到 PostgreSQL.sora_content
+    # ----------------------------------------
+    updated_pg = 0
+    try:
+        pg_conn = await PGPool.acquire()
+        try:
+            payload = [(int(r["id"]), int(r["new_valid_state"])) for r in rows]
+            sql_pg = "UPDATE sora_content SET valid_state = $2 WHERE id = $1"
+
+            async with pg_conn.transaction():
+                await pg_conn.executemany(sql_pg, payload)
+
+            updated_pg = len(payload)
+        finally:
+            await PGPool.release(pg_conn)
+    except Exception as e:
+        print(f"⚠️ [check_and_fix_sora_valid_state] PostgreSQL 更新出错: {e}", flush=True)
+
+    summary = {
+        "checked": checked_count,
+        "updated_mysql": updated_mysql,
+        "updated_pg": updated_pg,
+    }
+
+    print(f"[check_and_fix_sora_valid_state] Done: {summary}", flush=True)
+    return summary
 
 
 

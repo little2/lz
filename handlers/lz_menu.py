@@ -883,6 +883,17 @@ async def _build_pagination(callback_function, keyword_id:int | None = -1, page:
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何上传纪录"}            
 
+    ''' 
+    背景进行文件的同步 (预加载)
+    先从 reulst 里提取 sc.id (content_id), sc.source_id(file_unique_id) 列表
+    再查询对应的 source_bot_name+content_id 是否存在于 sora_media  ( sora_media.content_id =sc.id and sc.source_bot_name =lz_var.bot_username )
+    对于不存在的且未标记的，调用同步函数 Media.fetch_file_by_file_uid_from_x(state, file_unique_id, 10)
+    最多并发 RESULTS_PER_PAGE 个
+    如果已经请求的，则标记，避免下次重复请求
+    这样用户翻页时，文件应该已经准备好了
+    '''
+
+
     start = page * RESULTS_PER_PAGE
     end = start + RESULTS_PER_PAGE
     sliced = result[start:end]
@@ -1369,9 +1380,9 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
             search_result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
         elif stag == 'fd':
             # 我的兑换   
-            search_result = await MySQLPool.search_history_redeem(search_key_index)
+            search_result = await PGPool.search_history_redeem(search_key_index)
         elif stag == 'ul':   
-            search_result = await MySQLPool.search_history_upload(search_key_index)
+            search_result = await PGPool.search_history_upload(search_key_index)
             
         else:
             stag = "f"

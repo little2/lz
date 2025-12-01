@@ -314,6 +314,15 @@ async def main():
     
 
     while True:
+        '''
+
+
+        先找出有哪些thumb_file_unique_id, SELECT thumb_file_unique_id FROM `sora_content` WHERE `valid_state` = 9 and thumb_file_unique_id is not null; 每次处理 1000则
+        再对查看这些 thumb_file_unique_id 是否在 file_extension 表中存在 ( file_extension.file_unique_id = sora_content.thumb_file_unique_id )  
+        若存在则跳过，不存在则令 sora_content.thumb_file_unique_id 为空 (source_content.source_id=file_unique_id) 且 令 UPDATE `bid` SET `thumbnail_uid` = null WHERE `bid`.`file_unique_id` = 'file_unique_id';
+        处理完后，令 sora_content.valid_state =8
+        
+        '''
         summary = await check_and_fix_sora_valid_state(limit=1000)
         if summary["checked"] == 0:
             break

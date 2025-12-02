@@ -24,6 +24,7 @@ class GroupStatsTracker:
     _buffer = defaultdict(int)
     _lock = asyncio.Lock()
     _flusher_task = None
+    _offline_replay_task = None   # ⬅ 新增：离线交易回放的后台任务
 
     _url_regex = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -43,11 +44,36 @@ class GroupStatsTracker:
         async def _handler(event):
             await cls.on_new_message(event)
 
+    # @classmethod
+    # async def start_background_tasks(cls):
+    #     if cls._flusher_task:
+    #         return
+    #     cls._flusher_task = asyncio.create_task(cls._periodic_flusher())
+
+
     @classmethod
-    async def start_background_tasks(cls):
-        if cls._flusher_task:
-            return
-        cls._flusher_task = asyncio.create_task(cls._periodic_flusher())
+    async def start_background_tasks(cls, offline_replay_coro=None, offline_interval: int = 60):
+        """
+        启动后台任务：
+        - _periodic_flusher：每 flush_interval 秒写一次统计
+        - _periodic_offline_replay：每 offline_interval 秒跑一次离线回放（如果有传）
+        """
+        if not cls._flusher_task:
+            cls._flusher_task = asyncio.create_task(cls._periodic_flusher())
+
+        # 如果有传 replay 协程，就再开一个后台任务
+        if offline_replay_coro and not cls._offline_replay_task:
+            cls._offline_replay_task = asyncio.create_task(
+                cls._periodic_offline_replay(offline_replay_coro, offline_interval)
+            )
+
+
+    # @classmethod
+    # async def stop_background_tasks(cls):
+    #     await cls.flush()
+    #     if cls._flusher_task:
+    #         cls._flusher_task.cancel()
+    #         cls._flusher_task = None
 
     @classmethod
     async def stop_background_tasks(cls):
@@ -55,6 +81,13 @@ class GroupStatsTracker:
         if cls._flusher_task:
             cls._flusher_task.cancel()
             cls._flusher_task = None
+
+        if cls._offline_replay_task:
+            cls._offline_replay_task.cancel()
+            cls._offline_replay_task = None
+
+
+
 
     # ------------------------------
     # 核心消息处理
@@ -138,6 +171,20 @@ class GroupStatsTracker:
                 await cls.flush()
             except Exception as e:
                 print(f"[stats flush error] {e}", flush=True)
+
+
+    @classmethod
+    async def _periodic_offline_replay(cls, replay_coro, interval: int):
+        """
+        周期性调用 replay_coro（例如 ly.py 里的 replay_offline_transactions）
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await replay_coro()
+            except Exception as e:
+                print(f"[offline replay error] {e}", flush=True)
+
 
     # ------------------------------
     # 工具方法

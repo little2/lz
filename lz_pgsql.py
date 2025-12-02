@@ -927,3 +927,4 @@ class PGPool:
                 await conn.executemany(sql, payload)
 
         return len(payload)
+

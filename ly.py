@@ -52,7 +52,6 @@ async def notify_command_receivers_on_start():
     await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
     return
    
-
 async def add_contact():
 
     # 构造一个要导入的联系人
@@ -81,6 +80,150 @@ async def join(invite_hash):
             print("加入请求已发送，等待审批",flush=True)
         else:
             print(f"失败-加入群组: {invite_hash} {e}", flush=True)
+
+
+# ==================================================================
+# 交易回写
+# ==================================================================
+
+async def replay_offline_transactions(max_batch: int = 200):
+    """
+    MySQL 恢复后，把 PG 里的 offline_transaction_queue 回放到 MySQL，
+    并把 PostgreSQL 的 user.point 强制对齐为 MySQL 的最新值。
+
+    max_batch: 每次最多处理多少笔离线交易，避免一次拉太多。
+    """
+    # PG / MySQL 必须已初始化
+    if PGStatsDB.pool is None:
+        print("⚠️ PGStatsDB 未初始化，略过离线交易回放。", flush=True)
+        return
+
+    # 如果 MySQL 还是连不上，这里会直接抛错，下一轮再试
+    await MySQLPool.ensure_pool()
+
+    # 先同步用户资料，确保 user.point 是最新的
+    await PGStatsDB.sync_user_from_mysql()
+
+
+    # 先从 PG 拉出一批 pending 的离线交易
+    async with PGStatsDB.pool.acquire() as conn_pg:
+        rows = await conn_pg.fetch(
+            """
+            SELECT
+                id,
+                sender_id,
+                receiver_id,
+                transaction_type,
+                transaction_description,
+                sender_fee,
+                receiver_fee
+            FROM offline_transaction_queue
+            WHERE status = 'pending'
+            ORDER BY id ASC
+            LIMIT $1
+            """,
+            max_batch,
+        )
+
+    if not rows:
+        print("✅ 当前没有待回放的离线交易。", flush=True)
+        return
+
+    print(f"🧾 本次准备回放离线交易 {len(rows)} 笔...", flush=True)
+
+    for r in rows:
+        offline_id = r["id"]
+        tx = {
+            "sender_id": int(r["sender_id"]) if r["sender_id"] is not None else None,
+            "receiver_id": int(r["receiver_id"]) if r["receiver_id"] is not None else None,
+            "transaction_type": r["transaction_type"],
+            "transaction_description": r["transaction_description"],
+            "sender_fee": int(r["sender_fee"]),
+            "receiver_fee": int(r["receiver_fee"]),
+        }
+
+        # 1) 写回 MySQL 真正扣款 / 加款
+        try:
+            result = await MySQLPool.transaction_log(tx)
+        except Exception as e:
+            print(f"❌ 回放离线交易 #{offline_id} 写入 MySQL 失败: {e}", flush=True)
+            # 不动这笔的 status，保留为 pending，等下一轮再试
+            break
+
+        if result.get("ok") != "1":
+            # 写入失败的话，把这笔标记为 failed，避免无限重试
+            err = f"mysql_status={result.get('status', '')}"
+            async with PGStatsDB.pool.acquire() as conn_pg:
+                await conn_pg.execute(
+                    """
+                    UPDATE offline_transaction_queue
+                    SET status = 'failed',
+                        last_error = $2,
+                        processed_at = CURRENT_TIMESTAMP
+                    WHERE id = $1
+                    """,
+                    offline_id,
+                    err,
+                )
+            print(f"⚠️ 离线交易 #{offline_id} 写入 MySQL 失败，已标记为 failed: {err}", flush=True)
+            continue
+
+        # 2) 从 MySQL 读出 sender / receiver 的最新 point
+        sender_point = receiver_point = None
+        conn_mysql = cur_mysql = None
+        try:
+            conn_mysql, cur_mysql = await MySQLPool.get_conn_cursor()
+            if tx["sender_id"]:
+                await cur_mysql.execute(
+                    "SELECT point FROM user WHERE user_id = %s LIMIT 1",
+                    (tx["sender_id"],),
+                )
+                row = await cur_mysql.fetchone()
+                sender_point = row["point"] if row else None
+
+            if tx["receiver_id"]:
+                await cur_mysql.execute(
+                    "SELECT point FROM user WHERE user_id = %s LIMIT 1",
+                    (tx["receiver_id"],),
+                )
+                row = await cur_mysql.fetchone()
+                receiver_point = row["point"] if row else None
+        except Exception as e:
+            print(f"⚠️ 查询 MySQL 用户 point 失败 (offline_id={offline_id}): {e}", flush=True)
+        finally:
+            if conn_mysql and cur_mysql:
+                await MySQLPool.release(conn_mysql, cur_mysql)
+
+        # 3) 把最新 point 写回 PG 的 "user" 表，并把这笔离线交易标记为 synced
+        async with PGStatsDB.pool.acquire() as conn_pg:
+            async with conn_pg.transaction():
+                if sender_point is not None and tx["sender_id"]:
+                    await conn_pg.execute(
+                        'UPDATE "user" SET point = $1 WHERE user_id = $2',
+                        int(sender_point),
+                        int(tx["sender_id"]),
+                    )
+                if receiver_point is not None and tx["receiver_id"]:
+                    await conn_pg.execute(
+                        'UPDATE "user" SET point = $1 WHERE user_id = $2',
+                        int(receiver_point),
+                        int(tx["receiver_id"]),
+                    )
+
+                await conn_pg.execute(
+                    """
+                    UPDATE offline_transaction_queue
+                    SET status = 'synced',
+                        processed_at = CURRENT_TIMESTAMP,
+                        last_error = NULL
+                    WHERE id = $1
+                    """,
+                    offline_id,
+                )
+
+        print(f"✅ 离线交易 #{offline_id} 回放完成并同步 PG.user.point", flush=True)
+
+    print("🟢 本轮离线交易回放结束。", flush=True)
 
 # ==================================================================
 # 指令 /hb fee n2
@@ -134,9 +277,20 @@ async def handle_group_command(event):
         "receiver_fee": fee,
     }
 
-    await MySQLPool.ensure_pool()
-    result = await MySQLPool.transaction_log(transaction_data)
-    print("🔍 交易结果:", result)
+
+    backend = "mysql"
+    try:
+        await MySQLPool.ensure_pool()
+        result = await MySQLPool.transaction_log(transaction_data)
+    except Exception as e:
+        print(f"❌ MySQLPool.ensure_pool/transaction_log 出错，改用 PostgreSQL 离线队列: {e}", flush=True)
+        backend = "postgres_offline"
+        # 这里使用 PGStatsDB
+        result = await PGStatsDB.record_offline_transaction(transaction_data)
+
+    print(f"🔍 交易结果 backend={backend} result={result}", flush=True)
+
+
 
     if result.get("ok") == "1":
         json = json.dumps({
@@ -270,16 +424,21 @@ async def main():
     # ===== PostgreSQL 初始化 =====
     await PGStatsDB.init_pool(PG_DSN, PG_MIN_SIZE, PG_MAX_SIZE)
     await PGStatsDB.ensure_table()
+    await PGStatsDB.ensure_offline_tx_table()
 
-    # ===== 启动后台统计器 =====
-    await GroupStatsTracker.start_background_tasks()
+    # # ===== 启动后台统计器 =====
+    # await GroupStatsTracker.start_background_tasks()
+
+    # 启动群组统计 + 定期离线交易回放
+    await GroupStatsTracker.start_background_tasks(
+        offline_replay_coro=replay_offline_transactions,
+        offline_interval=60   # 每 60 秒跑一次，你可以改成 300 等
+    )
+
 
     print("🤖 ly bot 启动中(SESSION_STRING)...")
 
     await client.start()
-
-
-
 
     # ====== 获取自身帐号资讯 ======
     me = await client.get_me()

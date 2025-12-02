@@ -26,7 +26,7 @@ from handlers import lz_menu
 import lz_var
 import re
 
-from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state
+from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state,check_and_fix_sora_valid_state2
 
 from lz_redis import RedisManager
 lz_var.redis_manager = RedisManager()
@@ -314,18 +314,17 @@ async def main():
     
 
     while True:
-        '''
 
-
-        先找出有哪些thumb_file_unique_id, SELECT thumb_file_unique_id FROM `sora_content` WHERE `valid_state` = 9 and thumb_file_unique_id is not null; 每次处理 1000则
-        再对查看这些 thumb_file_unique_id 是否在 file_extension 表中存在 ( file_extension.file_unique_id = sora_content.thumb_file_unique_id )  
-        若存在则跳过，不存在则令 sora_content.thumb_file_unique_id 为空 (source_content.source_id=file_unique_id) 且 令 UPDATE `bid` SET `thumbnail_uid` = null WHERE `bid`.`file_unique_id` = 'file_unique_id';
-        处理完后，令 sora_content.valid_state =8
-        
-        '''
         summary = await check_and_fix_sora_valid_state(limit=1000)
         if summary["checked"] == 0:
             break
+
+
+    while True:
+        summary = await check_and_fix_sora_valid_state2(limit=1000)
+        if summary["checked"] == 0:
+            break
+        
 
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理

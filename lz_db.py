@@ -18,6 +18,13 @@ SYNONYM = {
     "滑鼠": "鼠标",
     "萤幕": "显示器",
     "笔电": "笔记本",
+    "正太与正太":"正太和正太"
+}
+
+NO_JIEBA_QUERIES = {
+    "正太和正太",
+    # 如果之后还有其它特殊关键字，往这里加就好
+    # "xxxxx",
 }
 
 class DB:
@@ -143,7 +150,13 @@ class DB:
  
         # 归一 + 分词（与建索引时保持一致）
         q_norm = self.replace_synonym(keyword_str)
-        tokens = list(jieba.cut(q_norm))
+
+         # 🔴 特定字串：不使用 jieba，直接拿整串当作一个 token
+        if q_norm in NO_JIEBA_QUERIES:
+            tokens = [q_norm]
+        else:
+            tokens = list(jieba.cut(q_norm))
+
         phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
         if not and_q:
             return []
@@ -174,7 +187,7 @@ class DB:
                     ts_rank_cd(content_seg_tsv, to_tsquery('simple', $2))
                 ) AS rank
             FROM sora_content
-            WHERE {' AND '.join(where_parts)} AND valid_state != 4
+            WHERE {' AND '.join(where_parts)} AND valid_state=9
             ORDER BY rank DESC, id DESC
             LIMIT ${len(params)+1}
         """

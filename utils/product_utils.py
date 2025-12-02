@@ -1,6 +1,7 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from aiogram import Bot
+
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, InputMediaAudio
 from utils.aes_crypto import AESCrypto
@@ -594,6 +595,126 @@ async def check_and_fix_sora_valid_state(limit: int = 1000):
     }
 
     print(f"[check_and_fix_sora_valid_state] Done: {summary}", flush=True)
+    return summary
+
+
+
+
+async def check_and_fix_sora_valid_state2(limit: int = 1000) -> Dict[str, Any]:
+    """
+    清理 sora_content.thumb_file_unique_id，并更新 MySQL + PostgreSQL：
+    1) valid_state = 9 AND thumb_file_unique_id IS NOT NULL 的记录
+    2) 若 thumb 不在 file_extension → 清空 thumb_file_unique_id（MySQL + PG）
+       同时清空 bid.thumbnail_uid
+    3) 批次将 valid_state = 8（MySQL + PG）
+    """
+
+    conn, cur = await MySQLPool.get_conn_cursor()
+    summary = {"checked": 0, "fixed_thumb": 0, "bid_cleared": 0}
+
+    try:
+        # ① 取待处理记录
+        await cur.execute(
+            """
+            SELECT id, source_id, thumb_file_unique_id
+            FROM sora_content
+            WHERE valid_state = 9
+              AND thumb_file_unique_id IS NOT NULL
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = await cur.fetchall()
+        if not rows:
+            return summary
+
+        summary["checked"] = len(rows)
+
+        thumb_ids = list({r["thumb_file_unique_id"] for r in rows if r["thumb_file_unique_id"]})
+
+        # ② 查 file_extension 是否存在
+        fmt = ",".join(["%s"] * len(thumb_ids)) if thumb_ids else "'EMPTY'"
+        exist_set = set()
+        if thumb_ids:
+            await cur.execute(
+                f"SELECT file_unique_id FROM file_extension WHERE file_unique_id IN ({fmt})",
+                tuple(thumb_ids),
+            )
+            exist_rows = await cur.fetchall()
+            exist_set = {r["file_unique_id"] for r in exist_rows}
+
+        ids_all = []
+        ids_need_clear_thumb = []
+        src_need_clear_bid = []
+
+        for r in rows:
+            cid = r["id"]
+            src = r["source_id"]
+            fu = r["thumb_file_unique_id"]
+
+            ids_all.append(cid)
+            if fu not in exist_set:
+                ids_need_clear_thumb.append(cid)
+                src_need_clear_bid.append(src)
+
+        # ③ MySQL + PG 更新
+        await conn.begin()
+
+        # -------- MySQL 部分 --------
+        if ids_need_clear_thumb:
+            fmt = ",".join(["%s"] * len(ids_need_clear_thumb))
+            await cur.execute(
+                f"UPDATE sora_content SET thumb_file_unique_id=NULL WHERE id IN ({fmt})",
+                tuple(ids_need_clear_thumb),
+            )
+            summary["fixed_thumb"] = cur.rowcount or 0
+
+        # 清 bid.thumbnail_uid
+        if src_need_clear_bid:
+            src_need_clear_bid = list(set(src_need_clear_bid))
+            fmt = ",".join(["%s"] * len(src_need_clear_bid))
+            await cur.execute(
+                f"UPDATE bid SET thumbnail_uid=NULL WHERE file_unique_id IN ({fmt})",
+                tuple(src_need_clear_bid),
+            )
+            summary["bid_cleared"] = cur.rowcount or 0
+
+        # 将 valid_state = 8（MySQL）
+        if ids_all:
+            fmt = ",".join(["%s"] * len(ids_all))
+            await cur.execute(
+                f"UPDATE sora_content SET valid_state=8 WHERE id IN ({fmt})",
+                tuple(ids_all),
+            )
+
+        await conn.commit()
+        print(f"[check_and_fix_sora_valid_state2] MySQL done: {summary}", flush=True)
+        # -------- PostgreSQL 部分 --------
+        # 🔥🔥🔥 NEW: 让 PG 的 sora_content 也同步清空 thumb_file_unique_id
+        if ids_need_clear_thumb:
+            for cid in ids_need_clear_thumb:
+                await PGPool.execute(
+                    "UPDATE sora_content SET thumb_file_unique_id = NULL WHERE id = $1",
+                    cid
+                )
+
+        # 🔥 PG: sync valid_state = 8
+        if ids_all:
+            for cid in ids_all:
+                await PGPool.execute(
+                    "UPDATE sora_content SET valid_state = 8 WHERE id=$1",
+                    cid
+                )
+        print(f"[check_and_fix_sora_valid_state2] PG done: {summary}", flush=True)
+    except Exception as e:
+        try:
+            await conn.rollback()
+        except:
+            pass
+        print(f"[check_and_fix_sora_valid_state] error: {e}", flush=True)
+    finally:
+        await MySQLPool.release(conn, cur)
+
     return summary
 
 

@@ -47,7 +47,7 @@ GroupStatsTracker.configure(
 
 
 async def notify_command_receivers_on_start():
-    target = await client.get_entity(KEY_USER_ID)     # 7550420493
+    target = await client.get_entity(int(KEY_USER_ID))     
     me = await client.get_me()
     await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
     return
@@ -62,13 +62,22 @@ async def add_contact():
         last_name=""
     )
 
+    # contact = InputPhoneContact(
+    #     client_id=0, 
+    #     phone="+12702701761", 
+    #     first_name="哪吒", 
+    #     last_name=""
+    # )
+    # //7501358629 +1 270 270 1761+1 270 270 1761
+
     result = await client(ImportContactsRequest([contact]))
-    print("导入结果:", result)
-    target = await client.get_entity(KEY_USER_ID)     # 7550420493
+    # print("导入结果:", result)
+    # print(f"{KEY_USER_ID}")
+    target = await client.get_entity(int(KEY_USER_ID))     # 7550420493
 
 
     me = await client.get_me()
-    await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
+    await client.send_message(target, f"你好, 我是 {me.id} 请加我好友 - {me.first_name} {me.last_name or ''}")
 
 async def join(invite_hash):
     from telethon.tl.functions.messages import ImportChatInviteRequest
@@ -454,12 +463,13 @@ async def main():
     print(f"📱 Phone Number : {phone}")
     print("======================================", flush=True)
     # =====================================
-
+# 
+    # await add_contact()
     if int(user_id) == int(KEY_USER_ID):
         print("⚠️ 警告：你正在使用 KEY_USER_ID 账号运行 Bot，请确认这是你想要的。", flush=True) 
     else:
         try:
-            print(f"✅ KEY_USER_ID 检查通过，当前运行账号 {user_id} {KEY_USER_ID} 与配置一致。", flush=True)
+            print(f"✅ KEY_USER_ID 检查通过，当前运行账号 {user_id} , 主要用户是  {KEY_USER_ID} 。", flush=True)
             await notify_command_receivers_on_start()
         except Exception as e:
             print(f"⚠️ 通知命令接收者时出错: {e}", flush=True)

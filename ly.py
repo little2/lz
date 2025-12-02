@@ -458,8 +458,12 @@ async def main():
     if int(user_id) == int(KEY_USER_ID):
         print("⚠️ 警告：你正在使用 KEY_USER_ID 账号运行 Bot，请确认这是你想要的。", flush=True) 
     else:
-        print(f"✅ KEY_USER_ID 检查通过，当前运行账号 {user_id} {KEY_USER_ID} 与配置一致。", flush=True)
-        await notify_command_receivers_on_start()
+        try:
+            print(f"✅ KEY_USER_ID 检查通过，当前运行账号 {user_id} {KEY_USER_ID} 与配置一致。", flush=True)
+            await notify_command_receivers_on_start()
+        except Exception as e:
+            print(f"⚠️ 通知命令接收者时出错: {e}", flush=True)
+            await add_contact()
 
     print("📡 开始监听所有事件...")
 

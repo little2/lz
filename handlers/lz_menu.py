@@ -732,7 +732,7 @@ async def handle_history_update(callback: CallbackQuery, state: FSMContext):
    
    
 
-    pg_result = await _build_pagination(callback_function, keyword_id, page_num)
+    pg_result = await _build_pagination(callback_function, keyword_id, page_num, state=state)
     if not pg_result.get("ok"):
         await callback.answer(pg_result.get("message"), show_alert=True)
         return
@@ -826,7 +826,7 @@ async def handle_pagination(callback: CallbackQuery, state: FSMContext):
         photo = lz_var.skins['home']['file_id']
 
 
-    pg_result = await _build_pagination(callback_function, keyword_id, page)
+    pg_result = await _build_pagination(callback_function, keyword_id, page, state=state)
     # print(f"pg_result: {pg_result}", flush=True)
     if not pg_result.get("ok"):
         await callback.answer(pg_result.get("message"), show_alert=True)
@@ -849,8 +849,190 @@ async def handle_pagination(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     
+async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]):
+    """
+    基于整批 result 做 sora_media 预加载：
+      - 使用 PGPool.cache 记录：
+          1) 每个 content_id 的 sora_media 状态
+          2) 每个 file_unique_id 是否已经发起过 fetch
+      - 整个函数会被 spawn_once 包装在后台执行，不阻塞主流程。
+    """
+    if state is None or not result:
+        return
 
-async def _build_pagination(callback_function, keyword_id:int | None = -1, page:int | None = 0):
+    try:
+        # 1) 从 result 收集 content_id → file_unique_id 映射
+        id_to_fuid: dict[int, str] = {}
+        for sc in result:
+            cid = sc.get("id") or sc.get("content_id")
+            fuid = sc.get("source_id") or sc.get("file_unique_id")
+
+            if not cid or not fuid:
+                continue
+
+            try:
+                cid_int = int(cid)
+            except (TypeError, ValueError):
+                continue
+
+            if cid_int not in id_to_fuid:
+                id_to_fuid[cid_int] = fuid
+
+        if not id_to_fuid:
+            return
+
+        bot_name = getattr(lz_var, "bot_username", "unknown_bot")
+
+        # 2) 找出哪些 content_id 缓存里还没有，需要打 PG
+        to_query: list[int] = []
+        if PGPool.cache:
+            for cid_int in id_to_fuid.keys():
+                cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
+                entry = PGPool.cache.get(cache_key)
+                if entry is None:
+                    to_query.append(cid_int)
+        else:
+            # 没有 cache 可用，就全部查一次
+            to_query = list(id_to_fuid.keys())
+
+        # 3) 对 to_query 打一次 PG，查询 sora_media
+        if to_query:
+            await PGPool.init_pool()
+            await PGPool.ensure_pool()
+
+            rows = await PGPool.fetch(
+                """
+                SELECT content_id, file_id, thumb_file_id
+                FROM sora_media
+                WHERE source_bot_name = $1
+                  AND content_id = ANY($2::bigint[])
+                """,
+                bot_name,
+                to_query,
+            )
+
+            # 先把查到的写入 cache
+            seen: set[int] = set()
+            for r in rows or []:
+                try:
+                    cid_int = int(r["content_id"])
+                except (TypeError, ValueError):
+                    continue
+
+                fuid = id_to_fuid.get(cid_int)
+                cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
+
+                # 已经有没有关系，后面 set 会覆盖
+                entry = {
+                    "file_id": r.get("file_id"),
+                    "thumb_file_id": r.get("thumb_file_id"),
+                    "file_unique_id": fuid,
+                    "requested": False,
+                }
+
+                # 如果这个 fuid 已经被标记发起过 fetch，则同步 requested 状态
+                if fuid and PGPool.cache:
+                    prefetch_key = f"pg:sora_prefetch_fuid:{fuid}"
+                    if PGPool.cache.get(prefetch_key):
+                        entry["requested"] = True
+
+                if PGPool.cache:
+                    PGPool.cache.set(cache_key, entry, ttl=1800)
+
+                seen.add(cid_int)
+
+            # 对于没任何 sora_media 记录的 content_id，也建一个空 entry，避免下次再查 PG
+            for cid_int in to_query:
+                if cid_int in seen:
+                    continue
+                fuid = id_to_fuid.get(cid_int)
+                cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
+                entry = {
+                    "file_id": None,
+                    "thumb_file_id": None,
+                    "file_unique_id": fuid,
+                    "requested": False,
+                }
+                if fuid and PGPool.cache:
+                    prefetch_key = f"pg:sora_prefetch_fuid:{fuid}"
+                    if PGPool.cache.get(prefetch_key):
+                        entry["requested"] = True
+                if PGPool.cache:
+                    PGPool.cache.set(cache_key, entry, ttl=3600)
+
+        # 4) 从 cache 里找出需要 fetch 的 candidates（最多 RESULTS_PER_PAGE 个）
+        tasks: list[asyncio.Task] = []
+        started = 0
+
+        for cid_int, fuid in id_to_fuid.items():
+            if not fuid:
+                continue
+
+            cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
+            entry = PGPool.cache.get(cache_key) if PGPool.cache else None
+
+            if entry is None:
+                # 理论上不会发生（前面已经写入），但保险处理
+                entry = {
+                    "file_id": None,
+                    "thumb_file_id": None,
+                    "file_unique_id": fuid,
+                    "requested": False,
+                }
+
+            # 已经有完整的 file_id + thumb_file_id → 不需要 fetch
+            if entry.get("file_id") and entry.get("thumb_file_id"):
+                # 重新写回，刷新 TTL 即可
+                if PGPool.cache:
+                    PGPool.cache.set(cache_key, entry, ttl=1800)
+                continue
+
+            # 已经发起过 fetch（不论成功与否），避免重复请求
+            prefetch_key = f"pg:sora_prefetch_fuid:{fuid}"
+            already_prefetched = PGPool.cache.get(prefetch_key) if PGPool.cache else None
+            if already_prefetched or entry.get("requested"):
+                # 刷新一下缓存 TTL
+                if PGPool.cache:
+                    PGPool.cache.set(cache_key, entry, ttl=1800)
+                continue
+
+            # 还没请求过 → 标记并发起 fetch
+            entry["file_unique_id"] = fuid
+            entry["requested"] = True
+            if PGPool.cache:
+                PGPool.cache.set(cache_key, entry, ttl=1800)
+                PGPool.cache.set(prefetch_key, True, ttl=3600)
+
+            async def _one_fetch(fuid: str = fuid):
+                try:
+                    # 暂停 1 秒
+                    await asyncio.sleep(1.0)
+                    await Media.fetch_file_by_file_uid_from_x(state, fuid, 10.0)
+                    # 成功后，真正的 file_id / thumb_file_id 会被写回 sora_media。
+                    # 以后再触发预加载时，PG 查询 + cache 会拿到最新状态。
+                except Exception as e:
+                    print(f"[prefetch] fetch_file_by_file_uid_from_x failed for {fuid}: {e}", flush=True)
+
+            tasks.append(asyncio.create_task(_one_fetch()))
+            started += 1
+
+            if started >= int(RESULTS_PER_PAGE/2):
+                break
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    except Exception as e:
+        print(f"[prefetch] _prefetch_sora_media_for_results error: {e}", flush=True)
+
+
+
+async def _build_pagination(
+    callback_function,
+    keyword_id: int | None = -1,
+    page: int | None = 0,
+    state: FSMContext | None = None,
+):
     keyword = ""
     if callback_function in {"pageid"}:
         # 用 keyword_id 查回 keyword 文本
@@ -883,15 +1065,35 @@ async def _build_pagination(callback_function, keyword_id:int | None = -1, page:
         if not result:
             return {"ok": False, "message": "⚠️ 没有找到任何上传纪录"}            
 
-    ''' 
-    背景进行文件的同步 (预加载)
-    先从 reulst 里提取 sc.id (content_id), sc.source_id(file_unique_id) 列表
-    再查询对应的 source_bot_name+content_id 是否存在于 sora_media  ( sora_media.content_id =sc.id and sc.source_bot_name =lz_var.bot_username )
-    对于不存在的且未标记的，调用同步函数 Media.fetch_file_by_file_uid_from_x(state, file_unique_id, 10)
-    最多并发 RESULTS_PER_PAGE 个
-    如果已经请求的，则标记，避免下次重复请求
-    这样用户翻页时，文件应该已经准备好了
-    '''
+
+    # === 正常分页 ===# === 背景进行文件的同步 (预加载) ===
+    # 使用「整批 result」而不只是当前页：
+    # 1) 从 result 提取 (content_id, source_id=file_unique_id)
+    # 2) 用 content_id 列表去查 sora_media 里现状
+    #    - 条件：source_bot_name = 当前 bot
+    # 3) 找出下列这些 content_id：
+    #    - 没有 sora_media 记录，或
+    #    - 有记录但 file_id 为空，或
+    #    - 有记录但 thumb_file_id 为空
+    # 4) 从这些候选中，最多挑 RESULTS_PER_PAGE 个，
+    #    用 spawn_once + Media.fetch_file_by_file_uid_from_x(state, file_unique_id, 10)
+    #    并用 file_unique_id 做 key 标记，避免重复请求
+        # === 背景进行文件的同步（预加载） ===
+    # 把整块预加载逻辑丢到 spawn_once，让主线程只负责分页与渲染，不被 PG / X 仓库拖慢。
+    print(f"Prefetch sora_media for pagination: {callback_function}, {keyword_id}", flush=True)
+    if state is not None and result:
+        print(f"Starting prefetch task...", flush=True)
+        # 用 callback_function + keyword_id 当 key，避免同一批结果被重复开启预加载任务
+        key = f"prefetch_sora_media:{callback_function}:{keyword_id}"
+        # 注意要把 result 拷贝成 list，避免外面后续修改它
+        snapshot = list(result)
+
+        spawn_once(
+            key,
+            lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),
+        )
+
+    # === 正常分页 ===
 
 
     start = page * RESULTS_PER_PAGE
@@ -993,7 +1195,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     
     keyword_id = await db.get_search_keyword_id(keyword)
 
-    list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id)
+    list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id, state=state)
     if not list_info.get("ok"):
         msg = await message.answer(list_info.get("message"))
         # ⏳ 延迟 5 秒后自动删除
@@ -1488,9 +1690,9 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+                # InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
                 InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-                InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+                # InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],
 
             [
@@ -2568,16 +2770,30 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
                 return
         elif search_from == "fd":
             # print(f"🔍 搜索合集 ID {search_key_index} 的内容")
-            result = await MySQLPool.search_history_redeem(search_key_index)
+            result = await PGPool.search_history_redeem(search_key_index)
             if not result:
                 await callback.answer("⚠️ 兑换纪录为空", show_alert=True)
                 return    
         elif search_from == "ul":
             # print(f"🔍 搜索合集 ID {search_key_index} 的内容")
-            result = await MySQLPool.search_history_upload(search_key_index)
+            result = await PGPool.search_history_upload(search_key_index)
             if not result:
                 await callback.answer("⚠️ 上传纪录为空", show_alert=True)
                 return   
+
+
+        print(f"Prefetch sora_media for pagination: {search_from}", flush=True)
+        if state is not None and result:
+            print(f"Starting prefetch task...", flush=True)
+            # 用 callback_function + keyword_id 当 key，避免同一批结果被重复开启预加载任务
+            key = f"prefetch_sora_media:{search_from}"
+            # 注意要把 result 拷贝成 list，避免外面后续修改它
+            snapshot = list(result)
+
+            spawn_once(
+                key,
+                lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),
+            )
 
         # 计算新的 pos
         new_pos = current_pos + offset

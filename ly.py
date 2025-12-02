@@ -135,7 +135,7 @@ async def replay_offline_transactions(max_batch: int = 200):
         )
 
     if not rows:
-        print("✅ 当前没有待回放的离线交易。", flush=True)
+        # print("✅ 当前没有待回放的离线交易。", flush=True)
         return
 
     print(f"🧾 本次准备回放离线交易 {len(rows)} 笔...", flush=True)
@@ -308,7 +308,7 @@ async def handle_group_command(event):
             "chatinfo": f"{chat_id}_{msg_id}"
         })
         print(f"json={payload}",flush=True)
-        await client.send_message(sender_id, payload)
+        await client.send_message(receiver_id, payload)
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
     #     )

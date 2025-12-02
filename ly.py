@@ -101,11 +101,11 @@ async def replay_offline_transactions(max_batch: int = 200):
     # 如果 MySQL 还是连不上，这里会直接抛错，下一轮再试
     await MySQLPool.ensure_pool()
 
-    # 先同步用户资料，确保 user.point 是最新的
-    await PGStatsDB.sync_user_from_mysql()
+    # ⚠️ 注意：这里不要先调用 sync_user_from_mysql()
+    # 如果先同步，会把「尚未回放到 MySQL 的离线扣点」给覆盖掉。
+    # await PGStatsDB.sync_user_from_mysql()
 
-
-    # 先从 PG 拉出一批 pending 的离线交易
+    # 先从 PG 拉出一批「尚未处理」的离线交易
     async with PGStatsDB.pool.acquire() as conn_pg:
         rows = await conn_pg.fetch(
             """
@@ -118,7 +118,7 @@ async def replay_offline_transactions(max_batch: int = 200):
                 sender_fee,
                 receiver_fee
             FROM offline_transaction_queue
-            WHERE status = 'pending'
+            WHERE processed = FALSE        -- ✅ 用 processed 作为 pending 依据
             ORDER BY id ASC
             LIMIT $1
             """,
@@ -147,25 +147,25 @@ async def replay_offline_transactions(max_batch: int = 200):
             result = await MySQLPool.transaction_log(tx)
         except Exception as e:
             print(f"❌ 回放离线交易 #{offline_id} 写入 MySQL 失败: {e}", flush=True)
-            # 不动这笔的 status，保留为 pending，等下一轮再试
+            # 不动这笔的 processed，让它维持 FALSE，等下一轮再试
             break
 
         if result.get("ok") != "1":
-            # 写入失败的话，把这笔标记为 failed，避免无限重试
+            # 写入失败的话，把这笔标记为「已处理但失败」，避免无限重试
             err = f"mysql_status={result.get('status', '')}"
             async with PGStatsDB.pool.acquire() as conn_pg:
                 await conn_pg.execute(
                     """
                     UPDATE offline_transaction_queue
-                    SET status = 'failed',
-                        last_error = $2,
+                    SET processed   = TRUE,
+                        last_error  = $2,
                         processed_at = CURRENT_TIMESTAMP
                     WHERE id = $1
                     """,
                     offline_id,
                     err,
                 )
-            print(f"⚠️ 离线交易 #{offline_id} 写入 MySQL 失败，已标记为 failed: {err}", flush=True)
+            print(f"⚠️ 离线交易 #{offline_id} 写入 MySQL 失败，已标记为失败: {err}", flush=True)
             continue
 
         # 2) 从 MySQL 读出 sender / receiver 的最新 point
@@ -194,7 +194,7 @@ async def replay_offline_transactions(max_batch: int = 200):
             if conn_mysql and cur_mysql:
                 await MySQLPool.release(conn_mysql, cur_mysql)
 
-        # 3) 把最新 point 写回 PG 的 "user" 表，并把这笔离线交易标记为 synced
+        # 3) 把最新 point 写回 PG 的 "user" 表，并把这笔离线交易标记为 processed=TRUE
         async with PGStatsDB.pool.acquire() as conn_pg:
             async with conn_pg.transaction():
                 if sender_point is not None and tx["sender_id"]:
@@ -213,9 +213,9 @@ async def replay_offline_transactions(max_batch: int = 200):
                 await conn_pg.execute(
                     """
                     UPDATE offline_transaction_queue
-                    SET status = 'synced',
+                    SET processed   = TRUE,
                         processed_at = CURRENT_TIMESTAMP,
-                        last_error = NULL
+                        last_error   = NULL
                     WHERE id = $1
                     """,
                     offline_id,
@@ -224,6 +224,7 @@ async def replay_offline_transactions(max_batch: int = 200):
         print(f"✅ 离线交易 #{offline_id} 回放完成并同步 PG.user.point", flush=True)
 
     print("🟢 本轮离线交易回放结束。", flush=True)
+
 
 # ==================================================================
 # 指令 /hb fee n2
@@ -432,7 +433,7 @@ async def main():
     # 启动群组统计 + 定期离线交易回放
     await GroupStatsTracker.start_background_tasks(
         offline_replay_coro=replay_offline_transactions,
-        offline_interval=60   # 每 60 秒跑一次，你可以改成 300 等
+        offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
     )
 
 
@@ -454,8 +455,11 @@ async def main():
     print("======================================", flush=True)
     # =====================================
 
-
-    await notify_command_receivers_on_start()
+    if int(user_id) == int(KEY_USER_ID):
+        print("⚠️ 警告：你正在使用 KEY_USER_ID 账号运行 Bot，请确认这是你想要的。", flush=True) 
+    else:
+        print(f"✅ KEY_USER_ID 检查通过，当前运行账号 {user_id} {KEY_USER_ID} 与配置一致。", flush=True)
+        await notify_command_receivers_on_start()
 
     print("📡 开始监听所有事件...")
 

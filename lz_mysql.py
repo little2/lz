@@ -705,7 +705,6 @@ class MySQLPool:
         finally:
             await cls.release(conn, cur)
 
-
     @classmethod
     async def upsert_news_content(cls, tpl_data: dict) -> dict:
         """
@@ -754,8 +753,7 @@ class MySQLPool:
             return {"ok": "", "status": "error", "error": str(e)}
         finally:
             await cls.release(conn, cur)
-
-    
+ 
     @classmethod
     async def fetch_valid_xlj_memberships(cls, user_id: int | str = None) -> list[dict]:
         """
@@ -800,7 +798,6 @@ class MySQLPool:
     Collection 内容管理相关方法
     '''
  
-
     @classmethod
     async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
         """
@@ -823,7 +820,6 @@ class MySQLPool:
             return cnt, first_id
         finally:
             await cls.release(conn, cur)
-
 
     @classmethod
     async def get_clt_files_by_clt_id(cls, collection_id: int) -> list[dict]:
@@ -1019,7 +1015,6 @@ class MySQLPool:
         finally:
             await cls.release(conn, cur)
 
-    
     @classmethod
     async def list_album_items_by_content_id(cls, content_id: int) -> list[dict]:
         """
@@ -1052,8 +1047,6 @@ class MySQLPool:
             return []
         finally:
             await cls.release(conn, cur)
-
-
 
     @classmethod
     async def fetch_task_value_by_title(cls, title: str) -> str | None:

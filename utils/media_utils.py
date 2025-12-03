@@ -31,13 +31,14 @@ class Media:
         """
 
         bot = lz_var.bot
-        storage = state.storage  # 与全局 Dispatcher 共享的同一个 storage
+        if state:
+            storage = state.storage  # 与全局 Dispatcher 共享的同一个 storage
 
-        x_uid = lz_var.x_man_bot_id          
-        x_chat_id = x_uid                     # 私聊里 chat_id == user_id
-        key = StorageKey(bot_id=lz_var.bot.id, chat_id=x_chat_id, user_id=x_uid)
+            x_uid = lz_var.x_man_bot_id          
+            x_chat_id = x_uid                     # 私聊里 chat_id == user_id
+            key = StorageKey(bot_id=lz_var.bot.id, chat_id=x_chat_id, user_id=x_uid)
 
-        await storage.set_state(key, ProductPreviewFSM.waiting_for_x_media.state)
+            await storage.set_state(key, ProductPreviewFSM.waiting_for_x_media.state)
         # await storage.set_data(key, {})  # 清空
 
         # 可选：你想把召唤语塞给状态，方便对方检查 reply_to（不必须）
@@ -57,6 +58,10 @@ class Media:
 
             except Exception as e:
                 print(f"❌ 发送 ask_file_unique_id 给用户失败: {e}", flush=True)
+        
+        if state is None:
+            return None
+        
         max_loop = int((timeout_sec / 0.5) + 0.5)
         for _ in range(max_loop):
             data = await storage.get_data(key)
@@ -76,6 +81,7 @@ class Media:
             # print(f"❌ (fetch_file_by_file_uid_from_x)[X-MEDIA] 超时未收到 x_file_unique_id {ask_file_unique_id} ，已等待 {timeout_sec} 秒后清理状态", flush=True)
 
         # 超时清理 
+        
         await storage.set_state(key, None)
         data = await storage.get_data(key)
         data["x_file_id"] = None

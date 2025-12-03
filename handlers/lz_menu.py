@@ -377,8 +377,8 @@ async def _edit_caption_or_text2(msg : Message | None = None, *,  text: str, rep
 
 
 @debug
-async def handle_update_thumb(content_id, file_id):
-    print(f"✅ [X-MEDIA] 需要为视频创建缩略图，正在处理...{lz_var.man_bot_id}", flush=True)
+async def handle_update_thumb(content_id, file_id,state):
+    print(f"🏃🖼 开始取得视频的默认封面图，正在处理...{lz_var.man_bot_id}", flush=True)
     await MySQLPool.init_pool()
     await PGPool.init_pool()
     try:
@@ -393,6 +393,7 @@ async def handle_update_thumb(content_id, file_id):
                 await PGPool.ensure_pool()
 
                 # 上传给仓库机器人，获取新的 file_id 和 file_unique_id
+                print(f"🏃🖼 上传给 {lz_var.man_bot_id} 以取得封面图的file_id", flush=True)
                 newcover = await lz_var.bot.send_photo(
                     chat_id=lz_var.x_man_bot_id,
                     photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg")
@@ -409,7 +410,7 @@ async def handle_update_thumb(content_id, file_id):
                     "stage":"pending"
                 })
             except Exception as e:
-                print(f"⚠️ 用缓冲图更新封面失败：{e}", flush=True)
+                print(f"⚠️🏃🖼  用缓冲图更新封面失败：{e}", flush=True)
             
             try:
                 # invalidate_cached_product(content_id)
@@ -417,13 +418,35 @@ async def handle_update_thumb(content_id, file_id):
                     content_id, thumb_file_unique_id, thumb_file_id, lz_var.bot_username
                 )
 
-                print(f"预览图更新中 {content_id} {thumb_file_unique_id} {thumb_file_id}", flush=True)
+                print(f"🏃🖼 预览图更新中 {content_id} {thumb_file_unique_id} {thumb_file_id}", flush=True)
             except Exception as e:
-                print(f"⚠️ 用缓冲图更新封面失败(PostgreSQL)：{e}", flush=True)
-                    
+                print(f"⚠️🏃🖼  用缓冲图更新封面失败(PostgreSQL)：{e}", flush=True)
+
+
+            try:
+                state_data = await MenuBase.get_menu_status(state)
+     
+                current_message = state_data.get("current_message")
+
+
+                if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+                    await lz_var.bot.edit_message_media(
+                            chat_id=current_message.chat.id,
+                            message_id=current_message.message_id,
+                            media=InputMediaPhoto(
+                                media=thumb_file_id,   # 新图的 file_id
+                                caption=current_message.caption,   # 保留原 caption
+                                parse_mode="HTML",               # 如果原本有 HTML 格式
+                            ),
+                        reply_markup=current_message.reply_markup  # 保留原按钮
+                    )
+                    print(f"✅ [X-MEDIA] 成功更新菜单消息的缩略图", flush=True)
+            except Exception as e:
+                print(f"❌ [X-MEDIA] menu_message 无法更新缩略图，缺少 message_id 或 chat 信息 {current_message}", flush=True)     
+
         
         else:
-            print(f"...⚠️ 提取缩图失败 for content_id: {content_id}", flush=True)
+            print(f"...⚠️🏃🖼  提取缩图失败 for content_id: {content_id}", flush=True)
 
     except TelegramNotFound as e:
     
@@ -1007,7 +1030,8 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
                 try:
                     # 暂停 1 秒
                     await asyncio.sleep(1.0)
-                    await Media.fetch_file_by_file_uid_from_x(state, fuid, 10.0)
+                   
+                    await Media.fetch_file_by_file_uid_from_x(state=None, ask_file_unique_id=fuid, timeout_sec=10.0)
                     # 成功后，真正的 file_id / thumb_file_id 会被写回 sora_media。
                     # 以后再触发预加载时，PG 查询 + cache 会拿到最新状态。
                 except Exception as e:
@@ -1016,7 +1040,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
             tasks.append(asyncio.create_task(_one_fetch()))
             started += 1
 
-            if started >= int(RESULTS_PER_PAGE/2):
+            if started >= (int(RESULTS_PER_PAGE/2)+1):
                 break
 
         if tasks:
@@ -1344,8 +1368,9 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 current_message = state_data.get("current_message") if state_data else None
             except Exception as e:
                 # tb = traceback.format_exc()
-                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
                 print(f"❌ 解密失败A：{e}", flush=True)
 
 
@@ -1392,7 +1417,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
             except Exception as e:
                 # tb = traceback.format_exc()
-                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 print(f"❌ 解密失败B：{e}", flush=True)
 
@@ -1410,7 +1436,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             except Exception as e:
                
                 # tb = traceback.format_exc()
-                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
                 print(f"❌ 解密失败C：{e}", flush=True)
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 try:
@@ -1472,7 +1499,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     return
             except Exception as e:
                 # tb = traceback.format_exc()
-                await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 print(f"❌ 解密失败D：{e}", flush=True)
 
@@ -3450,7 +3478,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 
         # ✅ 若 thumb_file_id 为空，则给默认值
         if not thumb_file_id and thumb_file_unique_id != None:
-            print(f"🔍 没有找到 thumb_file_id，背景尝试从 thumb_file_unique_id {thumb_file_unique_id} 获取")
+            print(f"🔍 没有找到 thumb_file_id，背景尝试从 thumb_file_unique_id( {thumb_file_unique_id} )获取")
             spawn_once(
                 f"thumb_file_id:{thumb_file_unique_id}",
                 lambda: Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
@@ -3473,13 +3501,16 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             
     
         if not thumb_file_id:
-            print("❌ 在延展库没有，用预设图")
+            print("❌ 在延展库没有封面图，先用预设图")
             
+
+
+
             if file_id and not thumb_file_unique_id and (file_type == "video" or file_type == "v"):
-                print(f"试著取默认封面图")
+                print(f"这是视频，有file_id，试著取它的默认封面图")
                 spawn_once(
                     f"create_thumb_file_id:{file_id}",
-                    lambda: handle_update_thumb(content_id, file_id )
+                    lambda: handle_update_thumb(content_id, file_id ,state)
                 )
 
             # default_thumb_file_id: list[str] | None = None  # Python 3.10+

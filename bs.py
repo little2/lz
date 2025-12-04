@@ -15,7 +15,13 @@ from aiogram.types import (
     InlineKeyboardButton,
     PhotoSize,
     BufferedInputFile,
+    CopyTextButton,
+    InputMediaPhoto
 )
+
+
+
+
 
 # ==========================
 # 配置区（请改成你的实际值）
@@ -53,13 +59,34 @@ def today_sgt() -> date:
 # ==========================
 # PostgreSQL 封装
 # ==========================
+from lz_memory_cache import MemoryCache
+
 class PGDB:
     pool: asyncpg.Pool | None = None
+    _lock = asyncio.Lock()
+    _cache_ready = False
+    cache: MemoryCache | None = None  # 为了 type hint 更清楚
 
     @classmethod
     async def init_pool(cls, dsn: str):
-        if cls.pool is None:
-            cls.pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
+        # 幂等：多处并发调用只建一次连接池
+        if cls.pool is not None:
+            if not cls._cache_ready:
+                cls.cache = MemoryCache()
+                cls._cache_ready = True
+            return cls.pool
+
+        async with cls._lock:
+            if cls.pool is None:
+                cls.pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=5)
+                
+            if not cls._cache_ready:
+                cls.cache = MemoryCache()
+                cls._cache_ready = True
+        return cls.pool
+
+
+
 
     @classmethod
     async def close_pool(cls):
@@ -105,17 +132,127 @@ class PGDB:
     # ---- file_stock 操作 ----
 
     @classmethod
-    async def get_file_stock_by_unique_id(cls, file_unique_id: str) -> asyncpg.Record | None:
+    async def get_file_stock_by_file_unique_id(cls, file_unique_id: str) -> Optional[dict] | None:
+        cache_key = f"fuid:{file_unique_id}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+
         async with cls.pool.acquire() as conn:
             row = await conn.fetchrow(
-                """
+                '''
                 SELECT *
                 FROM file_stock
                 WHERE file_unique_id = $1
-                """,
+                ''',
                 file_unique_id,
             )
-        return row
+
+
+            if not row:
+                return None
+
+            data = dict(row)
+            cls.cache.set(cache_key, data)
+            cls.cache.set(f"id:{data['id']}", data)
+            #（顺带也可设 id:{id}）
+            return data
+
+    @classmethod
+    async def get_file_stock_by_id_offset(cls, id: int, offset: int) -> Optional[dict] | None:
+        '''
+        设计这个函式是为了配合翻页功能使用，尽可能减少数据库查询次数，优先从缓存中获取数据。
+        若是往上页翻页(offset为负数)，则尝试从缓存中获取数据，若缓存中没有，且 id >=1 则查询数据库并将结果缓存起来。
+        若是往下页翻页(offset为正数)，则直接查询数据库并将结果缓存起来。
+        返回值为目标纪录的字典形式，若找不到则返回 None。
+        '''
+        # 防御：非法 id 直接返回 None
+        if id is None or id < 1:
+            return None        
+        
+        cache_key = f"id:{(id+offset)}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+        else:
+            '''
+            若是往上页翻页(offset为负数)，且 id >=1 则查询数据库并将结果缓存起来。
+            '''
+  
+            async with cls.pool.acquire() as conn:
+                if offset <0 and (id+offset)>=1:
+                    rows = await conn.fetch(
+                        '''
+                        SELECT *
+                        FROM file_stock
+                        WHERE id <  $1 
+                        ORDER BY id DESC
+                        LIMIT 100
+                        ''',
+                        id,
+                    )
+                elif offset >0 and (id+offset)>=1:
+                    rows = await conn.fetch(
+                        '''
+                        SELECT *
+                        FROM file_stock
+                        WHERE id > $1
+                        ORDER BY id ASC
+                        LIMIT 100
+                        ''',
+                        id,
+                    )
+                else:
+                    return None
+                    
+                for r in rows:
+                    cache_key1 = f"fuid:{r['file_unique_id']}"
+                    cls.cache.set(cache_key1, dict(r))
+                    cache_key2 = f"id:{r['id']}"
+                    cls.cache.set(cache_key2, dict(r))
+
+                if rows:
+                    data = dict(rows[0])
+                    return data
+                else:
+                    return None
+                
+                
+                
+
+
+    @classmethod
+    async def get_file_stock_by_id(cls, id: int) -> Optional[dict] | None:
+        cache_key = f"id:{id}"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(
+                '''
+                SELECT *
+                FROM file_stock
+                WHERE id >= ( $1 - 50 )
+                ORDER BY id ASC
+                LIMIT 100
+                ''',
+                id,
+            )
+            
+            for r in rows:
+                cache_key1 = f"fuid:{r['file_unique_id']}"
+                cls.cache.set(cache_key1, dict(r))
+                cache_key2 = f"id:{r['id']}"
+                cls.cache.set(cache_key2, dict(r))
+
+            return cls.cache.get(cache_key)
+       
 
     @classmethod
     async def insert_file_stock_if_not_exists(
@@ -128,12 +265,14 @@ class PGDB:
         caption: Optional[str],
         bot_username: str,
         user_id: Optional[int],
-    ) -> bool:
+    ) -> Optional[int]:
         """
-        返回 True 表示成功插入（之前不存在），False 表示已存在。
+        返回该纪录的 id：
+        - 新插入 → 回传新 id
+        - 已存在 → 回传既有 id
+        - 失败 → 回传 None
         """
         async with cls.pool.acquire() as conn:
-            # 简化逻辑：调用前就保证不存在，这里只插一次
             try:
                 await conn.execute(
                     """
@@ -154,14 +293,17 @@ class PGDB:
                 )
             except Exception as e:
                 print(f"[PG] insert_file_stock_if_not_exists error: {e}")
-                return False
+                return None
 
             row = await conn.fetchrow(
-                "SELECT id FROM file_stock WHERE file_unique_id = $1",
+                "SELECT * FROM file_stock WHERE file_unique_id = $1",
                 file_unique_id,
             )
-            return row is not None
+            if not row:
+                return None
 
+            
+            return row["id"]
     # ---- talking_task 操作 ----
 
     @classmethod
@@ -376,7 +518,7 @@ async def handle_media_message(message: Message, bot: Bot):
     caption = file_name or (message.caption or "")
 
     # 先检查是否已存在于 file_stock
-    existed = await PGDB.get_file_stock_by_unique_id(file_unique_id)
+    existed = await PGDB.get_file_stock_by_file_unique_id(file_unique_id)
     if existed:
         # 已经有这条视频了 → 不重复计数，也不公告
         return
@@ -398,7 +540,7 @@ async def handle_media_message(message: Message, bot: Bot):
         thumb_file_id, _thumb_unique_id = thumb_info
 
     # 插入 file_stock
-    await PGDB.insert_file_stock_if_not_exists(
+    new_id = await PGDB.insert_file_stock_if_not_exists(
         file_type="video",
         file_unique_id=file_unique_id,
         file_id=file_id,
@@ -407,14 +549,18 @@ async def handle_media_message(message: Message, bot: Bot):
         bot_username=BOT_USERNAME,
         user_id=user.id
     )
+    if new_id is None:
+        # 理论上不会发生，防御一下
+        return
 
     # 在指定群组公告
-    title = file_name if file_name else "新"
-    deep_link = f"https://t.me/{BOT_USERNAME}?start={file_unique_id}"
+    # title = file_name if file_name else "🍚新布施!"
+    title = "🍚新布施!"
+    deep_link = f"https://t.me/{BOT_USERNAME}?start={new_id}"
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="查看 / 兑换", url=deep_link)
+                InlineKeyboardButton(text="👀查看", url=deep_link)
             ]
         ]
     )
@@ -453,7 +599,7 @@ async def handle_group_text_message(message: Message):
 @router.message(CommandStart(deep_link=True))
 async def handle_start_with_param(message: Message, command: CommandStart):
     """
-    4. /start [file_unique_id]
+    4. /start [id]
        - 查 file_stock
        - 若存在 → 发缩略图 + 「兑换」按钮
     """
@@ -461,28 +607,27 @@ async def handle_start_with_param(message: Message, command: CommandStart):
     if user is None:
         return
 
-    file_unique_id = command.args
-    if not file_unique_id:
-        await message.answer("欢迎使用视频兑换机器人～")
+    arg = command.args
+    if not arg:
+        await message.answer("🙏欢迎使用布施机器僧～")
+        return
+    try:
+        id = int(arg)
+    except ValueError:
+        await message.answer("参数格式不正确，这个布施编号看起来怪怪的。")
+        return
+    
+    stock_row = await PGDB.get_file_stock_by_id(id)
+    if stock_row is None:
+        await message.answer("🙏这个布施已经不存在或尚未入功德箱。")
         return
 
-    row = await PGDB.get_file_stock_by_unique_id(file_unique_id)
-    if row is None:
-        await message.answer("这个视频已经不存在或尚未入库。")
-        return
+    tpl_data = tpl(stock_row)
 
-    thumb_file_id = row["thumb_file_id"]
-    caption = row["caption"] or "视频预览"
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="🎬 兑换",
-                    callback_data=f"redeem:{file_unique_id}",
-                )
-            ]
-        ]
-    )
+    thumb_file_id = tpl_data["thumb_file_id"]
+    caption = tpl_data["caption"]
+    kb = tpl_data["kb"]
+            
 
     # 有稳定缩略图 → 用 photo，当作预览图
     if thumb_file_id:
@@ -502,6 +647,27 @@ async def handle_start_with_param(message: Message, command: CommandStart):
         reply_markup=kb,
     )
 
+def tpl(stock_row):
+    thumb_file_id = stock_row["thumb_file_id"] 
+    caption = stock_row["caption"] or "🍚"
+    id = stock_row["id"]
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
+                InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
+                InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
+            ],
+            [                
+                InlineKeyboardButton(text="📿 随喜转发", copy_text=CopyTextButton(text=f"https://t.me/{BOT_USERNAME}?start={id}"))
+            ],
+            [                
+                InlineKeyboardButton(text="🙏 布施岛", url=f"https://t.me/{BOT_USERNAME}")
+            ]
+        ]
+    )
+    return {"thumb_file_id":thumb_file_id,"caption":caption,"kb":kb}
+
 
 # ---- 5 callback：兑换视频 ----
 @router.callback_query(F.data.startswith("redeem:"))
@@ -520,23 +686,31 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     stat_date = today_sgt()
 
-    _, file_unique_id = callback.data.split(":", 1)
+    _, id_str = callback.data.split(":", 1)
+
+    try:
+        id = int(id_str)
+    except ValueError:
+        await callback.answer("参数错误，请稍后再试。", show_alert=True)
+        return
 
     new_count = await PGDB.consume_one_quota(user_id, stat_date)
 
     if new_count is None:
-        await callback.answer("你今天需要上传一个视频才能开始兑换。", show_alert=True)
+        await callback.answer("🙏你今天需要布施一个视频才能开始化缘。", show_alert=True)
         return
 
     if new_count == 0:
         # consume_one_quota 里：count<=0 的情况不会扣，只更新时间 → 返回 0
-        await callback.answer("群里发言或发不重覆的视频资源可以兑换视频。", show_alert=True)
+        await callback.answer("🙏你的功德不足，需要在群里发言、布施不重覆的视频资源或是分享布施连结给新人就能获得功德。", show_alert=True)
         return
+    
+  
 
     # 有额度且成功扣 1
-    row = await PGDB.get_file_stock_by_unique_id(file_unique_id)
+    row = await PGDB.get_file_stock_by_id(id)
     if row is None:
-        await callback.answer("找不到这个视频，可能已经被移除。", show_alert=True)
+        await callback.answer("🙏找不到这个布施，可能已经被移除。", show_alert=True)
         return
 
     file_id = row["file_id"]
@@ -545,11 +719,58 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
             chat_id=user_id,
             video=file_id,
         )
-        await callback.answer("兑换成功，已发送视频给你。", show_alert=False)
+        await callback.answer("🙏化缘成功，已发送视频给你。", show_alert=False)
     except Exception as e:
         print(f"[Bot] send_video error: {e}")
-        await callback.answer("发送视频失败，请稍后再试。", show_alert=True)
+        await callback.answer("🙏发送视频失败，请稍后再试。", show_alert=True)
 
+
+# ---- 5 callback：翻页 ----
+@router.callback_query(F.data.startswith("item:"))
+async def handle_item_callback(callback: CallbackQuery, bot: Bot):
+    if not callback.from_user or callback.from_user.is_bot:
+        await callback.answer()
+        return
+
+    try:
+        _, id_str, offset_str = callback.data.split(":", 2)
+        current_id = int(id_str)
+        offset = int(offset_str)
+    except ValueError:
+        await callback.answer("参数错误，请稍后再试。", show_alert=True)
+        return
+
+
+    stock_row = await PGDB.get_file_stock_by_id_offset(current_id, offset)
+    if not stock_row:
+        await callback.answer("🙏已经没有更多布施了。", show_alert=True)
+        return
+
+    tpl_data = tpl(stock_row)
+    thumb_file_id = tpl_data["thumb_file_id"]
+    caption = tpl_data["caption"]
+    kb = tpl_data["kb"]
+
+    try:
+        if thumb_file_id:
+            await callback.message.edit_media(
+                media=InputMediaPhoto(
+                    media=thumb_file_id,
+                    caption=caption,
+                ),
+                reply_markup=kb,
+            )
+        else:
+            await callback.message.edit_text(
+                text=caption,
+                reply_markup=kb,
+            )
+        await callback.answer()
+    except Exception as e:
+        print(f"[Bot] pagination edit error: {e}")
+        await callback.answer("更新失败，请稍后再试。", show_alert=True)
+
+    
 
 # ==========================
 # main

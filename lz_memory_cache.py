@@ -6,7 +6,7 @@ class MemoryCache:
     def __init__(self):
         self.store = {}
 
-    def set(self, key, value, ttl=60):
+    def set(self, key, value, ttl=1200):
         expire_time = time.time() + ttl
         self.store[key] = (value, expire_time)
 

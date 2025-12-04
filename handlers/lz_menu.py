@@ -2,6 +2,7 @@ import inspect
 import functools
 import traceback
 import sys
+from opencc import OpenCC
 from typing import Any, Callable
 from typing import Callable, Awaitable, Any
 from aiogram import Router, F
@@ -1194,7 +1195,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
 
 
 @router.message(Command("s"))
-async def handle_search_s(message: Message, state: FSMContext, command: Command = Command("ss")):
+async def handle_search_s(message: Message, state: FSMContext, command: Command = Command("s")):
     # 删除 /s 这个消息
     try:
         await message.delete()
@@ -1210,12 +1211,25 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         await message.reply("请输入关键词： /s 正太 钢琴")
         return
     
+    # 太短的直接挡掉（避免搜一堆 “的/在/是”）
+    if len(keyword) < 2:
+        await message.answer("关键词再具体一点会更好哦（至少 2 个字）")
+        return
+
+    # 限制最大长度，避免恶意灌长字串
+    if len(keyword) > 20:
+        keyword = keyword[:20]
+
     keyword = parts[1]
 
-    print(f"🔍 搜索关键词: {keyword}", flush=True)
+    
 
     await db.insert_search_log(message.from_user.id, keyword)
     result = await db.upsert_search_keyword_stat(keyword)
+
+    tw2s = OpenCC('tw2s')
+    keyword = tw2s.convert(keyword)
+    print(f"🔍 搜索关键词: {keyword}", flush=True)
     
     keyword_id = await db.get_search_keyword_id(keyword)
 
@@ -1597,8 +1611,8 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         return {"ok": False, "msg": ret_content}
     
    
-
-    if current_pos == 0:
+    print(f"current_pos1={current_pos}")
+    if current_pos <= 0:
         search_result = []
         if stag == "f":
         # 尝试从搜索结果中定位当前位置
@@ -1633,7 +1647,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         resource_icon = "🔄"
 
-
+    print(f"current_pos2={current_pos}")
 
     discount_amount = int(fee * lz_var.xlj_discount_rate)
     xlj_final_price = fee - discount_amount
@@ -1644,7 +1658,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+                InlineKeyboardButton(text=f"⬅️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
                 InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
                 InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],

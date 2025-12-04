@@ -8,6 +8,7 @@ import jieba
 from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 import lz_var
+from opencc import OpenCC
 
 # ====== 连接池参数（与原文件一致，并支持环境变量覆盖）======
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
@@ -332,6 +333,8 @@ class PGPool:
                 # content_seg：同义词替换 + jieba 分词（与检索一致）
                 norm = cls.replace_synonym(content)
                 content_seg = " ".join(jieba.cut(norm)) if norm else ""
+                tw2s = OpenCC('tw2s')
+                content_seg = tw2s.convert(content_seg)
 
                 sql_sora = """
                     INSERT INTO sora_content (

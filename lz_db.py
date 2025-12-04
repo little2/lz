@@ -139,7 +139,7 @@ class DB:
         all_and = " & ".join(toks)   # 兜底 AND
         return phrase, all_and
 
-    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 100):
+    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
         query = self._normalize_query(keyword_str)
         cache_key = f"searchkey:{query}:{last_id}:{limit}"
         
@@ -161,7 +161,7 @@ class DB:
         if not and_q:
             return []
 
-        limit = max(1, min(300, int(limit)))
+        limit = max(1, min(3000, int(limit)))
 
         where_parts = []
         params = []

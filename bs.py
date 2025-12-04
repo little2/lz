@@ -405,11 +405,11 @@ async def handle_media_message(message: Message, bot: Bot):
         thumb_file_id=thumb_file_id,
         caption=caption,
         bot_username=BOT_USERNAME,
-        user_id=user.id,
+        user_id=user.id
     )
 
     # 在指定群组公告
-    title = file_name if file_name else "新邮件"
+    title = file_name if file_name else "新"
     deep_link = f"https://t.me/{BOT_USERNAME}?start={file_unique_id}"
     kb = InlineKeyboardMarkup(
         inline_keyboard=[

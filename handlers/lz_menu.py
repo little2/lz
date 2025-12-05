@@ -3,8 +3,8 @@ import functools
 import traceback
 import sys
 from opencc import OpenCC
-from typing import Any, Callable
-from typing import Callable, Awaitable, Any
+from typing import Any, Callable, Awaitable, Any
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from aiogram.filters import Command

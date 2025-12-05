@@ -668,6 +668,10 @@ async def handle_media_message(message: Message, bot: Bot):
     # except Exception as e:
     #     print(f"[Bot] copy_message error: {e}")
 
+    if message.photo:
+        print(f"{message.photo}")
+        print(f"{message.photo[-1]}")
+
     # 2) 只有 video 才参与“兑换池”
     if not message.video:
         await bot.send_message(

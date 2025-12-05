@@ -7,6 +7,8 @@ from typing import Optional, Tuple
 import base64
 import asyncpg
 from typing import Any, Callable, Awaitable, Any
+from aiohttp import web
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -70,6 +72,11 @@ BOT_USERNAME = None # 会在 main() 里初始化
 # ==========================
 SINGAPORE_TZ = timezone(timedelta(hours=8))
 
+
+WEBHOOK_HOST= os.getenv("WEBHOOK_HOST")
+WEBHOOK_PATH= os.getenv("WEBHOOK_PATH","/")
+WEBAPP_HOST= os.getenv("WEBAPP_HOST","0.0.0.0")
+BOT_MODE= os.getenv("BOT_MODE","polling")  # polling / webhook
 
 def today_sgt() -> date:
     """以 UTC+8 作为 stat_date"""
@@ -1102,6 +1109,12 @@ async def handle_set_comment_command(message: Message, bot: Bot):
     print("✅ 已设置命令列表", flush=True)
 
 
+async def on_startup(bot: Bot):
+    webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+    print(f"🔗 設定 Telegram webhook 為：{webhook_url}")
+    await bot.delete_webhook(drop_pending_updates=True)
+    await bot.set_webhook(webhook_url)
+
 # main
 # ==========================
 async def main():
@@ -1123,8 +1136,29 @@ async def main():
 
     dp.include_router(router)
 
-    print("Bot started...")
-    await dp.start_polling(bot)
+
+   
+
+
+    if BOT_MODE == "webhook":
+        dp.startup.register(on_startup)
+        print("🚀 啟動 Webhook 模式")
+
+        app = web.Application()
+
+        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=WEBHOOK_PATH)
+        setup_application(app, dp, bot=bot)
+
+        port = int(os.environ.get("PORT", 8080))
+        await web._run_app(app, host="0.0.0.0", port=port)
+        
+    else:
+        print("🚀 啟動 Polling 模式")
+        
+        
+       
+        await dp.start_polling(bot, polling_timeout=10.0)
+
 
 
 if __name__ == "__main__":

@@ -175,7 +175,7 @@ class PGDB:
         cache_key = f"fuid:{file_unique_id}"
         cached = cls.cache.get(cache_key)
         if cached:
-            print(f"🔹 MemoryCache hit for {cache_key}")
+            # print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
 
 
@@ -215,7 +215,7 @@ class PGDB:
         cache_key = f"id:{(id+offset)}"
         cached = cls.cache.get(cache_key)
         if cached:
-            print(f"🔹 MemoryCache hit for {cache_key}")
+            # print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
         else:
             '''
@@ -270,7 +270,7 @@ class PGDB:
         cache_key = f"id:{id}"
         cached = cls.cache.get(cache_key)
         if cached:
-            print(f"🔹 MemoryCache hit for {cache_key}")
+            # print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
 
 
@@ -498,7 +498,7 @@ class PGDB:
         # ---- MemoryCache 命中 ----
         cached = cls.cache.get(cache_key)
         if cached is not None:
-            print(f"🔹 MemoryCache hit for {cache_key}")
+            # print(f"🔹 MemoryCache hit for {cache_key}")
             return cached   # True 或 False
 
         # ---- 查询 PG ----
@@ -669,8 +669,8 @@ async def handle_media_message(message: Message, bot: Bot):
     #     print(f"[Bot] copy_message error: {e}")
 
     if message.photo:
-        print(f"{message.photo}")
-        print(f"{message.photo[-1]}")
+        print(f"photo=>{message.photo}",flush=True)
+        print(f"photo=>{message.photo[-1]}",flush=True)
 
     # 2) 只有 video 才参与“兑换池”
     if not message.video:

@@ -835,7 +835,7 @@ async def handle_start_with_param(message: Message, command: CommandStart):
 
     tpl_data = tpl(stock_row, user.id)
 
-    thumb_file_id = tpl_data["thumb_file_id"]
+    thumb_file_id = tpl_data["thumb_file_id"] or "AgACAgUAAxkBAAIYqmky_Ot0VmBugyPy7P_RAzd0kE4HAAI9DGsb1vCZVWNHxT8HCp7BAQADAgADcwADNgQ"
     caption = tpl_data["caption"]
     kb = tpl_data["kb"]
             

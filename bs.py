@@ -687,6 +687,22 @@ async def handle_media_message(message: Message, bot: Bot):
     file_size = video.file_size           # ✅ 新增
     duration = video.duration
 
+    if duration < 10:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text="🙏 阿弥陀佛",
+            reply_to_message_id=message.message_id,
+        )
+        return      
+
+    if file_size < 1024*1024*10:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text="🙏 阿弥陀佛",
+            reply_to_message_id=message.message_id,
+        )
+        return 
+
     # 文件名 / caption 用来当展示文字
     file_name = video.file_name or ""
     caption = file_name or (message.caption or "")

@@ -1019,7 +1019,7 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
     new_count = await PGDB.consume_one_quota(user_id, stat_date)
 
     if new_count is None:
-        await callback.answer("🙏你今天需要布施一个视频才能开始化缘。", show_alert=True)
+        await callback.answer("🙏你今天需要布施一个视频才能开始化缘。直接传给贫僧就可以", show_alert=True)
         return
 
     if new_count == 0:

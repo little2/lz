@@ -690,7 +690,7 @@ async def handle_media_message(message: Message, bot: Bot):
     if duration < 10:
         await bot.send_message(
             chat_id=message.chat.id,
-            text="🙏 阿弥陀佛",
+            text="🙏 施主，此片短促如闪念，缘浅不成，贫僧不收，望施主莫怪。",
             reply_to_message_id=message.message_id,
         )
         return      
@@ -698,7 +698,7 @@ async def handle_media_message(message: Message, bot: Bot):
     if file_size < 1024*1024*10:
         await bot.send_message(
             chat_id=message.chat.id,
-            text="🙏 阿弥陀佛",
+            text="🙏 施主，此片尺寸甚微，贫僧怕收了也生不起功德，只好放它随风而去。",
             reply_to_message_id=message.message_id,
         )
         return 

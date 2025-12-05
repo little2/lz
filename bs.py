@@ -835,7 +835,7 @@ async def handle_start_with_param(message: Message, command: CommandStart):
 
     tpl_data = tpl(stock_row, user.id)
 
-    thumb_file_id = tpl_data["thumb_file_id"] or "AgACAgUAAxkBAAIYqmky_Ot0VmBugyPy7P_RAzd0kE4HAAI9DGsb1vCZVWNHxT8HCp7BAQADAgADcwADNgQ"
+    thumb_file_id = tpl_data["thumb_file_id"]
     caption = tpl_data["caption"]
     kb = tpl_data["kb"]
             
@@ -949,7 +949,7 @@ def format_duration(duration_in_seconds: int) -> str:
         return f"{seconds}"
 
 def tpl(stock_row,user_id):
-    thumb_file_id = stock_row["thumb_file_id"] 
+    thumb_file_id = stock_row["thumb_file_id"] or "AgACAgUAAxkBAAIYqmky_Ot0VmBugyPy7P_RAzd0kE4HAAI9DGsb1vCZVWNHxT8HCp7BAQADAgADcwADNgQ"
     caption = stock_row["caption"] or "🍚"
     if stock_row['file_size']:
         caption += f"\n\n💾{format_file_size(stock_row['file_size'])} 🕐{format_duration(stock_row['duration'])} "
@@ -1078,7 +1078,7 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
         await callback.answer()
         await asyncio.sleep(0.7)  # 避免 Telegram 限流
     except Exception as e:
-        print(f"[Bot] pagination edit error: {e}")
+        print(f"[Bot] pagination edit error: {e}",flush=True)
         await callback.answer("更新失败，请稍后再试。", show_alert=True)
 
     

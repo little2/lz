@@ -479,6 +479,64 @@ class PGDB:
         return new_count
 
 
+    @classmethod
+    async def has_any_talking_task(cls, user_id: int) -> bool:
+        """
+        判断用户是否“老用户”：
+        只要 talking_task 中存在任一笔纪录（不限定 stat_date）即可视为老用户。
+        """
+        cls.ensure_cache()
+        cache_key = f"user_exists:{user_id}"
+
+        # ---- MemoryCache 命中 ----
+        cached = cls.cache.get(cache_key)
+        if cached is not None:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached   # True 或 False
+
+        # ---- 查询 PG ----
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT 1
+                FROM talking_task
+                WHERE user_id = $1
+                LIMIT 1
+                """,
+                user_id,
+            )
+
+        is_old = row is not None
+
+        # ---- 存入内存 cache，用 True/False，而不是 row dict ----
+        cls.cache.set(cache_key, is_old)
+
+        return is_old
+
+
+    @classmethod
+    async def add_talking_task_score(cls, user_id: int, stat_date: date, delta: int):
+        """
+        通用加功德接口：
+        - 若不存在纪录 → 新增一笔 count = delta
+        - 若存在纪录 → count = count + delta（不受 60 秒限制）
+        """
+        async with cls.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO talking_task (user_id, stat_date, count, update_timestamp)
+                VALUES ($1, $2, $3, now())
+                ON CONFLICT (user_id, stat_date)
+                DO UPDATE
+                    SET count = talking_task.count + EXCLUDED.count,
+                        update_timestamp = now()
+                """,
+                user_id,
+                stat_date,
+                delta,
+            )
+
+
 # ==========================
 # 缩略图稳定化工具
 # ==========================
@@ -564,124 +622,6 @@ router = Router()
 
 
 # ---- 1 & 2 收媒体 ----
-async def handle_media_message_old(message: Message, bot: Bot):
-    """
-    1. 收到任何媒体 → copy 给 X_USER_ID。
-    2. 若是 video，且 file_unique_id 未在 file_stock 才触发：
-       - talking_task(user_id, today) +1
-       - file_stock 写入（含稳定 thumb_file_id）
-       - 在 ANNOUNCE_CHAT_ID 发公告 + deep-link 按钮
-    """
-    user = message.from_user
-    if user is None or user.is_bot:
-        return
-
-
-
-    # 1) copy 给指定用户
-    try:
-        await bot.copy_message(
-            chat_id=X_USER_ID,
-            from_chat_id=message.chat.id,
-            message_id=message.message_id,
-        )
-    except Exception as e:
-        print(f"[Bot] copy_message error: {e}")
-
-    # 2) 只有 video 才参与“兑换池”
-    if not message.video:
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text="🙏 贫僧只收视频",
-            reply_to_message_id=message.message_id,
-        )
-        return
-
-    video = message.video
-    file_unique_id = video.file_unique_id
-    file_id = video.file_id
-    file_size = video.file_size           # ✅ 新增
-    duration = video.duration  
-
-    # 文件名 / caption 用来当展示文字
-    file_name = video.file_name or ""
-    caption = file_name or (message.caption or "")
-
-    print(f"[Bot] Received video from user_id={user.id}, file_unique_id={file_unique_id}")
-    # 先检查是否已存在于 file_stock
-    existed = await PGDB.get_file_stock_by_file_unique_id(file_unique_id)
-    if existed:
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text="🙏 这份已有其他施主布施了",
-            reply_to_message_id=message.message_id,
-        )
-        return
-
-    print(f"[Bot] New video, processing for user_id={user.id}, file_unique_id={file_unique_id}")
-
-    stat_date = today_sgt()
-
-    # 不存在 → 先 talking_task +1
-    await PGDB.upsert_talking_task_add_one(user_id=user.id, stat_date=stat_date)
-
-    # 生成稳定缩略图（重新上传到仓库 chat）
-    thumb_file_id: Optional[str] = None
-    thumb_info = await ensure_stable_thumb(
-        message,
-        bot=bot,
-        storage_chat_id=X_USER_ID,
-        prefer_cover=True,
-    )
-    if thumb_info:
-        thumb_file_id, _thumb_unique_id = thumb_info
-
-    # 插入 file_stock
-    new_id = await PGDB.insert_file_stock_if_not_exists(
-        file_type="video",
-        file_unique_id=file_unique_id,
-        file_id=file_id,
-        thumb_file_id=thumb_file_id,
-        caption=caption,
-        bot_username=BOT_USERNAME,
-        user_id=user.id,
-        file_size=file_size,       # ✅ 新增
-        duration=duration          # ✅ 新增
-    )
-    if new_id is None:
-        # 理论上不会发生，防御一下
-        return
-
-    # 在指定群组公告
-    # title = file_name if file_name else "🍚新布施!"
-    title = "🍚新布施!"
-    deep_link = f"https://t.me/{BOT_USERNAME}?start={new_id}"
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="👀查看", url=deep_link)
-            ]
-        ]
-    )
-
-    try:
-        await bot.send_message(
-            chat_id=ANNOUNCE_CHAT_ID,
-            text=title,
-            reply_markup=kb,
-        )
-
-        await bot.send_message(
-            chat_id=message.chat.id,
-            text="🙏 阿弥陀佛，施主功能 +1",
-            reply_to_message_id=message.message_id,
-        )
-    except Exception as e:
-        print(f"[Bot] send announce error: {e}")
-
-       
-
-    # 
 
 
 @router.message(
@@ -702,14 +642,24 @@ async def handle_media_message(message: Message, bot: Bot):
         return
 
     # 1) copy 给指定用户
-    try:
-        await bot.copy_message(
+    spawn_once(
+        f"copy_message:{message.message_id}",
+        lambda: bot.copy_message(
             chat_id=X_USER_ID,
             from_chat_id=message.chat.id,
             message_id=message.message_id,
         )
-    except Exception as e:
-        print(f"[Bot] copy_message error: {e}")
+    )
+
+
+    # try:
+    #     await bot.copy_message(
+    #         chat_id=X_USER_ID,
+    #         from_chat_id=message.chat.id,
+    #         message_id=message.message_id,
+    #     )
+    # except Exception as e:
+    #     print(f"[Bot] copy_message error: {e}")
 
     # 2) 只有 video 才参与“兑换池”
     if not message.video:
@@ -786,7 +736,7 @@ async def handle_media_message(message: Message, bot: Bot):
 
         await bot.send_message(
             chat_id=message.chat.id,
-            text="🙏 阿弥陀佛，施主功能 +1",
+            text="🙏 阿弥陀佛，施主功德 +1",
             reply_to_message_id=message.message_id,
         )
     except Exception as e:
@@ -853,12 +803,15 @@ async def handle_start_with_param(message: Message, command: CommandStart):
     if user is None:
         return
 
+    print(f"[Bot] /start with arg from user_id={user.id}: {command.args}")
     arg = command.args
     if not arg:
         await message.answer("🙏欢迎使用布施机器僧～")
         return
     try:
-        id = int(arg)
+        argrow = arg.split("_")  # 支持 deep-link 带 user_id 的格式
+        id = int(argrow[0])
+        from_user_id = int(argrow[1]) if len(argrow) >1 else None
     except ValueError:
         await message.answer("参数格式不正确，这个布施编号看起来怪怪的。")
         return
@@ -868,12 +821,60 @@ async def handle_start_with_param(message: Message, command: CommandStart):
         await message.answer("🙏这个布施已经不存在或尚未入功德箱。")
         return
 
-    tpl_data = tpl(stock_row)
+    tpl_data = tpl(stock_row, user.id)
 
     thumb_file_id = tpl_data["thumb_file_id"]
     caption = tpl_data["caption"]
     kb = tpl_data["kb"]
             
+
+    
+    if from_user_id and from_user_id != user.id:
+        """
+        推荐奖励逻辑：
+        - 直接使用 PGDB.has_any_talking_task(user.id)
+            若 False → 代表从未出现过 → 真·新用户
+            若 True  → 已是老用户 → 不给奖励
+        - 新用户 → 双方 +3 功德
+        """
+
+        # 判断是否老用户（含 MemoryCache，不需额外 cache）
+        is_old = await PGDB.has_any_talking_task(user.id)
+
+        if not is_old:
+            # 真·新用户 → 发奖励
+            stat_date = today_sgt()
+
+            # 邀请人 +3
+            await PGDB.add_talking_task_score(
+                user_id=from_user_id,
+                stat_date=stat_date,
+                delta=3,
+            )
+
+            # 新用户 +3（此处会写入 talking_task，使其变成老用户）
+            await PGDB.add_talking_task_score(
+                user_id=user.id,
+                stat_date=stat_date,
+                delta=3,
+            )
+
+            # 通知邀请人
+            try:
+                await message.bot.send_message(
+                    chat_id=from_user_id,
+                    text=(
+                        "🙏 感谢您引荐新朋友，共沾法喜！功德 +3"
+                    ),
+                )
+            except Exception as e:
+                print(f"[Referral] fail notify inviter {from_user_id}: {e}", flush=True)
+
+        else:
+            # 老用户 → 不发奖励
+            print(f"[Referral] user {user.id} is old user → skip reward")
+
+
 
     # 有稳定缩略图 → 用 photo，当作预览图
     if thumb_file_id:
@@ -892,6 +893,25 @@ async def handle_start_with_param(message: Message, command: CommandStart):
         text=caption,
         reply_markup=kb,
     )
+
+
+    
+@router.message(Command("start"))
+async def cmd_start(message: Message):
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [                
+                InlineKeyboardButton(text="🙏 布施岛", url=f"https://t.me/+oRTYsn1BKC5mZTA8")
+            ]
+        ]
+    )
+    
+    await message.answer(
+        text="🙏 贫僧已入定～\n送来视频，即是布施，即得功德。",
+        reply_markup=kb,
+    )
+
+    
 
 
 def format_file_size(size_in_bytes: int) -> str:
@@ -916,7 +936,7 @@ def format_duration(duration_in_seconds: int) -> str:
     else:
         return f"{seconds}"
 
-def tpl(stock_row):
+def tpl(stock_row,user_id):
     thumb_file_id = stock_row["thumb_file_id"] 
     caption = stock_row["caption"] or "🍚"
     if stock_row['file_size']:
@@ -933,7 +953,7 @@ def tpl(stock_row):
                 InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
             ],
             [                
-                InlineKeyboardButton(text="📿 随喜转发", copy_text=CopyTextButton(text=f"https://t.me/{BOT_USERNAME}?start={id}"))
+                InlineKeyboardButton(text="📿 随喜转发", copy_text=CopyTextButton(text=f"https://t.me/{BOT_USERNAME}?start={id}_{user_id}"))
             ],
             [                
                 InlineKeyboardButton(text="🙏 布施岛", url=f"https://t.me/+oRTYsn1BKC5mZTA8")
@@ -1023,7 +1043,7 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
         await callback.answer("🙏已经没有更多布施了。", show_alert=True)
         return
 
-    tpl_data = tpl(stock_row)
+    tpl_data = tpl(stock_row,callback.from_user.id)
     thumb_file_id = tpl_data["thumb_file_id"]
     caption = tpl_data["caption"]
     kb = tpl_data["kb"]
@@ -1062,6 +1082,24 @@ async def cmd_hello(message: Message):
     await message.answer(text=text)
 
 # ==========================
+
+from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeAllPrivateChats, BotCommandScopeAllGroupChats
+
+@router.message(Command("setcommand"))
+async def handle_set_comment_command(message: Message, bot: Bot):
+
+    await bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
+    await bot.delete_my_commands(scope=BotCommandScopeAllPrivateChats())
+    await bot.delete_my_commands(scope=BotCommandScopeDefault())
+
+    await bot.set_my_commands(
+        commands=[
+            BotCommand(command="start", description="🏮 入寺主页"),
+            BotCommand(command="me", description="🧘 查询我的功德")
+        ],
+        scope=BotCommandScopeAllPrivateChats()
+    )
+    print("✅ 已设置命令列表", flush=True)
 
 
 # main

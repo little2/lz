@@ -753,6 +753,7 @@ async def handle_media_message(message: Message, bot: Bot):
     #    使用 spawn_once，确保同一个 file_unique_id 只会跑一个后台任务
     def _coro_factory():
         async def _job():
+            await asyncio.sleep(0.7)  # 避免 Telegram 限流
             thumb_info = await ensure_stable_thumb(
                 message,
                 bot=bot,
@@ -1032,6 +1033,7 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
 # ---- 5 callback：翻页 ----
 @router.callback_query(F.data.startswith("item:"))
 async def handle_item_callback(callback: CallbackQuery, bot: Bot):
+
     if not callback.from_user or callback.from_user.is_bot:
         await callback.answer()
         return
@@ -1060,16 +1062,17 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
             await callback.message.edit_media(
                 media=InputMediaPhoto(
                     media=thumb_file_id,
-                    caption=caption,
+                    caption=f"🍚{caption}",
                 ),
                 reply_markup=kb,
             )
         else:
             await callback.message.edit_text(
-                text=caption,
+                text=f"🍚{caption}",
                 reply_markup=kb,
             )
         await callback.answer()
+        await asyncio.sleep(0.7)  # 避免 Telegram 限流
     except Exception as e:
         print(f"[Bot] pagination edit error: {e}")
         await callback.answer("更新失败，请稍后再试。", show_alert=True)

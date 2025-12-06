@@ -1196,3 +1196,106 @@ class MySQLPool:
             return []
         finally:
             await cls.release(conn, cur)
+
+
+    @classmethod
+    async def export_jieba_dict(cls) -> str:
+        """
+        导出 jieba 自定义词典内容，用于生成 userdict.txt。
+
+        数据来源：
+        1) jieba_dict.word (人工维护专有名词)
+        2) series.name      (系列名称)
+        3) tag.tag_cn       (标签中文名)
+
+        输出格式：
+            word freq flag
+        """
+        await cls.ensure_pool()
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # 一次把三类专有名词都查出来
+            # 这里用 UNION ALL，在 Python 里再做去重&合并 freq
+            sql = """
+                SELECT word       AS word,
+                       freq       AS freq,
+                       flag       AS flag,
+                       'dict'     AS src
+                FROM jieba_dict
+                WHERE enabled = 1
+
+                UNION ALL
+
+                SELECT name      AS word,
+                       50        AS freq,   -- 系列名给一个偏高的权重
+                       'nz'      AS flag,
+                       'series'  AS src
+                FROM series
+                WHERE name IS NOT NULL AND name <> ''
+
+                UNION ALL
+
+                SELECT tag_cn    AS word,
+                       30        AS freq,   -- 标签中文名权重略低于系列
+                       'nz'      AS flag,
+                       'tag_cn'  AS src
+                FROM tag
+                WHERE tag_cn IS NOT NULL AND tag_cn <> ''
+            """
+            await cur.execute(sql)
+            rows = await cur.fetchall()
+        except Exception as e:
+            print(f"[jieba_dict] Export error: {e}", flush=True)
+            return ""
+        finally:
+            await cls.release(conn, cur)
+
+        if not rows:
+            return ""
+
+        # 用 dict 做去重：同一个词只保留一条，freq 取最大
+        merged: dict[str, dict] = {}
+
+        for row in rows:
+            # aiomysql.DictCursor → row 是 dict
+            raw_word = row.get("word")
+            if not raw_word:
+                continue
+
+            word = str(raw_word).strip()
+            if not word:
+                continue
+
+            # freq 兜底
+            try:
+                freq = int(row.get("freq") or 10)
+            except Exception:
+                freq = 10
+
+            flag = (row.get("flag") or "").strip() or "nz"
+
+            existed = merged.get(word)
+            if not existed:
+                merged[word] = {
+                    "freq": freq,
+                    "flag": flag,
+                }
+            else:
+                # 若已存在，则 freq 取较大值；flag 只在原 flag 为默认 nz 时才覆盖
+                if freq > existed["freq"]:
+                    existed["freq"] = freq
+                if existed["flag"] == "nz" and flag != "nz":
+                    existed["flag"] = flag
+
+        # 组装为 jieba userdict 文本
+        lines: list[str] = []
+        for word, info in merged.items():
+            freq = info["freq"]
+            flag = info["flag"] or "nz"
+            lines.append(f"{word} {freq} {flag}")
+
+        # 排序一下（可选）：让输出稳定一些
+        lines.sort()
+
+        return "\n".join(lines)

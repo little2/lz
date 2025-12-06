@@ -7,6 +7,45 @@ from lz_memory_cache import MemoryCache
 from datetime import datetime
 import lz_var
 import jieba
+from synonym_manager import SynonymManager
+
+# ===================================
+# jieba 字典只加载一次（全局控制）
+# ===================================
+_JIEBA_LOADED = False
+
+import os
+import jieba
+
+# ===================================
+# jieba 字典只加载一次（全局控制）
+# ===================================
+_JIEBA_LOADED = False
+
+def load_jieba_dict_once(path: str):
+    """
+    若文档存在，则 jieba 自定义词典只加载一次。
+    """
+    global _JIEBA_LOADED
+
+    # 已加载过 → 不再重复加载
+    if _JIEBA_LOADED:
+        return
+
+    # 文件不存在 → 跳过
+    if not os.path.exists(path):
+        print(f"[jieba] 未找到词典文件：{path}，跳过加载")
+        return
+
+    try:
+        jieba.load_userdict(path)
+        print(f"[jieba] 自定义词典已加载：{path}")
+        _JIEBA_LOADED = True
+    except Exception as e:
+        print(f"[jieba] 加载词典失败: {e}")
+
+
+
 
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
 DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
@@ -56,6 +95,9 @@ class DB:
                     await conn.execute("SET SESSION TIME ZONE 'UTC'")
                     await conn.execute("SET application_name = 'lz_app'")
                 print("✅ PostgreSQL 连接池初始化完成")
+                
+                load_jieba_dict_once("jieba_userdict.txt")
+                await SynonymManager.load_from_db(scope="search")  # scope 可选
                 return
             except Exception as e:
                 last_exc = e
@@ -63,6 +105,8 @@ class DB:
                     await asyncio.sleep(1.0 * (attempt + 1))
                 else:
                     raise
+
+
 
     async def connect_bk(self):
         """幂等连接 + 小连接池，避免 TooManyConnections。"""
@@ -152,10 +196,11 @@ class DB:
         q_norm = self.replace_synonym(keyword_str)
 
          # 🔴 特定字串：不使用 jieba，直接拿整串当作一个 token
-        if q_norm in NO_JIEBA_QUERIES:
-            tokens = [q_norm]
-        else:
-            tokens = list(jieba.cut(q_norm))
+
+        tokens = list(jieba.cut(q_norm))
+
+        # 3) 对 token 做同义词归一化（用 DB 映射）
+        tokens = SynonymManager.normalize_tokens(tokens)
 
         phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
         if not and_q:
@@ -187,10 +232,11 @@ class DB:
                     ts_rank_cd(content_seg_tsv, to_tsquery('simple', $2))
                 ) AS rank
             FROM sora_content
-            WHERE {' AND '.join(where_parts)} AND valid_state=9
+            WHERE {' AND '.join(where_parts)} AND valid_state>=8
             ORDER BY rank DESC, id DESC
             LIMIT ${len(params)+1}
         """
+        print("SQL:", sql)
         params.append(limit)
 
         async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:

@@ -4510,6 +4510,48 @@ async def clear_removetag_timeout(state: FSMContext, chat_id: int):
         await state.clear()
         await bot.send_message(chat_id, "⏳ 已超时，取消移除标签操作。")
 
+
+
+@dp.message(F.chat.type == "private", Command("jieba"))
+async def handle_jieba_export(message: Message):
+    """
+    /jieba
+    从 MySQL 导出 jieba 词库 → 写入本地 jieba_dict.txt → 回传给用户
+    """
+    import time
+    from pathlib import Path
+    from lz_mysql import MySQLPool
+
+    await MySQLPool.init_pool()
+
+    await message.answer("⏳ 正在汇出 jieba 自定义词库，请稍候…")
+
+    # 取得文本内容
+    text = await MySQLPool.export_jieba_dict()
+
+    if not text:
+        await message.answer("⚠️ 当前没有可导出的词库。")
+        return
+
+    # 本地路径（可依项目结构调整）
+    output_path = Path("jieba_userdict.txt")
+
+    # 写入文件（UTF-8）
+    output_path.write_text(text, encoding="utf-8")
+
+    await message.answer("✅ jieba_userdict.txt 已生成并写入本地    。")
+    # # 作为 TG 文件再发给用户（可选）
+    # file = BufferedInputFile(
+    #     data=text.encode("utf-8"),
+    #     filename="jieba_userdict.txt"
+    # )
+
+    # await message.answer_document(
+    #     document=file,
+    #     caption="✅ jieba_dict.txt 已生成并写入本地。\n你也可以下载保存此文件。"
+    # )
+
+
 @dp.message(F.chat.type == "private", F.text)
 async def handle_text(message: Message):
     msg = await message.answer("哥哥，我在呢，输入视频参数或描述，会有时间限制，时间过了，请哥哥记得再一次点击按钮，再输入")
@@ -4962,6 +5004,13 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
                 print(f"⚠️ 异步更新预览图异常：{e}", flush=True)
 
         asyncio.create_task(update_preview_if_arrived())
+
+
+
+
+
+
+
 
 import time
 from typing import Optional

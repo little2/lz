@@ -109,11 +109,6 @@ async def handle_user_private_media(event):
     await event.delete()
 
 
-
-
-
-
-
 FILE_ID_REGEX = re.compile(
     r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
 )

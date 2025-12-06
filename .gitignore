@@ -18,3 +18,4 @@ venv/*
 ranking_resource.html
 ranking_uploader.html
 skins.json
+jieba_userdict.txt

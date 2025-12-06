@@ -471,7 +471,7 @@ class PGDB:
                         """,
                         row["talking_task_id"],
                     )
-                    return 0
+                    return -1
 
                 new_count = current_count - 1
                 await conn.execute(
@@ -1022,7 +1022,7 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
         await callback.answer("🙏你今天需要布施一个视频才能开始化缘。直接传给贫僧就可以", show_alert=True)
         return
 
-    if new_count == 0:
+    if new_count == -1:
         # consume_one_quota 里：count<=0 的情况不会扣，只更新时间 → 返回 0
         await callback.answer("🙏你的功德不足，可在岛里发言、布施视频或是分享连结给新人就能获得功德。", show_alert=True)
         return

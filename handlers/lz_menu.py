@@ -1211,6 +1211,8 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         await message.reply("请输入关键词： /s 正太 钢琴")
         return
     
+    keyword = parts[1]
+
     # 太短的直接挡掉（避免搜一堆 “的/在/是”）
     if len(keyword) < 2:
         await message.answer("关键词再具体一点会更好哦（至少 2 个字）")
@@ -1220,7 +1222,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     if len(keyword) > 20:
         keyword = keyword[:20]
 
-    keyword = parts[1]
+    
 
     
 

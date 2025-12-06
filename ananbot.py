@@ -1651,9 +1651,6 @@ async def receive_preview_photo(message: Message, state: FSMContext):
 
     # print(f"📸 1开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
     
-
- 
-    
     photo = message.photo[-1]
     print(f"找到最大的photo = {photo}")
 

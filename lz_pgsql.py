@@ -333,8 +333,18 @@ class PGPool:
                 # content_seg：同义词替换 + jieba 分词（与检索一致）
                 norm = cls.replace_synonym(content)
                 content_seg = " ".join(jieba.cut(norm)) if norm else ""
+
+                if tag:
+                    #将字串中的#字号全部移除
+                    tag = tag.replace("#", "")
+                    content_seg = content_seg + " " + tag
+
+
                 tw2s = OpenCC('tw2s')
                 content_seg = tw2s.convert(content_seg)
+
+
+
 
                 sql_sora = """
                     INSERT INTO sora_content (

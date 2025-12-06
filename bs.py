@@ -1038,7 +1038,7 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
     file_id = row["file_id"]
     try:
         if new_count <=0:
-            caption = f"你今天的功德值为 {new_count}，可以在群里发言、布施视频或是分享连结给新人就能获得功德，来获得更多功德。\n\nhttps://t.me/{BOT_USERNAME}?start={id}"
+            caption = f"你今天的功德值为 {new_count}，不能再化缘了，但可以在群里发言、布施视频或是分享连结给新人就能获得功德，来获得更多功德。\n\nhttps://t.me/{BOT_USERNAME}?start={id}"
         else:
             caption = f"你今天的功德值为 {new_count}，还可以继续化缘。\n\nhttps://t.me/{BOT_USERNAME}?start={id}"
         await bot.send_video(

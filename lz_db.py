@@ -195,7 +195,7 @@ class DB:
         # 归一 + 分词（与建索引时保持一致）
         q_norm = self.replace_synonym(keyword_str)
 
-         # 🔴 特定字串：不使用 jieba，直接拿整串当作一个 token
+        
 
         tokens = list(jieba.cut(q_norm))
 
@@ -243,7 +243,7 @@ class DB:
             rows = await conn.fetch(sql, *params)
         
         result = [dict(r) for r in rows]
-        self.cache.set(cache_key, result, ttl=300)  # 缓存 60 秒
+        self.cache.set(cache_key, result, ttl=300)  # ttl=缓存
         return result
 
 

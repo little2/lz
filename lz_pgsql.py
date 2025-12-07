@@ -336,8 +336,8 @@ class PGPool:
 
                 if tag:
                     #将字串中的#字号全部移除
-                    tag = tag.replace("#", "")
-                    content_seg = content_seg + " " + tag
+                    tag_remove_slash = tag.replace("#", "")
+                    content_seg = content_seg + " " + tag_remove_slash
 
 
                 tw2s = OpenCC('tw2s')

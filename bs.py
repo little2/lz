@@ -6,13 +6,13 @@ from io import BytesIO
 from typing import Optional, Tuple
 import base64
 import asyncpg
-from typing import Any, Callable, Awaitable, Any
+from typing import Any, Callable, Awaitable
 from aiohttp import web
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart,Command
+from aiogram.filters import CommandStart,Command,CommandObject
 from aiogram.enums import ChatType
 from aiogram.types import (
     Message,
@@ -24,6 +24,9 @@ from aiogram.types import (
     CopyTextButton,
     InputMediaPhoto
 )
+
+
+
 
 
 load_dotenv(dotenv_path='.bs.env')
@@ -65,7 +68,18 @@ ANNOUNCE_CHAT_ID = int(os.getenv("ANNOUNCE_CHAT_ID"))
 
 BOT_USERNAME = None # 会在 main() 里初始化
 
+# 管理员名单（逗号或分号分隔的一串 user_id）
+ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
 
+ADMIN_IDS: set[int] = set()
+if ADMIN_IDS_RAW:
+    for part in ADMIN_IDS_RAW.replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            ADMIN_IDS.add(int(part))
+
+# 确保机器人主人一定是管理员（避免把自己锁在门外）
+ADMIN_IDS.add(X_USER_ID)
 
 # ==========================
 # 时区 & 日期工具
@@ -82,6 +96,8 @@ def today_sgt() -> date:
     """以 UTC+8 作为 stat_date"""
     return datetime.now(SINGAPORE_TZ).date()
 
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
 
 # ==========================
 # PostgreSQL 封装
@@ -166,6 +182,83 @@ class PGDB:
                     );
                     """
                 )
+
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS user_blacklist (
+                        user_id     BIGINT PRIMARY KEY,
+                        reason      TEXT,
+                        create_time TIMESTAMPTZ DEFAULT now()
+                    );
+                    """
+                )             
+
+
+    @classmethod
+    async def is_blacklisted(cls, user_id: int) -> bool:
+        """
+        检查用户是否在黑名单中（带 MemoryCache 缓存）
+        """
+        cls.ensure_cache()
+        cache_key = f"black:{user_id}"
+
+        cached = cls.cache.get(cache_key)
+        if cached is not None:
+            return cached  # True / False
+
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT 1
+                FROM user_blacklist
+                WHERE user_id = $1
+                LIMIT 1
+                """,
+                user_id,
+            )
+
+        is_bl = row is not None
+        cls.cache.set(cache_key, is_bl)
+        return is_bl
+
+    @classmethod
+    async def add_to_blacklist(cls, user_id: int, reason: str | None = None):
+        """
+        加入黑名单
+        """
+        cls.ensure_cache()
+        async with cls.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO user_blacklist (user_id, reason, create_time)
+                VALUES ($1, $2, now())
+                ON CONFLICT (user_id) DO UPDATE
+                    SET reason = EXCLUDED.reason,
+                        create_time = now()
+                """,
+                user_id,
+                reason,
+            )
+
+        # 同步更新缓存
+        cls.cache.set(f"black:{user_id}", True)
+
+    @classmethod
+    async def remove_from_blacklist(cls, user_id: int):
+        """
+        从黑名单移除
+        """
+        cls.ensure_cache()
+        async with cls.pool.acquire() as conn:
+            await conn.execute(
+                """
+                DELETE FROM user_blacklist
+                WHERE user_id = $1
+                """,
+                user_id,
+            )
+        cls.cache.set(f"black:{user_id}", False)
+
 
     # ---- file_stock 操作 ----
 
@@ -373,6 +466,37 @@ class PGDB:
                 # 顺带也更新 id:{id}
                 if "id" in data:
                     cls.cache.set(f"id:{data['id']}", data)
+
+
+    @classmethod
+    async def delete_file_stock_by_id(cls, id: int) -> bool:
+        """
+        删除指定 id 的 file_stock 纪录，并清除相关缓存。
+        返回 True 表示有删除，False 表示不存在。
+        """
+        cls.ensure_cache()
+
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                DELETE FROM file_stock
+                WHERE id = $1
+                RETURNING file_unique_id
+                """,
+                id,
+            )
+
+        if not row:
+            return False
+
+        file_unique_id = row["file_unique_id"]
+
+        # 简单把缓存置空，后续查询会自动回落到数据库
+        if cls.cache:
+            cls.cache.set(f"id:{id}", None)
+            cls.cache.set(f"fuid:{file_unique_id}", None)
+
+        return True
 
 
 
@@ -628,6 +752,48 @@ router = Router()
 
 
 
+async def block_if_blacklisted_message(message: Message) -> bool:
+    """
+    用在 message handler:
+    - 若是黑名单用户 → 在私聊提示一声，群组静默拦截
+    - 返回 True 代表已经拦截，不要继续往下执行
+    """
+    user = message.from_user
+    if user is None or user.is_bot:
+        return True  # 不处理 bot / 无人类
+
+    if await PGDB.is_blacklisted(user.id):
+        # 私聊才回一句，群里静默
+        if message.chat.type == ChatType.PRIVATE:
+            await message.answer(
+                "🙏 施主目前无法使用此机器人，若有疑问请联系管理员。"
+            )
+        return True
+
+    return False
+
+
+async def block_if_blacklisted_callback(callback: CallbackQuery) -> bool:
+    """
+    用在 callback handler:
+    - 若黑名单 → 直接 alert
+    """
+    user = callback.from_user
+    if user is None or user.is_bot:
+        await callback.answer()
+        return True
+
+    if await PGDB.is_blacklisted(user.id):
+        await callback.answer(
+            "🙏 施主目前无法继续使用本功能，若有疑问请联系管理员。",
+            show_alert=True,
+        )
+        return True
+
+    return False
+
+
+
 # ---- 1 & 2 收媒体 ----
 
 
@@ -648,7 +814,7 @@ async def handle_media_message(message: Message, bot: Bot):
     if user is None or user.is_bot:
         return
 
-    # 1) copy 给指定用户
+    # 1) copy 给指定用户,可接受黑名单用户
     spawn_once(
         f"copy_message:{message.message_id}",
         lambda: bot.copy_message(
@@ -657,6 +823,12 @@ async def handle_media_message(message: Message, bot: Bot):
             message_id=message.message_id,
         )
     )
+
+
+
+    # 🚫 黑名单拦截
+    if await block_if_blacklisted_message(message):
+        return
 
 
     # try:
@@ -695,7 +867,7 @@ async def handle_media_message(message: Message, bot: Bot):
         )
         return      
 
-    if file_size < 1024*1024*10:
+    if not file_size or file_size < 10 * 1024 * 1024:
         await bot.send_message(
             chat_id=message.chat.id,
             text="🙏 施主，此片尺寸甚微，贫僧怕收了也生不起功德，只好放它随风而去。",
@@ -815,6 +987,10 @@ async def handle_group_text_message(message: Message):
     if user is None:
         return
 
+    # 黑名单 → 不计功德，静默拦截
+    if await block_if_blacklisted_message(message):
+        return
+
     stat_date = today_sgt()
     await PGDB.increment_talking_task_if_exists(user.id, stat_date, delta=1)
 
@@ -829,6 +1005,11 @@ async def handle_start_with_param(message: Message, command: CommandStart):
     """
     user = message.from_user
     if user is None:
+        return
+
+
+    # 黑名单拦截
+    if await block_if_blacklisted_message(message):
         return
 
     print(f"[Bot] /start with arg from user_id={user.id}: {command.args}")
@@ -926,6 +1107,9 @@ async def handle_start_with_param(message: Message, command: CommandStart):
     
 @router.message(Command("start"))
 async def cmd_start(message: Message):
+    if await block_if_blacklisted_message(message):
+        return
+    
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [                
@@ -964,12 +1148,23 @@ def format_duration(duration_in_seconds: int) -> str:
     else:
         return f"{seconds}"
 
+
+
+
 def tpl(stock_row,user_id):
     thumb_file_id = stock_row["thumb_file_id"] or "AgACAgUAAxkBAAIYqmky_Ot0VmBugyPy7P_RAzd0kE4HAAI9DGsb1vCZVWNHxT8HCp7BAQADAgADcwADNgQ"
     caption = stock_row["caption"] or "🍚"
+
+
+
     if stock_row['file_size']:
         caption += f"\n\n💾{format_file_size(stock_row['file_size'])} 🕐{format_duration(stock_row['duration'])} "
 
+    # 🔹 若是管理员，多显示上传者信息
+    if is_admin(user_id) and stock_row.get("user_id"): 
+        caption += (
+            f'\n👤 上传者：<a href="tg://user?id={stock_row["user_id"]}">{str(stock_row["user_id"])}</a>'
+        )
 
 
     id = stock_row["id"]
@@ -988,6 +1183,18 @@ def tpl(stock_row,user_id):
             ]
         ]
     )
+
+    # ✅ 管理员专用：删除此视频
+    if is_admin(user_id):
+        kb.inline_keyboard.append([
+            InlineKeyboardButton(
+                text="🗑 删除此视频",
+                callback_data=f"del:{id}"
+            )
+        ])
+
+
+
     return {"thumb_file_id":thumb_file_id,"caption":caption,"kb":kb}
 
 
@@ -1001,6 +1208,10 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
        - count <=0 → 提示「群里发言或发不重覆的视频资源可以兑换视频」
        - 没有纪录 → 提示「你今天需要上传一个视频才能开始兑换」
     """
+    if await block_if_blacklisted_callback(callback):
+        return
+
+
     if not callback.from_user or callback.from_user.is_bot:
         await callback.answer()
         return
@@ -1054,6 +1265,49 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
         await callback.answer("🙏发送视频失败，请稍后再试。", show_alert=True)
 
 
+@router.callback_query(F.data.startswith("del:"))
+async def handle_delete_file_stock(callback: CallbackQuery):
+    """
+    管理员点击「删除此视频」：
+    - 仅管理员可用
+    - 删除 file_stock 纪录
+    - 把当前消息改成“已删除”的提示
+    """
+    if not callback.from_user or callback.from_user.is_bot:
+        await callback.answer()
+        return
+
+    # 权限检查：只允许管理员
+    if not is_admin(callback.from_user.id):
+        await callback.answer("🙏 施主无此权限。", show_alert=True)
+        return
+
+    try:
+        _, id_str = callback.data.split(":", 1)
+        stock_id = int(id_str)
+    except ValueError:
+        await callback.answer("参数错误，请稍后再试。", show_alert=True)
+        return
+
+    deleted = await PGDB.delete_file_stock_by_id(stock_id)
+    if not deleted:
+        # 可能已经被删掉或不存在
+        try:
+            await callback.message.edit_text("🙏 这个布施已经不存在或已被删除。")
+        except Exception:
+            pass
+        await callback.answer("这个布施已经不存在了。", show_alert=True)
+        return
+
+    # 成功删除：更新当前消息内容，移除按钮
+    try:
+        await callback.message.edit_text("🗑 该视频已被管理员移出功德箱。")
+    except Exception as e:
+        print(f"[Bot] delete message edit error: {e}", flush=True)
+
+    await callback.answer("🗑 已删除。", show_alert=True)
+
+
 # ---- 5 callback：翻页 ----
 @router.callback_query(F.data.startswith("item:"))
 async def handle_item_callback(callback: CallbackQuery, bot: Bot):
@@ -1061,6 +1315,10 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
     if not callback.from_user or callback.from_user.is_bot:
         await callback.answer()
         return
+
+    if await block_if_blacklisted_callback(callback):
+        return
+
 
     try:
         _, id_str, offset_str = callback.data.split(":", 2)
@@ -1087,6 +1345,7 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
                 media=InputMediaPhoto(
                     media=thumb_file_id,
                     caption=f"🍚{caption}",
+                    parse_mode=ParseMode.HTML, 
                 ),
                 reply_markup=kb,
             )
@@ -1094,6 +1353,7 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
             await callback.message.edit_text(
                 text=f"🍚{caption}",
                 reply_markup=kb,
+                parse_mode=ParseMode.HTML, 
             )
         await callback.answer()
         await asyncio.sleep(0.7)  # 避免 Telegram 限流
@@ -1104,6 +1364,10 @@ async def handle_item_callback(callback: CallbackQuery, bot: Bot):
     
 @router.message(Command("me"))
 async def cmd_hello(message: Message):
+    if await block_if_blacklisted_message(message):
+        return
+
+
     row = await PGDB.get_talking_task(user_id=message.from_user.id, stat_date=today_sgt())
     print(f"[Bot] /me for user_id={message.from_user.id}, row={row}")
     count = row.get("count", 0) if row else 0
@@ -1121,7 +1385,8 @@ from aiogram.types import BotCommand, BotCommandScopeDefault, BotCommandScopeAll
 
 @router.message(Command("setcommand"))
 async def handle_set_comment_command(message: Message, bot: Bot):
-
+    if not is_admin(message.from_user.id):
+        return
     await bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
     await bot.delete_my_commands(scope=BotCommandScopeAllPrivateChats())
     await bot.delete_my_commands(scope=BotCommandScopeDefault())
@@ -1134,6 +1399,55 @@ async def handle_set_comment_command(message: Message, bot: Bot):
         scope=BotCommandScopeAllPrivateChats()
     )
     print("✅ 已设置命令列表", flush=True)
+
+
+
+@router.message(Command("ban"))
+async def cmd_ban(message: Message, command: CommandObject):
+    # 只允许主人操作
+    if not is_admin(message.from_user.id):
+        return
+
+    # 目标 user_id：优先取 reply 的对象，否则从参数取
+    target_id = None
+    reason = None
+
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_id = message.reply_to_message.from_user.id
+        reason = command.args or f"ban by reply from {message.from_user.id}"
+    else:
+        if not command.args:
+            await message.answer("用法：\n/reply 某人消息再输入 /ban\n或：/ban <user_id> [原因]")
+            return
+        parts = command.args.split(maxsplit=1)
+        try:
+            target_id = int(parts[0])
+        except ValueError:
+            await message.answer("user_id 看起来不太对。")
+            return
+        reason = parts[1] if len(parts) > 1 else None
+
+    await PGDB.add_to_blacklist(target_id, reason)
+    await message.answer(f"✅ 已将 {target_id} 加入黑名单。")
+
+
+@router.message(Command("unban"))
+async def cmd_unban(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+
+    if not command.args:
+        await message.answer("用法：/unban <user_id>")
+        return
+
+    try:
+        target_id = int(command.args.strip())
+    except ValueError:
+        await message.answer("user_id 看起来不太对。")
+        return
+
+    await PGDB.remove_from_blacklist(target_id)
+    await message.answer(f"✅ 已将 {target_id} 从黑名单移除。")
 
 
 async def on_startup(bot: Bot):

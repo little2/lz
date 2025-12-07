@@ -1228,7 +1228,7 @@ class MySQLPool:
                 UNION ALL
 
                 SELECT name      AS word,
-                       50        AS freq,   -- 系列名给一个偏高的权重
+                       5000        AS freq,   -- 系列名给一个偏高的权重
                        'nz'      AS flag,
                        'series'  AS src
                 FROM series
@@ -1237,7 +1237,7 @@ class MySQLPool:
                 UNION ALL
 
                 SELECT tag_cn    AS word,
-                       30        AS freq,   -- 标签中文名权重略低于系列
+                       3000        AS freq,   -- 标签中文名权重略低于系列
                        'nz'      AS flag,
                        'tag_cn'  AS src
                 FROM tag
@@ -1299,3 +1299,94 @@ class MySQLPool:
         lines.sort()
 
         return "\n".join(lines)
+
+    @classmethod
+    async def export_synonym_lexicon(cls) -> str:
+        """
+        从 search_synonym 表导出同义词词库文本。
+        文本格式：
+            # canonical synonym1 synonym2 ...
+            正太 正太受 小正太
+        """
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT canonical, synonym
+                FROM search_synonym
+                WHERE enabled = 1
+                ORDER BY canonical, synonym
+                """
+            )
+            rows = await cur.fetchall()
+        except Exception as e:
+            print(f"⚠️ export_synonym_lexicon 出错: {e}", flush=True)
+            rows = []
+        finally:
+            await cls.release(conn, cur)
+
+        if not rows:
+            return ""
+
+        groups: dict[str, list[str]] = {}
+        for r in rows:
+            # DictCursor 或 tuple 都兼容
+            canonical = (r["canonical"] if isinstance(r, dict) else r[0]) or ""
+            synonym = (r["synonym"] if isinstance(r, dict) else r[1]) or ""
+            canonical = canonical.strip()
+            synonym = synonym.strip()
+            if not canonical or not synonym:
+                continue
+            groups.setdefault(canonical, []).append(synonym)
+
+        lines = [
+            "# 导出自 search_synonym (canonical synonym1 synonym2 ...)",
+        ]
+        for canonical, syn_list in sorted(groups.items()):
+            uniq_syn = sorted(set(syn_list))
+            lines.append(" ".join([canonical] + uniq_syn))
+
+        return "\n".join(lines) + "\n"
+
+
+    @classmethod
+    async def export_stopword_lexicon(cls) -> str:
+        """
+        从 search_stop_word 表导出停用词文本。
+        文本格式：
+            # stop words
+            视频
+            影片
+        """
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT word
+                FROM search_stop_word
+                WHERE enabled = 1
+                ORDER BY word
+                """
+            )
+            rows = await cur.fetchall()
+        except Exception as e:
+            print(f"⚠️ export_stopword_lexicon 出错: {e}", flush=True)
+            rows = []
+        finally:
+            await cls.release(conn, cur)
+
+        if not rows:
+            return ""
+
+        lines = [
+            "# 导出自 search_stop_word (一行一个停用词)",
+        ]
+        for r in rows:
+            w = (r["word"] if isinstance(r, dict) else r[0]) or ""
+            w = w.strip()
+            if w:
+                lines.append(w)
+
+        return "\n".join(lines) + "\n"

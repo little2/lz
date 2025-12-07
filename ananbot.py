@@ -43,6 +43,11 @@ from utils.aes_crypto import AESCrypto
 from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora
 import textwrap
 import traceback
+import time
+from pathlib import Path
+from lz_mysql import MySQLPool
+from lexicon_manager import LexiconManager
+
 
 bot = Bot(token=BOT_TOKEN)
 lz_var.bot = bot
@@ -4518,9 +4523,7 @@ async def handle_jieba_export(message: Message):
     /jieba
     从 MySQL 导出 jieba 词库 → 写入本地 jieba_dict.txt → 回传给用户
     """
-    import time
-    from pathlib import Path
-    from lz_mysql import MySQLPool
+
 
     await MySQLPool.init_pool()
 
@@ -4550,6 +4553,92 @@ async def handle_jieba_export(message: Message):
     #     document=file,
     #     caption="✅ jieba_dict.txt 已生成并写入本地。\n你也可以下载保存此文件。"
     # )
+
+
+@dp.message(F.chat.type == "private", Command("synonym"))
+async def handle_synonym_export(message: Message):
+    """
+    /synonym
+    导出同义词词库（MySQL）为文本文件：
+    格式: canonical synonym1 synonym2 ...
+    同时写入本地 search_synonyms.txt 并重载 LexiconManager。
+    """
+    await MySQLPool.init_pool()
+
+    await message.answer("⏳ 正在汇出同义词词库，请稍候…")
+
+    text = await MySQLPool.export_synonym_lexicon()
+    if not text:
+        await message.answer("⚠️ 当前没有可导出的同义词数据 (enabled=1)。")
+        return
+
+    # 1) 写入本地固定文件，供后端 LexiconManager 使用
+    local_path = "search_synonyms.txt"
+    try:
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        LexiconManager.reload_synonyms_from_file(local_path)
+        print(f"✅ 同义词已写入 {local_path} 并重载 LexiconManager", flush=True)
+        await message.answer("✅ 同义词词库已生成并写入本地。")
+    except Exception as e:
+        print(f"⚠️ 写入 {local_path} 或重载 LexiconManager 失败: {e}", flush=True)
+         
+
+    # # 2) 另外生成一个带时间戳的文件名给用户下载（跟 handle_jieba_export 一样的 UX）
+    # filename = f"search_synonyms_{int(time.time())}.txt"
+    # data = text.encode("utf-8")
+    # file = BufferedInputFile(data=data, filename=filename)
+
+    # await message.answer_document(
+    #     document=file,
+    #     caption=(
+    #         "✅ 同义词词库已生成（UTF-8）。\n"
+    #         "本机已写入 search_synonyms.txt 并重载生效。\n"
+    #         "若需手动备份，可保存此文件。"
+    #     )
+    # )
+
+@dp.message(F.chat.type == "private", Command("stopword"))
+async def handle_stopword_export(message: Message):
+    """
+    /stopword
+    导出停用词词库（MySQL）为文本文件：
+    一行一个停用词。
+    同时写入本地 search_stopwords.txt 并重载 LexiconManager。
+    """
+    await MySQLPool.init_pool()
+
+    await message.answer("⏳ 正在汇出停用词词库，请稍候…")
+
+    text = await MySQLPool.export_stopword_lexicon()
+    if not text:
+        await message.answer("⚠️ 当前没有可导出的停用词数据 (enabled=1)。")
+        return
+
+    # 1) 写入本地固定文件
+    local_path = "search_stopwords.txt"
+    try:
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        LexiconManager.reload_stop_words_from_file(local_path)
+        print(f"✅ 停用词已写入 {local_path} 并重载 LexiconManager", flush=True)
+    except Exception as e:
+        print(f"⚠️ 写入 {local_path} 或重载 LexiconManager 失败: {e}", flush=True)
+
+    # 2) 生成一个用户下载的备份文件
+    # filename = f"search_stopwords_{int(time.time())}.txt"
+    # data = text.encode("utf-8")
+    # file = BufferedInputFile(data=data, filename=filename)
+
+    # await message.answer_document(
+    #     document=file,
+    #     caption=(
+    #         "✅ 停用词词库已生成（UTF-8）。\n"
+    #         "本机已写入 search_stopwords.txt 并重载生效。\n"
+    #         "若需手动备份，可保存此文件。"
+    #     )
+    # )
+
 
 
 @dp.message(F.chat.type == "private", F.text)

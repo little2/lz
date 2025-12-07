@@ -292,13 +292,15 @@ class DB:
         self.cache.set(cache_key, result, ttl=300)
         return result
 
-    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
+    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 1000):
         # 1) 归一化 + cache
         await self._ensure_pool()
         query = self._normalize_query(keyword_str)
-        cache_key = f"searchkey:{query}:{last_id}:{limit}"
+        cache_key = f"searchkey:{query}"
         cached = self.cache.get(cache_key)
+        print(f"Cache key: {cache_key}")
         if cached:
+            print("Cache hit")
             return cached
 
         # 2) 分词
@@ -378,13 +380,14 @@ class DB:
             LIMIT ${limit_idx}
         """
 
-        print("SQL:", sql, "PARAMS:", params, flush=True)
+        # print("SQL:", sql, "PARAMS:", params, flush=True)
 
         async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             rows = await conn.fetch(sql, *params)
 
         result = [dict(r) for r in rows]
-        self.cache.set(cache_key, result, ttl=300)
+        print(f"{result}")
+        self.cache.set(cache_key, result, ttl=600)
         return result
 
 

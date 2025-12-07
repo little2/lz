@@ -1605,22 +1605,23 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
-    
+    search_result = []
     
     # print(f"thumb_file_id:{thumb_file_id}")
     # ✅ 检查是否找不到资源（根据返回第一个值）
     if ret_content.startswith("⚠️"):
         return {"ok": False, "msg": ret_content}
     
-   
+    
     print(f"current_pos1={current_pos}")
-    if current_pos <= 0:
-        search_result = []
+    if int(search_key_index)>0:
+        
         if stag == "f":
         # 尝试从搜索结果中定位当前位置
             
             keyword = await db.get_keyword_by_id(int(search_key_index))
             if keyword:
+                print(f"🔍 取得搜索结果以定位当前位置: {keyword}", flush=True)
                 search_result = await db.search_keyword_page_plain(keyword)
         elif stag == "cm" or stag == 'cf':  
             search_result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
@@ -1635,7 +1636,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     
             
             
-        if search_result:
+        if search_result and current_pos<=0:
             try:
                 current_pos = get_index_by_source_id(search_result, source_id) 
                 print(f"搜索结果总数: {len(search_result)}", flush=True)
@@ -1655,19 +1656,68 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     xlj_final_price = fee - discount_amount
     
 
+    # ==== 形成翻页按钮 ====
+
+    # 取得总数（你已经有 search_result）
+    total = len(search_result) if search_result else 0
+    has_prev = current_pos > 0
+    has_next = current_pos < total - 1
+
+    print(f"{current_pos} / {total} | has_prev={has_prev} | has_next={has_next}", flush=True)
+
+    nav_row = []
+
+    if has_prev:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"
+            )
+        )
+
+    nav_row.append(
+        InlineKeyboardButton(
+            text=f"{resource_icon} {fee}",
+            callback_data=f"sora_redeem:{content_id}"
+        )
+    )
+
+    if has_next:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"
+            )
+        )
+
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+        nav_row,
+        [
+            InlineKeyboardButton(
+                text=f"{resource_icon} {xlj_final_price} (小懒觉会员)",
+                callback_data=f"sora_redeem:{content_id}:xlj"
+            )
+        ],
+        [
+            InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+        ]
+    ])
+
+
+
 
     if ENVIRONMENT == "dev":
         
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-                InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-            ],
-            [
-                InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-            ],
-        ])
+        # reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+        #     [
+        #         InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+        #         InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+        #         InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+        #     ],
+        #     [
+        #         InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+        #     ],
+        # ])
 
         page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
 
@@ -1731,21 +1781,21 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         )
 
 
-    else:
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                # InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-                # InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-            ],
+    # else:
+    #     reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+    #         [
+    #             InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+    #             InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+    #             InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+    #         ],
 
-            [
-                InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-            ],
-            [
-                InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
-            ]
-        ])
+    #         [
+    #             InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+    #         ],
+    #         [
+    #             InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+    #         ]
+    #     ])
 
     return {'ok': True, 'caption': ret_content, 'file_type':'photo','cover_file_id': thumb_file_id, 'reply_markup': reply_markup}
 

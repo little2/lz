@@ -6,6 +6,8 @@ from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from aiohttp import web
+import aiohttp
+
 
 from lz_mysql import MySQLPool
 
@@ -14,6 +16,9 @@ from group_stats_tracker import GroupStatsTracker
 
 from telethon.tl.functions.contacts import ImportContactsRequest
 from telethon.tl.types import InputPhoneContact
+
+
+
 
 # ======== 载入配置 ========
 from ly_config import (
@@ -423,6 +428,70 @@ async def handle_private_json(event):
     await event.reply(json.dumps({"ok": 0, "error": "unknown_json"}))
 
 
+
+# ==================================================================
+# 访问 
+# ==================================================================
+
+async def _fetch_and_consume(session: aiohttp.ClientSession, url: str):
+    """
+    并发读取网页内容：
+    - 加一个时间戳参数，避免缓存
+    - 真正把内容 read() 回来，让对方服务器感觉有人在看页面
+    """
+    try:
+        params = {"t": int(datetime.now().timestamp())}
+        async with session.get(url, params=params) as resp:
+            content = await resp.read()  # 真实读取内容
+            length = len(content)
+            print(f"🌐 keep-alive fetch => {url} status={resp.status} bytes={length}", flush=True)
+    except Exception as e:
+        print(f"⚠️ keep-alive fetch failed => {url} error={e}", flush=True)
+
+
+async def ping_keepalive_task():
+    """
+    每 4 分钟并发访问一轮 URL，读取完整内容。
+    """
+    ping_urls = [
+        "https://tgone-da0b.onrender.com",  # TGOND  park
+        "https://lz-qjap.onrender.com",     # 上传 luzai02bot
+        "https://lz-v2p3.onrender.com",     # 鲁仔 lz04bot   # 
+        "https://twork-vdoh.onrender.com",  # TGtworkONE freebsd666bot
+        "https://twork-f1im.onrender.com",  # News  news05251
+        "https://lz-9bfp.onrender.com",     # 菊次郎 stcxp1069
+        "https://lz-rhxh.onrender.com",     # 红包 stoverepmaria
+        "https://lz-6q45.onrender.com"      # 布施 yaoqiang648
+    ]
+
+    timeout = aiohttp.ClientTimeout(total=10)
+    headers = {
+        # 用正常浏览器 UA，更像「真人访问」
+        "User-Agent": "Mozilla/5.0 (keep-alive-bot) Chrome/120.0"
+    }
+
+    while True:
+        try:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                tasks = [
+                    _fetch_and_consume(session, url)
+                    for url in ping_urls
+                ]
+                # 并发执行所有请求
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # 只在需要时检查异常（这里仅打印，有需求可加统计）
+                for url, r in zip(ping_urls, results):
+                    if isinstance(r, Exception):
+                        print(f"⚠️ task error for {url}: {r}", flush=True)
+
+        except Exception as outer:
+            print(f"🔥 keep-alive loop outer error: {outer}", flush=True)
+
+        # 间隔 4 分钟
+        await asyncio.sleep(240)
+
+
 # ==================================================================
 # 启动 bot
 # ==================================================================
@@ -449,6 +518,10 @@ async def main():
     print("🤖 ly bot 启动中(SESSION_STRING)...")
 
     await client.start()
+
+
+    # ✅ 启动 keep-alive 背景任务（每 4 分钟并发访问一轮）
+    asyncio.create_task(ping_keepalive_task())
 
     # ====== 获取自身帐号资讯 ======
     me = await client.get_me()

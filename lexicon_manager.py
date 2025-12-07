@@ -23,6 +23,9 @@ class LexiconManager:
     _stop_loaded: bool = False
     _proper_loaded: bool = False
 
+    # 新增：规范词 -> 该组所有同义词（含自己）
+    _canonical_variants: dict[str, set[str]] = {}
+
     # ======= 统一入口 =======
     @classmethod
     def ensure_loaded(
@@ -68,6 +71,13 @@ class LexiconManager:
                         mapping[token] = canonical
 
             cls._synonym_map = mapping
+            # 🔹 建立 canonical -> variants 反向表
+            canonical_variants: dict[str, set[str]] = {}
+            for variant, canonical in mapping.items():
+                g = canonical_variants.setdefault(canonical, set())
+                g.add(canonical)
+                g.add(variant)
+            cls._canonical_variants = canonical_variants
             cls._syn_loaded = True
             print(f"[Lexicon] loaded {len(mapping)} synonym entries from {path}", flush=True)
 
@@ -165,6 +175,53 @@ class LexiconManager:
 
         # 若词属于专有名词，不过滤
         return [t for t in tokens if t not in cls._stop_words or t in cls._proper_nouns]
+
+
+    @classmethod
+    def expand_token(cls, token: str) -> list[str]:
+        """
+        同义词叠加：
+        - 若 token 有同义词，则返回 [规范词 + 所有变体 + 原词]（去重）
+        - 若没有同义词，则只返回 [token]
+        """
+        if not cls._syn_loaded:
+            cls.load_synonyms_once("search_synonyms.txt")
+
+        if not token:
+            return []
+
+        # 没有同义词表时，直接返回自己
+        if not cls._synonym_map:
+            return [token]
+
+        canonical = cls._synonym_map.get(token, token)
+        variants = cls._canonical_variants.get(canonical)
+        if not variants:
+            return [token]
+
+        # 再加上原始 token，一起去重
+        s = set(variants)
+        s.add(token)
+        return [t for t in s if t]
+
+    @classmethod
+    def expand_tokens(cls, tokens: list[str]) -> list[list[str]]:
+        """
+        把一串 token 变成「同义词组」列表：
+        ["滑鼠", "买"] -> [
+            [...所有和“滑鼠”同组的词...],
+            [...所有和“买”同组的词...]
+        ]
+        """
+        groups: list[list[str]] = []
+        for t in tokens:
+            t = t.strip()
+            if not t:
+                continue
+            groups.append(cls.expand_token(t))
+        return groups
+
+
 
     @classmethod
     def reload_synonyms_from_file(cls, path: str = "search_synonyms.txt") -> None:

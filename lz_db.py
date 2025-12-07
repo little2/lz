@@ -138,6 +138,9 @@ class DB:
         # 简单转义，避免 to_tsquery 特殊字符影响；必要时再扩充
         return s.replace("'", "''").replace("&", " ").replace("|", " ").replace("!", " ").replace(":", " ").strip()
 
+
+
+
     def _build_tsqueries_from_tokens(self,tokens: list[str]) -> tuple[str, str]:
         toks = [self._escape_ts_lexeme(t) for t in tokens if t.strip()]
         if not toks:
@@ -146,71 +149,51 @@ class DB:
         all_and = " & ".join(toks)   # 兜底 AND
         return phrase, all_and
 
-    #备份待删的function
-    async def search_keyword_page_plain_old(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
-        query = self._normalize_query(keyword_str)
-        cache_key = f"searchkey:{query}:{last_id}:{limit}"
-        
-        cached = self.cache.get(cache_key)
-        if cached:
-            return cached
- 
-        # 把整句中文拆成 token（词语）
-        tokens = list(jieba.cut(keyword_str))
-
-        # 1) 同义词归一化（用 search_synonyms.txt）
-        tokens = LexiconManager.normalize_tokens(tokens)
-        print("Tokens after synonym normalization:", tokens)
-
-        # 2) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
-        tokens = LexiconManager.filter_stop_words(tokens)
-        print("Tokens after stop-word filter:", tokens)
-
-        phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
-        if not and_q:
-            return []
-
-        limit = max(1, min(3000, int(limit)))
-
-        where_parts = []
-        params = []
-
-        # 两种匹配：相邻 或 AND
-        cond = []
-        if phrase_q:
-            cond.append("content_seg_tsv @@ to_tsquery('simple', $1)")
-            params.append(phrase_q)
-        cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${len(params)+1})")
-        params.append(and_q)
-        where_parts.append("(" + " OR ".join(cond) + ")")
-
-        if last_id > 0:
-            where_parts.append(f"id < ${len(params)+1}")
-            params.append(last_id)
-
-        sql = f"""
-            SELECT
-                id, source_id, file_type, content,
-                GREATEST(
-                    COALESCE(ts_rank_cd(content_seg_tsv, to_tsquery('simple', $1)), 0) * 1.5,
-                    ts_rank_cd(content_seg_tsv, to_tsquery('simple', $2))
-                ) AS rank
-            FROM sora_content
-            WHERE {' AND '.join(where_parts)} AND valid_state>=8
-            ORDER BY rank DESC, id DESC
-            LIMIT ${len(params)+1}
+    # 🔹 新增：支持同义词 OR 组的版本
+    def _build_tsqueries_from_token_groups(self, token_groups: list[list[str]]) -> tuple[str, str]:
         """
-        print("SQL:", sql)
-        params.append(limit)
+        token_groups 结构示例：
+        [
+            ["鼠标", "滑鼠"],
+            ["买"]
+        ]
 
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            rows = await conn.fetch(sql, *params)
-        
-        result = [dict(r) for r in rows]
-        self.cache.set(cache_key, result, ttl=300)  # ttl=缓存
-        return result
+        生成：
+        phrase_q: "(鼠标 | 滑鼠) <-> 买"
+        and_q:    "(鼠标 | 滑鼠) & 买"
+        """
+        phrase_parts: list[str] = []
+        and_parts: list[str] = []
 
-    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
+        for group in token_groups:
+            # 清洗 + 去空 + 去重
+            cleaned = {
+                self._escape_ts_lexeme(t)
+                for t in group
+                if t and t.strip()
+            }
+            if not cleaned:
+                continue
+
+            if len(cleaned) == 1:
+                term = next(iter(cleaned))
+            else:
+                # 同义词 OR
+                term = "(" + " | ".join(sorted(cleaned)) + ")"
+
+            phrase_parts.append(term)
+            and_parts.append(term)
+
+        if not and_parts:
+            return "", ""
+
+        phrase_q = " <-> ".join(phrase_parts) if phrase_parts else ""
+        and_q = " & ".join(and_parts)
+        return phrase_q, and_q
+
+
+    # BAckup
+    async def search_keyword_page_plain_old(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
         # 1) 归一化 + cache
         await self._ensure_pool()
         query = self._normalize_query(keyword_str)
@@ -309,6 +292,100 @@ class DB:
         self.cache.set(cache_key, result, ttl=300)
         return result
 
+    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
+        # 1) 归一化 + cache
+        await self._ensure_pool()
+        query = self._normalize_query(keyword_str)
+        cache_key = f"searchkey:{query}:{last_id}:{limit}"
+        cached = self.cache.get(cache_key)
+        if cached:
+            return cached
+
+        # 2) 分词
+        tokens = list(jieba.cut(keyword_str))
+        print("Tokens after jieba cut:", tokens)
+
+        # 3) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
+        tokens = LexiconManager.filter_stop_words(tokens)
+        print("Tokens after stop-word filter:", tokens)
+
+        # 4) 同义词叠加：每个 token -> [本词 + 全部同义词]
+        token_groups = LexiconManager.expand_tokens(tokens)
+        print("Token groups after synonym expand:", token_groups)
+
+        # 5) 生成 tsquery：用 OR 组构成 phrase_q / and_q
+        phrase_q, and_q = self._build_tsqueries_from_token_groups(token_groups)
+        if not and_q:
+            return []
+
+        # 下面的 limit / where_parts / params / SQL 构造都维持原样，不动
+        # 4) 保护 limit
+        limit = max(1, min(3000, int(limit)))
+
+        where_parts = []
+        params = []
+
+        # ===== 先统一决定参数顺序 =====
+        current_idx = 1
+        phrase_idx = None
+        and_idx = None
+
+        cond = []
+
+        if phrase_q:
+            phrase_idx = current_idx
+            params.append(phrase_q)
+            cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${phrase_idx})")
+            current_idx += 1
+
+        # and_q 一定存在
+        and_idx = current_idx
+        params.append(and_q)
+        cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${and_idx})")
+        current_idx += 1
+
+        where_parts.append("(" + " OR ".join(cond) + ")")
+
+        if last_id > 0:
+            last_id_idx = current_idx
+            where_parts.append(f"id < ${last_id_idx}")
+            params.append(last_id)
+            current_idx += 1
+
+        limit_idx = current_idx
+        params.append(limit)
+
+        if phrase_idx is not None:
+            rank_expr = f"""
+                GREATEST(
+                    COALESCE(ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${phrase_idx})), 0) * 1.5,
+                    ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${and_idx}))
+                )
+            """
+        else:
+            rank_expr = f"ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${and_idx}))"
+
+        sql = f"""
+            SELECT
+                id,
+                source_id,
+                file_type,
+                content,
+                {rank_expr} AS rank
+            FROM sora_content
+            WHERE {' AND '.join(where_parts)} AND valid_state >= 8
+            ORDER BY rank DESC, id DESC
+            LIMIT ${limit_idx}
+        """
+
+        print("SQL:", sql, "PARAMS:", params, flush=True)
+
+        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+            rows = await conn.fetch(sql, *params)
+
+        result = [dict(r) for r in rows]
+        self.cache.set(cache_key, result, ttl=300)
+        return result
 
 
     async def upsert_file_extension(self,

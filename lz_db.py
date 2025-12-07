@@ -220,14 +220,17 @@ class DB:
             return cached
 
         # 2) 替换同义词 + 分词
-       
         tokens = list(jieba.cut(keyword_str))
-
         print("Tokens after jieba cut:", tokens)
+
         # 3) token 级同义词归一化
         tokens = LexiconManager.normalize_tokens(tokens)
-
         print("Tokens after synonym normalization:", tokens)
+
+        # 4) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
+        tokens = LexiconManager.filter_stop_words(tokens)
+        print("Tokens after stop-word filter:", tokens)
+
 
         phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
         if not and_q:

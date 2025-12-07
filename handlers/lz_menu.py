@@ -1660,7 +1660,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         
         reply_markup = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"⬅️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+                InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
                 InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
                 InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
             ],

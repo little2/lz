@@ -1,2 +1,0 @@
-# 导出自 search_synonym (canonical synonym1 synonym2 ...)
-胖太 胖子 胖弟

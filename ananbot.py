@@ -2261,9 +2261,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             if re.search(r"(#不是正太片|#不是正太片爆菊)", caption):
                 await callback_query.answer("这不是正太片，审核结束后，将不再上架\r\n\r\n🎈如果有你觉得审核后不该再上架的资源，请在讨论区说明", show_alert=True)
             else:
-                spawn_once(f"refine:{content_id}", lambda:AnanBOTPool.refine_product_content(content_id))
-                spawn_once(f"_sync_pg:{content_id}", lambda:_sync_pg(content_id))
-                spawn_once(f"_approve_content:{content_id}", lambda:_approve_content(product_row))
+                spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
+
+
                 
                 # ⬇️ 改为后台执行，不阻塞当前回调
                
@@ -2279,6 +2279,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     spawn_once(f"_reset_review_zone_button:{content_id}", lambda:_reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info) )
 
     # spawn_once(f"_review_next_product:{content_id}",lambda:_review_next_product(state) )
+
+
+
 
 # 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
@@ -2481,6 +2484,11 @@ async def _sync_pg(content_id:int):
     except Exception as e:
         logging.exception(f"同步 content_id={content_id} 到 PG 失败: {e}")
 
+async def refine_sync_send(content_id,product_row):
+    # 为了要改善数据库还没更新，就被寄送到发布频道的问题
+    await AnanBOTPool.refine_product_content(content_id)
+    await _sync_pg(content_id)
+    await _approve_content(product_row)
 
 ############
 #  content     

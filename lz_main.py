@@ -109,11 +109,6 @@ async def handle_user_private_media(event):
     await event.delete()
 
 
-
-
-
-
-
 FILE_ID_REGEX = re.compile(
     r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
 )
@@ -255,6 +250,18 @@ async def update_username(client,username):
     except Exception as e:
         print(f"变更失败：{e}")
 
+async def sync():
+    while True:
+        summary = await check_and_fix_sora_valid_state(limit=1000)
+        if summary["checked"] == 0:
+            break
+
+
+    while True:
+        summary = await check_and_fix_sora_valid_state2(limit=1000)
+        if summary["checked"] == 0:
+            break
+
 async def main():
     # 10.2 并行运行 Telethon 与 Aiogram
     await user_client.start(PHONE_NUMBER)
@@ -302,29 +309,10 @@ async def main():
     dp.include_router(lz_media_parser.router)  # ✅ 注册你的新功能模块
     dp.include_router(lz_menu.router)
 
-    # ✅ 统一在这里连一次
-    # await db.connect()
-    # await MySQLPool.init_pool()  # ✅ 初始化 MySQL 连接池
-
     await asyncio.gather(
         db.connect(),            # PostgreSQL
         MySQLPool.init_pool(),   # MySQL
     )
-
-    
-
-    while True:
-
-        summary = await check_and_fix_sora_valid_state(limit=1000)
-        if summary["checked"] == 0:
-            break
-
-
-    while True:
-        summary = await check_and_fix_sora_valid_state2(limit=1000)
-        if summary["checked"] == 0:
-            break
-        
 
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
@@ -404,7 +392,6 @@ async def main():
     # task_telethon.cancel()
 
 if __name__ == "__main__":
-    print("🟡 Cold start in progress...")
     asyncio.run(main())
-    print(f"✅ Bot cold started in {int(time.time() - lz_var.start_time)} 秒")
+
 

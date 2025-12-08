@@ -3,8 +3,8 @@ import functools
 import traceback
 import sys
 from opencc import OpenCC
-from typing import Any, Callable
-from typing import Callable, Awaitable, Any
+from typing import Any, Callable, Awaitable, Any
+
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
 from aiogram.filters import Command
@@ -65,7 +65,7 @@ import traceback
 import sys
 
 
-
+from pathlib import Path
 
 
 
@@ -1211,6 +1211,8 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         await message.reply("请输入关键词： /s 正太 钢琴")
         return
     
+    keyword = parts[1]
+
     # 太短的直接挡掉（避免搜一堆 “的/在/是”）
     if len(keyword) < 2:
         await message.answer("关键词再具体一点会更好哦（至少 2 个字）")
@@ -1220,7 +1222,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     if len(keyword) > 20:
         keyword = keyword[:20]
 
-    keyword = parts[1]
+    
 
     
 
@@ -1603,22 +1605,23 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
-    
+    search_result = []
     
     # print(f"thumb_file_id:{thumb_file_id}")
     # ✅ 检查是否找不到资源（根据返回第一个值）
     if ret_content.startswith("⚠️"):
         return {"ok": False, "msg": ret_content}
     
-   
+    
     print(f"current_pos1={current_pos}")
-    if current_pos <= 0:
-        search_result = []
+    if int(search_key_index)>0:
+        
         if stag == "f":
         # 尝试从搜索结果中定位当前位置
             
             keyword = await db.get_keyword_by_id(int(search_key_index))
             if keyword:
+                print(f"🔍 取得搜索结果以定位当前位置: {keyword}", flush=True)
                 search_result = await db.search_keyword_page_plain(keyword)
         elif stag == "cm" or stag == 'cf':  
             search_result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
@@ -1633,7 +1636,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     
             
             
-        if search_result:
+        if search_result and current_pos<=0:
             try:
                 current_pos = get_index_by_source_id(search_result, source_id) 
                 print(f"搜索结果总数: {len(search_result)}", flush=True)
@@ -1653,19 +1656,68 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     xlj_final_price = fee - discount_amount
     
 
+    # ==== 形成翻页按钮 ====
+
+    # 取得总数（你已经有 search_result）
+    total = len(search_result) if search_result else 0
+    has_prev = current_pos > 0
+    has_next = current_pos < total - 1
+
+    print(f"{current_pos} / {total} | has_prev={has_prev} | has_next={has_next}", flush=True)
+
+    nav_row = []
+
+    if has_prev:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="⬅️",
+                callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"
+            )
+        )
+
+    nav_row.append(
+        InlineKeyboardButton(
+            text=f"{resource_icon} {fee}",
+            callback_data=f"sora_redeem:{content_id}"
+        )
+    )
+
+    if has_next:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="➡️",
+                callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"
+            )
+        )
+
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+        nav_row,
+        [
+            InlineKeyboardButton(
+                text=f"{resource_icon} {xlj_final_price} (小懒觉会员)",
+                callback_data=f"sora_redeem:{content_id}:xlj"
+            )
+        ],
+        [
+            InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+        ]
+    ])
+
+
+
 
     if ENVIRONMENT == "dev":
         
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text=f"⬅️{current_pos}", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-                InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-            ],
-            [
-                InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-            ],
-        ])
+        # reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+        #     [
+        #         InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+        #         InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+        #         InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+        #     ],
+        #     [
+        #         InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+        #     ],
+        # ])
 
         page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
 
@@ -1729,21 +1781,21 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         )
 
 
-    else:
-        reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                # InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-                InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-                # InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-            ],
+    # else:
+    #     reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+    #         [
+    #             InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+    #             InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+    #             InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+    #         ],
 
-            [
-                InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-            ],
-            [
-                InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
-            ]
-        ])
+    #         [
+    #             InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+    #         ],
+    #         [
+    #             InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+    #         ]
+    #     ])
 
     return {'ok': True, 'caption': ret_content, 'file_type':'photo','cover_file_id': thumb_file_id, 'reply_markup': reply_markup}
 
@@ -2779,7 +2831,7 @@ async def handle_go_home(callback: CallbackQuery):
 
 
 
-@debug
+
 @router.callback_query(F.data.startswith("sora_page:"))
 async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
     try:
@@ -3673,4 +3725,59 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         
     
 
+@router.message(Command("lexicon"))
+async def handle_jieba_export(message: Message):
+    await MySQLPool.init_pool()
 
+    await message.answer("⏳ 正在汇出 jieba 自定义词库，请稍候…")
+
+    # 取得文本内容
+    text = await MySQLPool.export_jieba_dict()
+    if not text:
+        await message.answer("⚠️ 当前没有可导出的词库。")
+        return
+    # 本地路径（可依项目结构调整）
+    output_path = Path("jieba_userdict.txt")
+
+    # 写入文件（UTF-8）
+    output_path.write_text(text, encoding="utf-8")
+    await message.answer("✅ jieba_userdict.txt 已生成并写入本地    。")
+
+
+    await message.answer("⏳ 正在汇出同义词词库，请稍候…")
+
+    text = await MySQLPool.export_synonym_lexicon()
+    if not text:
+        await message.answer("⚠️ 当前没有可导出的同义词数据 (enabled=1)。")
+        return
+
+    from lexicon_manager import LexiconManager
+
+    # 1) 写入本地固定文件，供后端 LexiconManager 使用
+    local_path = "search_synonyms.txt"
+    try:
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        LexiconManager.reload_synonyms_from_file(local_path)
+        print(f"✅ 同义词已写入 {local_path} 并重载 LexiconManager", flush=True)
+        await message.answer("✅ 同义词词库已生成并写入本地。")
+    except Exception as e:
+        print(f"⚠️ 写入 {local_path} 或重载 LexiconManager 失败: {e}", flush=True)
+
+    await message.answer("⏳ 正在汇出停用词词库，请稍候…")
+
+    text = await MySQLPool.export_stopword_lexicon()
+    if not text:
+        await message.answer("⚠️ 当前没有可导出的停用词数据 (enabled=1)。")
+        return
+
+    # 1) 写入本地固定文件
+    local_path = "search_stopwords.txt"
+    try:
+        with open(local_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        LexiconManager.reload_stop_words_from_file(local_path)
+        print(f"✅ 停用词已写入 {local_path} 并重载 LexiconManager", flush=True)
+        await message.answer("✅ 停用词词库已生成并写入本地。")
+    except Exception as e:
+        print(f"⚠️ 写入 {local_path} 或重载 LexiconManager 失败: {e}", flush=True)        

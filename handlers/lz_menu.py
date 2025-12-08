@@ -1079,7 +1079,7 @@ async def _build_pagination(
         )
         result = await PGPool.search_history_redeem(keyword_id)
         if not result:
-            return {"ok": False, "message": "⚠️ 没有找到任何兑换纪录"}
+            return {"ok": False, "message": "⚠️ 同步正在进行中，或是您目前还没有任何兑换纪录"}
     elif callback_function in {"ul_pid"}:
         spawn_once(
             f"sync_product:{keyword_id}",
@@ -1088,7 +1088,7 @@ async def _build_pagination(
 
         result = await PGPool.search_history_upload(keyword_id)
         if not result:
-            return {"ok": False, "message": "⚠️ 没有找到任何上传纪录"}            
+            return {"ok": False, "message": "⚠️ 同步正在进行中，或是您目前还没有任何上传纪录"}            
 
 
     # === 正常分页 ===# === 背景进行文件的同步 (预加载) ===

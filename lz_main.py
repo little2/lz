@@ -61,6 +61,8 @@ lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引�
 lz_var.skins = {}  # 皮肤配置
 
 
+
+
 # ================= 9. 私聊媒体处理：人类账号 =================
 @user_client.on(events.NewMessage(incoming=True))
 async def handle_user_private_media(event):

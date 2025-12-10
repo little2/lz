@@ -257,6 +257,8 @@ async def handle_group_command(event):
     if cmd not in COMMAND_RECEIVERS:
         print(f"未知指令 /{cmd}，忽略。",flush=True)
         return
+    
+    print(f"收到指令 /{cmd} fee={fee} cnt={cnt} extra_text={extra_text}",flush=True)
 
 
    

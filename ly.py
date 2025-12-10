@@ -240,14 +240,30 @@ async def replay_offline_transactions(max_batch: int = 200):
     print("🟢 本轮离线交易回放结束。", flush=True)
 
 
+@client.on(events.NewMessage)
+async def debug_group_id(event):
+    if event.is_private:
+        return
+    print(f"[DEBUG] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
+
+
 # ==================================================================
 # 指令 /hb fee n2
 # ==================================================================
 @client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$'))
 async def handle_group_command(event):
+    print(f"[DEBUG] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
     if event.is_private:
         print(f"不是群组消息，忽略。",flush=True)
         return
+
+    chat_id = event.chat_id
+    # ====== 新增：群组白名单过滤 ======
+    if chat_id not in ALLOWED_GROUP_IDS:
+        print(f"{chat_id} 不在白名单 → 直接忽略，不处理、不回覆",flush=True)
+        # 不在白名单 → 直接忽略，不处理、不回覆
+        return
+    # =================================
 
     cmd = event.pattern_match.group(1).lower()
     fee = abs(int(event.pattern_match.group(2)))
@@ -265,16 +281,11 @@ async def handle_group_command(event):
 
     receiver_id = COMMAND_RECEIVERS[cmd]
     sender_id = event.sender_id
-    chat_id = event.chat_id
+    
     msg_id = event.id
 
 
-    # ====== 新增：群组白名单过滤 ======
-    if chat_id not in ALLOWED_GROUP_IDS:
-        print(f"{chat_id} 不在白名单 → 直接忽略，不处理、不回覆",flush=True)
-        # 不在白名单 → 直接忽略，不处理、不回覆
-        return
-    # =================================
+
 
     if fee < 2:
         return

@@ -244,7 +244,7 @@ async def replay_offline_transactions(max_batch: int = 200):
 async def debug_group_id(event):
     if event.is_private:
         return
-    print(f"[DEBUG] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
+    print(f"[DEBUG1] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
 
 
 # ==================================================================
@@ -252,7 +252,7 @@ async def debug_group_id(event):
 # ==================================================================
 @client.on(events.NewMessage(pattern=r'^/(\w+)\s+(\d+)\s+(\d+)(?:\s+(.*))?$'))
 async def handle_group_command(event):
-    print(f"[DEBUG] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
+    print(f"[DEBUG2] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
     if event.is_private:
         print(f"不是群组消息，忽略。",flush=True)
         return
@@ -573,6 +573,7 @@ async def main():
     # 优雅关闭
     await GroupStatsTracker.stop_background_tasks()
     await PGStatsDB.close_pool()
+    await MySQLPool.close()
 
 
 if __name__ == "__main__":

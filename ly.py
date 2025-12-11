@@ -539,6 +539,16 @@ async def ping_keepalive_task():
             print(f"🔥 keep-alive loop outer error: {outer}", flush=True)
 
         # 间隔 4 分钟
+        try:
+            await client.catch_up()
+        except Exception as e:
+            print("⚠️ catch_up() 失败，准备重连:", e, flush=True)
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            await client.connect()
+            await client.catch_up()
         await asyncio.sleep(240)
 
 
@@ -568,6 +578,7 @@ async def main():
     print("🤖 ly bot 启动中(SESSION_STRING)...")
 
     await client.start()
+    await client.catch_up()
 
 
     # ✅ 启动 keep-alive 背景任务（每 4 分钟并发访问一轮）

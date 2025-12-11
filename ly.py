@@ -245,15 +245,15 @@ async def replay_offline_transactions(max_batch: int = 200):
 
 DEBUG_HB_GROUP_ID = -1002675021976  # 换成实际群 ID
 
-@client.on(events.NewMessage)
-async def _debug_any_message(event):
-    if event.chat_id != DEBUG_HB_GROUP_ID:
-        return
-    print(
-        f"[DBG0] 收到任何消息 chat_id={event.chat_id}, "
-        f"sender={event.sender_id}, text={event.raw_text!r}",
-        flush=True
-    )
+# @client.on(events.NewMessage)
+# async def _debug_any_message(event):
+#     if event.chat_id != DEBUG_HB_GROUP_ID:
+#         return
+#     print(
+#         f"[DBG0] 收到任何消息 chat_id={event.chat_id}, "
+#         f"sender={event.sender_id}, text={event.raw_text!r}",
+#         flush=True
+#     )
 
 
 # ==================================================================

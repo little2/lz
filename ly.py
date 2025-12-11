@@ -245,13 +245,14 @@ async def replay_offline_transactions(max_batch: int = 200):
 async def debug_group_id(event):
     if event.is_private:
         return
-    try:
-        if int(event.chat_id) == -1002675021976:
-            print(f"[DEBUG1] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
-            return
-    except Exception:
-        print(f"[DEBUG3] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
-        return
+    msg = event.message
+    print(
+        f"[DBG] date={msg.date}, "
+        f"out={msg.out}, {event.chat_id}"
+        f"sender={event.sender_id}, "
+        f"text={event.raw_text!r}",
+        flush=True
+    )
    
 
 
@@ -426,13 +427,15 @@ async def handle_private_json(event):
     except Exception:
         print(f"📩 私人消息非 JSON，忽略。")
         return
-    print(f"📩 收到私人 JSON 请求: {data}",flush=True)
+    
     await MySQLPool.ensure_pool()
     # === 查交易 ===
     if "chatinfo" in data:    
         try:
+            print(f"📩 收到私人 JSON 请求: {data}",flush=True)
             row = await MySQLPool.find_transaction_by_description(data["chatinfo"])
         except Exception as e:
+            print(f"📩 使用 PG",flush=True)
             row = await PGStatsDB.find_transaction_by_description(data["chatinfo"])
             if not row:
                 print(f"❌ 查交易出错: {e}", flush=True)

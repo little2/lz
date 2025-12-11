@@ -247,12 +247,7 @@ async def debug_group_id(event):
     
     uid_raw = event.chat_id
     
-    # 允许负数 chat_id：-100xxxx
-    if uid_raw.lstrip('-').isdigit():
-        target = int(uid_raw)
-    else:
-        # 让 Telethon 按用户名 / 电话自己解析
-        target = uid_raw
+
 
     if target == -1002675021976:
         print(f"[DEBUG1] 收到群消息 chat_id={target}, text={event.raw_text!r}", flush=True)
@@ -375,10 +370,11 @@ async def handle_private_json(event):
 
         _, uid, word = parts
 
-        # 允许负数 chat_id：-100xxxx
-        if uid.lstrip('-').isdigit():
-            uid = int(uid)
 
+
+        # uid 如果是纯数字，转 int 更稳
+        if uid.isdigit():
+            uid = int(uid)
 
         await client.send_message(uid, word)
         return

@@ -430,7 +430,13 @@ async def handle_private_json(event):
     await MySQLPool.ensure_pool()
     # === 查交易 ===
     if "chatinfo" in data:    
-        row = await MySQLPool.find_transaction_by_description(data["chatinfo"])
+        try:
+            row = await MySQLPool.find_transaction_by_description(data["chatinfo"])
+        except Exception as e:
+            row = await PGStatsDB.find_transaction_by_description(data["chatinfo"])
+            if not row:
+                print(f"❌ 查交易出错: {e}", flush=True)
+                row = None
         await event.reply(json.dumps({
             "ok": 1 if row else 0,
             "chatinfo": data["chatinfo"]

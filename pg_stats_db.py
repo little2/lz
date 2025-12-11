@@ -1,7 +1,7 @@
 # pg_stats_db.py
 import asyncpg
 import asyncio
-from typing import Any, Dict, List  # ⬅ 新增
+from typing import Any, Dict, List,Optional  # ⬅ 新增
 
 class PGStatsDB:
     """
@@ -270,7 +270,56 @@ class PGStatsDB:
                     "transaction_data": transaction_data,
                 }
 
-    
+ 
+
+    @classmethod
+    async def find_transaction_by_description(cls, desc: str) -> Optional[Dict[str, Any]]:
+        """
+        根据 transaction_description 在 PostgreSQL 中查询一笔交易纪录。
+
+        目前仅查询 offline_transaction_queue：
+        - 用于 MySQL 挂掉、交易改记到 PG 离线队列时的“查重”/确认用途
+        - 语义上等价于 MySQLPool.find_transaction_by_description，但数据来源不同
+
+        :param desc: 例如 "chat_id message_id"
+        :return: dict | None
+        """
+        if cls.pool is None:
+            raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 PGStatsDB.init_pool(dsn)")
+
+       
+
+        async with cls.pool.acquire() as conn:
+            try:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        id,
+                        sender_id,
+                        receiver_id,
+                        transaction_type,
+                        transaction_description,
+                        sender_fee,
+                        receiver_fee,
+                        created_at,
+                        processed,
+                        processed_at,
+                        last_error
+                    FROM offline_transaction_queue
+                    WHERE transaction_description = $1
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    desc,
+                )
+                # 与 MySQL 版行为对齐：查不到就回 None，查到就回 dict
+                return dict(row) if row else None
+
+            except Exception as e:
+                print(f"⚠️ PGStatsDB.find_transaction_by_description 出错: {e}", flush=True)
+                return None
+
+   
 
     @classmethod
     async def sync_user_from_mysql(cls, max_batch: int = 1000) -> int:

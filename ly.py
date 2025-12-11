@@ -241,18 +241,18 @@ async def replay_offline_transactions(max_batch: int = 200):
     print("🟢 本轮离线交易回放结束。", flush=True)
 
 
-@client.on(events.NewMessage)
-async def debug_group_id(event):
-    if event.is_private:
-        return
-    msg = event.message
-    print(
-        f"[DBG] date={msg.date}, "
-        f"out={msg.out}, {event.chat_id}"
-        f"sender={event.sender_id}, "
-        f"text={event.raw_text!r}",
-        flush=True
-    )
+# @client.on(events.NewMessage)
+# async def debug_group_id(event):
+#     if event.is_private:
+#         return
+#     msg = event.message
+#     print(
+#         f"[DBG] date={msg.date}, "
+#         f"out={msg.out}, {event.chat_id}"
+#         f"sender={event.sender_id}, "
+#         f"text={event.raw_text!r}",
+#         flush=True
+#     )
    
 
 
@@ -334,7 +334,7 @@ async def handle_group_command(event):
             "ok": 1 ,
             "chatinfo": f"{chat_id}_{msg_id}"
         })
-        print(f"json={payload}",flush=True)
+        print(f"receiver_id={receiver_id} json={payload}",flush=True)
         await client.send_message(receiver_id, payload)
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
@@ -453,27 +453,30 @@ async def handle_private_json(event):
         fee = int(data["receiver_fee"])
         memo = data.get("sender_id", "")
         keyword = data.get("keyword", "")
-
-        result = await MySQLPool.transaction_log({
-            "sender_id": event.sender_id,
-            "receiver_id": rid,
-            "transaction_type": "payment",
-            "transaction_description": keyword,
-            "sender_fee": -fee,
-            "receiver_fee": fee,
-            "memo": memo
-        })
-        
-        await event.reply(json.dumps({
-            "ok": 1 if result.get("ok") == "1" else 0,
-            "status": result.get("status"),
-            "transaction_id": (result.get("transaction_data", "")).get("transaction_id", ""),
-            "receiver_id": rid,
-            "receiver_fee": fee,
-            "keyword": keyword,
-            "memo": data.get("memo", "")
-        }))
-        return
+        try:
+            result = await MySQLPool.transaction_log({
+                "sender_id": event.sender_id,
+                "receiver_id": rid,
+                "transaction_type": "payment",
+                "transaction_description": keyword,
+                "sender_fee": -fee,
+                "receiver_fee": fee,
+                "memo": memo
+            })
+            
+            await event.reply(json.dumps({
+                "ok": 1 if result.get("ok") == "1" else 0,
+                "status": result.get("status"),
+                "transaction_id": (result.get("transaction_data", "")).get("transaction_id", ""),
+                "receiver_id": rid,
+                "receiver_fee": fee,
+                "keyword": keyword,
+                "memo": data.get("memo", "")
+            }))
+            return 
+        except Exception as e:
+            print(f"❌ 处理 payment 出错: {e}", flush=True)
+           
 
     await event.reply(json.dumps({"ok": 0, "error": "unknown_json"}))
 

@@ -411,8 +411,11 @@ async def handle_private_json(event):
 
         try:
             print(f"[CATCH] 手动触发重连 + catch_up(), from user_id={event.sender_id}", flush=True)
+            await event.reply("⏳ 正在断线重连，请稍候…")
             await client.disconnect()
+            await event.reply("⏳ 正在重新连接，请稍候…")
             await client.connect()
+            await event.reply("⏳ 正在同步最新消息，请稍候…")
             await client.catch_up()
             await event.reply("✅ catch_up() 已执行完成。")
             print("[CATCH] catch_up() 执行完成。", flush=True)

@@ -16,6 +16,7 @@ from group_stats_tracker import GroupStatsTracker
 
 from telethon.tl.functions.contacts import ImportContactsRequest
 from telethon.tl.types import InputPhoneContact
+from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError
 
 
 
@@ -244,13 +245,12 @@ async def replay_offline_transactions(max_batch: int = 200):
 async def debug_group_id(event):
     if event.is_private:
         return
-    
-    uid_raw = event.chat_id
-    
-
-
-    if target == -1002675021976:
-        print(f"[DEBUG1] 收到群消息 chat_id={target}, text={event.raw_text!r}", flush=True)
+    try:
+        if int(event.chat_id) == -1002675021976:
+            print(f"[DEBUG1] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
+            return
+    except Exception:
+        print(f"[DEBUG3] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
         return
    
 
@@ -363,20 +363,38 @@ async def handle_private_json(event):
         return
     elif text.startswith("/tell"):
         parts = text.split(maxsplit=2)
-        
         if len(parts) < 3:
-            # await event.reply("用法：/tell <user_id 或 @username> <内容>")
+            await event.reply("用法：/tell <user_id 或 @username> <内容>")
             return
 
-        _, uid, word = parts
+        # 权限控制：避免被陌生人拿来当「转发器」
+        if event.sender_id not in ALLOWED_PRIVATE_IDS:
+            await event.reply("⚠️ 你没有权限使用 /tell 指令。")
+            return
 
+        _, target_raw, word = parts
 
+        # 尝试把纯数字当成 user_id
+        target = target_raw
+        if target_raw.isdigit():
+            target = int(target_raw)
 
-        # uid 如果是纯数字，转 int 更稳
-        if uid.isdigit():
-            uid = int(uid)
+        # 先解析 entity，统一处理各种错误
+        try:
+            entity = await client.get_input_entity(target)
+        except (UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError, ValueError):
+            await event.reply(f"❌ 找不到目标用户：{target_raw}")
+            return
+        except Exception as e:
+            await event.reply(f"❌ 无法解析目标：{e}")
+            return
 
-        await client.send_message(uid, word)
+        try:
+            await client.send_message(entity, word)
+            await event.reply("✅ 已转发。")
+        except Exception as e:
+            # 这里可能会是 USER_PRIVACY_RESTRICTED, FLOOD_WAIT 等
+            await event.reply(f"❌ 发送失败：{e}")
         return
        
         
@@ -529,7 +547,7 @@ async def main():
     await PGStatsDB.ensure_offline_tx_table()
 
     # # ===== 启动后台统计器 =====
-    await GroupStatsTracker.start_background_tasks()
+
 
     # 启动群组统计 + 定期离线交易回放
     await GroupStatsTracker.start_background_tasks(

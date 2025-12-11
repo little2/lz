@@ -424,7 +424,7 @@ async def handle_private_json(event):
             await event.reply(f"❌ catch_up() 失败：{e!r}")    
 
         try:
-            await  client.iter_dialogs(limit=1)
+            client.iter_dialogs(limit=1)
         except Exception as e:
             print(f"[WD] keep_updates_warm 出错: {e}", flush=True)
        
@@ -560,7 +560,7 @@ async def ping_keepalive_task():
         # 间隔 50 秒
         try:
             await client.catch_up()
-            await client.iter_dialogs(limit=1)
+            client.iter_dialogs(limit=1)
         except Exception as e:
             print("⚠️ catch_up() 失败，准备重连:", e, flush=True)
             try:

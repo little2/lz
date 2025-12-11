@@ -41,7 +41,9 @@ from ly_config import (
 client = TelegramClient(
     session=StringSession(SESSION_STRING),
     api_id=API_ID,
-    api_hash=API_HASH
+    api_hash=API_HASH,
+    connection_retries=999999,
+    retry_delay=2
 )
 
 # ======== 设置群组发言统计（class classmethod 风格） ========

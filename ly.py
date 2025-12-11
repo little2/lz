@@ -522,10 +522,10 @@ async def main():
     # await GroupStatsTracker.start_background_tasks()
 
     # 启动群组统计 + 定期离线交易回放
-    await GroupStatsTracker.start_background_tasks(
-        offline_replay_coro=replay_offline_transactions,
-        offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
-    )
+    # await GroupStatsTracker.start_background_tasks(
+    #     offline_replay_coro=replay_offline_transactions,
+    #     offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
+    # )
 
 
     print("🤖 ly bot 启动中(SESSION_STRING)...")

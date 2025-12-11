@@ -241,19 +241,17 @@ async def replay_offline_transactions(max_batch: int = 200):
     print("🟢 本轮离线交易回放结束。", flush=True)
 
 
-# @client.on(events.NewMessage)
-# async def debug_group_id(event):
-#     if event.is_private:
-#         return
-#     msg = event.message
-#     print(
-#         f"[DBG] date={msg.date}, "
-#         f"out={msg.out}, {event.chat_id}"
-#         f"sender={event.sender_id}, "
-#         f"text={event.raw_text!r}",
-#         flush=True
-#     )
-   
+DEBUG_HB_GROUP_ID = -1002675021976  # 换成实际群 ID
+
+@client.on(events.NewMessage)
+async def _debug_any_message(event):
+    if event.chat_id != DEBUG_HB_GROUP_ID:
+        return
+    print(
+        f"[DBG0] 收到任何消息 chat_id={event.chat_id}, "
+        f"sender={event.sender_id}, text={event.raw_text!r}",
+        flush=True
+    )
 
 
 # ==================================================================
@@ -285,16 +283,9 @@ async def handle_group_command(event):
     
     print(f"收到指令 /{cmd} fee={fee} cnt={cnt} extra_text={extra_text}",flush=True)
 
-
-   
-
     receiver_id = COMMAND_RECEIVERS[cmd]
     sender_id = event.sender_id
-    
     msg_id = event.id
-
-
-
 
     if fee < 2:
         return
@@ -327,8 +318,6 @@ async def handle_group_command(event):
 
     print(f"🔍 交易结果 backend={backend} result={result}", flush=True)
 
-
-
     if result.get("ok") == "1":
         payload = json.dumps({
             "ok": 1 ,
@@ -354,8 +343,6 @@ async def handle_private_json(event):
     if not event.is_private:
         return
     
-
-
     text = event.raw_text.strip()
 
     if text == "/hello":
@@ -417,6 +404,23 @@ async def handle_private_json(event):
         if link:
             await join(link)
         return
+
+    elif text.startswith("/catch"):
+        # 可选：先给个即时反馈，避免你以为没反应
+        await event.reply("⏳ 正在执行 catch_up()，请稍候…")
+
+        try:
+            print(f"[CATCH] 手动触发重连 + catch_up(), from user_id={event.sender_id}", flush=True)
+            await client.disconnect()
+            await client.connect()
+            await client.catch_up()
+            await event.reply("✅ catch_up() 已执行完成。")
+            print("[CATCH] catch_up() 执行完成。", flush=True)
+        except Exception as e:
+            err = f"[CATCH] 执行 catch_up() 失败: {e!r}"
+            print(err, flush=True)
+            await event.reply(f"❌ catch_up() 失败：{e!r}")    
+
 
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
         print(f"用户 {event.sender_id} 不在允许名单，忽略。")

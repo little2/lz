@@ -244,7 +244,10 @@ async def replay_offline_transactions(max_batch: int = 200):
 async def debug_group_id(event):
     if event.is_private:
         return
-    print(f"[DEBUG1] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
+    if event.chat_id == -1002675021976:
+        print(f"[DEBUG1] 收到群消息 chat_id={event.chat_id}, text={event.raw_text!r}", flush=True)
+        return
+   
 
 
 # ==================================================================
@@ -519,13 +522,13 @@ async def main():
     await PGStatsDB.ensure_offline_tx_table()
 
     # # ===== 启动后台统计器 =====
-    # await GroupStatsTracker.start_background_tasks()
+    await GroupStatsTracker.start_background_tasks()
 
     # 启动群组统计 + 定期离线交易回放
-    # await GroupStatsTracker.start_background_tasks(
-    #     offline_replay_coro=replay_offline_transactions,
-    #     offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
-    # )
+    await GroupStatsTracker.start_background_tasks(
+        offline_replay_coro=replay_offline_transactions,
+        offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
+    )
 
 
     print("🤖 ly bot 启动中(SESSION_STRING)...")

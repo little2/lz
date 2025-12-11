@@ -357,7 +357,7 @@ async def handle_private_json(event):
         parts = text.split(maxsplit=2)
         
         if len(parts) < 3:
-            # await event.reply("用法：/say <user_id 或 @username> <内容>")
+            # await event.reply("用法：/tell <user_id 或 @username> <内容>")
             return
 
         _, uid, word = parts
@@ -457,7 +457,7 @@ async def _fetch_and_consume(session: aiohttp.ClientSession, url: str):
         async with session.get(url, params=params) as resp:
             content = await resp.read()  # 真实读取内容
             length = len(content)
-            print(f"🌐 keep-alive fetch => {url} status={resp.status} bytes={length}", flush=True)
+            # print(f"🌐 keep-alive fetch => {url} status={resp.status} bytes={length}", flush=True)
     except Exception as e:
         print(f"⚠️ keep-alive fetch failed => {url} error={e}", flush=True)
 

@@ -316,7 +316,7 @@ async def handle_group_command(event):
         # 这里使用 PGStatsDB
         result = await PGStatsDB.record_offline_transaction(transaction_data)
 
-    print(f"🔍 交易结果 backend={backend} result={result}", flush=True)
+   
 
     if result.get("ok") == "1":
         payload = json.dumps({
@@ -326,8 +326,8 @@ async def handle_group_command(event):
         entity = await client.get_entity(receiver_id)
         result = await client.send_message(entity, payload)
 
-      
-        print(f"发送结果: {result}",flush=True)
+        print(f"🔍 交易结果 backend={backend} ", flush=True)
+        
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
     #     )

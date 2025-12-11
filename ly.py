@@ -334,8 +334,11 @@ async def handle_group_command(event):
             "ok": 1 ,
             "chatinfo": f"{chat_id}_{msg_id}"
         })
-        print(f"receiver_id={receiver_id} json={payload}",flush=True)
-        await client.send_message(receiver_id, payload)
+        entity = await client.get_entity(receiver_id)
+        result = await client.send_message(entity, payload)
+
+      
+        print(f"发送结果: {result}",flush=True)
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
     #     )

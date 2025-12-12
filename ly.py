@@ -381,7 +381,7 @@ async def handle_private_json(event):
 
         try:
             await client.send_message(entity, word)
-            await event.reply("✅ 已转发。")
+            await event.reply(f"✅ 已转发。{target_raw} | {word}")
         except Exception as e:
             # 这里可能会是 USER_PRIVACY_RESTRICTED, FLOOD_WAIT 等
             await event.reply(f"❌ 发送失败：{e}")

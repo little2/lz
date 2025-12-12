@@ -329,6 +329,7 @@ async def handle_group_command(event):
         result = await client.send_message(entity, payload)
 
         print(f"🔍 交易结果 backend={backend} ", flush=True)
+        print(f"🔍 交易结果 {payload} ", flush=True)
         
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
@@ -380,8 +381,10 @@ async def handle_private_json(event):
             return
 
         try:
-            await client.send_message(entity, word)
+            result = await client.send_message(entity, word)
+            print(f"🔍 /tell 发送结果: {result}", flush=True)
             await event.reply(f"✅ 已转发。{target_raw} | {word}")
+            print(f"✅ /tell 已转发给 {target_raw} | {word}", flush=True)
         except Exception as e:
             # 这里可能会是 USER_PRIVACY_RESTRICTED, FLOOD_WAIT 等
             await event.reply(f"❌ 发送失败：{e}")

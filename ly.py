@@ -317,6 +317,7 @@ async def handle_group_command(event):
         backend = "postgres_offline"
         # 这里使用 PGStatsDB
         result = await PGStatsDB.record_offline_transaction(transaction_data)
+        print(f"🔍 PostgreSQL 离线队列结果: {result}", flush=True)
 
    
 
@@ -325,11 +326,15 @@ async def handle_group_command(event):
             "ok": 1 ,
             "chatinfo": f"{chat_id}_{msg_id}"
         })
+        
+        print(f"🔍 交易数据 {backend} {payload}", flush=True)
+
         entity = await client.get_entity(receiver_id)
         result = await client.send_message(entity, payload)
+        print(f"🔍 交易结果 result={result} ", flush=True)
 
-        print(f"🔍 交易结果 backend={backend} ", flush=True)
-        print(f"🔍 交易结果 {payload} ", flush=True)
+        
+       
         
     #     await event.reply(
     #         f"✅ 交易成功\n指令: /{cmd}\n扣分: {fee}\n接收者: {receiver_id} chatinfo: {chat_id}_{msg_id}"
@@ -382,9 +387,9 @@ async def handle_private_json(event):
 
         try:
             result = await client.send_message(entity, word)
-            print(f"🔍 /tell 发送结果: {result}", flush=True)
+            
             await event.reply(f"✅ 已转发。{target_raw} | {word}")
-            print(f"✅ /tell 已转发给 {target_raw} | {word}", flush=True)
+            print(f"🔍 tell 发送结果: {result} {target_raw} | {word}", flush=True)
         except Exception as e:
             # 这里可能会是 USER_PRIVACY_RESTRICTED, FLOOD_WAIT 等
             await event.reply(f"❌ 发送失败：{e}")

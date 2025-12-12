@@ -432,7 +432,7 @@ async def handle_private_json(event):
             client.iter_dialogs(limit=1)
         except Exception as e:
             print(f"[WD] keep_updates_warm 出错: {e}", flush=True)
-       
+        return
 
 
 

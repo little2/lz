@@ -360,10 +360,7 @@ async def handle_private_json(event):
             await event.reply("用法：/tell <user_id 或 @username> <内容>")
             return
 
-        # 权限控制：避免被陌生人拿来当「转发器」
-        if event.sender_id not in ALLOWED_PRIVATE_IDS:
-            await event.reply("⚠️ 你没有权限使用 /tell 指令。")
-            return
+
 
         _, target_raw, word = parts
 

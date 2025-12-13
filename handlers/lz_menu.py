@@ -1157,7 +1157,7 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
     if len(args) > 1:
         # ✅ 调用并解包返回的三个值
         result = await load_sora_content_by_id(int(args[1]), state)
-        print("Returned==>:", result)
+        
 
         ret_content, file_info, purchase_info = result
         source_id = file_info[0] if len(file_info) > 0 else None
@@ -1597,6 +1597,8 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     
     result_sora = await load_sora_content_by_id(content_id, state, search_key_index, search_from)
     
+    print(f"result_sora==>{result_sora}", flush=True)
+
     ret_content, file_info, purchase_info = result_sora
     source_id = file_info[0] if len(file_info) > 0 else None
     file_type = file_info[1] if len(file_info) > 1 else None
@@ -3513,7 +3515,8 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     convert = UnitConverter()  # ✅ 实例化转换器
     # print(f"content_id = {content_id}, search_key_index={search_key_index}, search_from={search_from}")
     record = await db.search_sora_content_by_id(content_id)
-    # print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
+
+    print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
        
          # 取出字段，并做基本安全处理
@@ -3523,6 +3526,8 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             
         owner_user_id = record.get('owner_user_id', 0)
 
+        valid_state = record.get('valid_state', '')
+        review_status = record.get('review_status', '')
         record_id = record.get('id', '')
         tag = record.get('tag', '')
         file_size = record.get('file_size', '')
@@ -3714,6 +3719,16 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         
         # print(f"1847:🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
         # ✅ 返回三个值
+
+        print(f"valid_state:{valid_state}, review_status:{review_status}")
+        if valid_state==20 or review_status== 20:
+            ret_content = "😭 该资源已被下架，无法兑换或查看内容。"
+            source_id = None
+            product_type = None
+            file_id = None
+            thumb_file_id = None
+
+
         return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:

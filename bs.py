@@ -240,6 +240,14 @@ class PGDB:
                 reason,
             )
 
+            await conn.execute(
+                """
+                DELEET FROM file_stock 
+                WHERE user = $1
+                """,
+                user_id
+            )
+
         # 同步更新缓存
         cls.cache.set(f"black:{user_id}", True)
 
@@ -276,7 +284,7 @@ class PGDB:
             row = await conn.fetchrow(
                 '''
                 SELECT *
-                FROM file_stock
+                FROM file_stock 
                 WHERE file_unique_id = $1
                 ''',
                 file_unique_id,

@@ -1220,8 +1220,8 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         return
 
     # 限制最大长度，避免恶意灌长字串
-    if len(keyword) > 20:
-        keyword = keyword[:20]
+    if len(keyword) > 50:
+        keyword = keyword[:50]
 
     
 
@@ -1233,9 +1233,59 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     tw2s = OpenCC('tw2s')
     keyword = tw2s.convert(keyword)
     print(f"🔍 搜索关键词: {keyword}", flush=True)
-    
-    keyword_id = await db.get_search_keyword_id(keyword)
 
+    await handle_search_component(message, state, keyword)
+    
+    # keyword_id = await db.get_search_keyword_id(keyword)
+
+    # list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id, state=state)
+    # if not list_info.get("ok"):
+    #     msg = await message.answer(list_info.get("message"))
+    #     # ⏳ 延迟 5 秒后自动删除
+    #     await asyncio.sleep(5)
+    #     try:
+    #         await msg.delete()
+    #     except Exception as e:
+    #         print(f"❌ 删除提示消息失败: {e}", flush=True)
+    #     return
+
+    # date = await MenuBase.get_menu_status(state)
+
+
+    # # print(f"handle_message={handle_message}",flush=True)
+
+    # if date and date.get("current_message"):
+    #     try:
+    #         await _edit_caption_or_text(
+    #             photo=lz_var.skins['search_keyword']['file_id'],
+    #             msg=date.get("current_message"),
+    #             text=list_info.get("text"),
+    #             reply_markup=list_info.get("reply_markup"),
+    #             state= state
+    #         )
+    #         return
+    #     except Exception as e:
+    #         print(f"❌ 编辑消息失败c: {e}", flush=True)
+            
+    # menu_message = await message.answer_photo(
+    #     photo=lz_var.skins['search_keyword']['file_id'],
+    #     caption=list_info.get("text"),
+    #     parse_mode="HTML",
+    #     reply_markup=list_info.get("reply_markup"),
+    # )
+
+    # await MenuBase.set_menu_status(state, {
+    #     "current_chat_id": menu_message.chat.id,
+    #     "current_messsage_id": menu_message.message_id,
+    #     "current_message": menu_message,
+    #     "return_function": "search_list",
+    #     "return_chat_id": menu_message.chat.id,
+    #     "return_message_id": menu_message.message_id,
+    # })
+
+   
+async def handle_search_component(message: Message, state: FSMContext, keyword:str):  
+    keyword_id = await db.get_search_keyword_id(keyword)
     list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id, state=state)
     if not list_info.get("ok"):
         msg = await message.answer(list_info.get("message"))
@@ -1280,10 +1330,6 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         "return_chat_id": menu_message.chat.id,
         "return_message_id": menu_message.message_id,
     })
-
-   
-    
-
 
 # == 启动指令 ==
 @debug
@@ -2065,101 +2111,6 @@ async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
 
     keyboard = await get_filter_tag_keyboard(callback_query=callback,  state=state)
 
-    # all_tag_rows = defaultdict(list)
-    # all_tag_types = {}
-    # all_tags_by_type = await MySQLPool.get_all_tags_grouped()
-    
-    # for r in all_tags_by_type:
-    #     t = r.get("tag_type")
-    #     if not t:
-    #         continue  # tag_type 为 NULL 的跳过（或你想塞到 "unknown" 也行）
-
-    #     all_tag_types[t] = {"tag_type":t, "type_cn": r.get("type_cn")}
-    #     all_tag_rows[t].append({
-    #         "tag": r.get("tag"),
-    #         "tag_cn": r.get("tag_cn"),
-    #         "type_cn": r.get("type_cn"),
-    #         "tag_type": t,   # 可要可不要（通常分组后可省略）
-    #     })
-
-    # all_tag_rows = dict(all_tag_rows)
-    
-    # user_id = callback.from_user.id     
-    # fsm_key = f"selected_tags:{user_id}"
-    # data = await state.get_data()
-    # selected_tags = set(data.get(fsm_key, []))
-    # type_code = "age"  # 默认类型
-    # # ===== 新增：按规格分组展开 =====
-    # GROUPS = [
-    #     ['age','par','eth', 'face'], 
-    #     ['act', 'nudity','fetish','att'],
-    #     ['feedback', 'pro', 'position', 'hardcore', 'position', 'hardcore']
-    # ]
-
-    # expanded_codes = set()
-    # for g in GROUPS:
-    #     if type_code in g:
-    #         expanded_codes = set(g)
-    #         break   
-
-    # for subgroup in GROUPS:
-    #     for _tag in subgroup:
-    #         print(f"_tag={_tag}", flush=True)
-    #         tag_rows = all_tag_rows.get(_tag, [])
-    #         tag_codes = [tag["tag"] for tag in tag_rows]
-    #         selected_count = len(set(tag_codes) & set(selected_tags))
-    #         total_count = len(tag_codes)
-    #         current_type_cn = (all_tag_types.get(_tag) or {}).get("type_cn") or _tag
-    #         display_cn = f"{current_type_cn} ( {selected_count}/{total_count} )"
-            
-    #         if _tag in expanded_codes:
-    #             is_center = (_tag == type_code)
-    #             header = f"━━━ ▶️ {display_cn} ━━━ " if is_center else f"━━━ {display_cn} ━━━ "
-    #             keyboard.append([InlineKeyboardButton(text=header, callback_data="noop")])
-
-    #             row = []
-    #             for tag in tag_rows:
-    #                 tag_text = tag["tag_cn"] or tag["tag"]
-    #                 tag_code = tag["tag"]
-    #                 display = f"☑️ {tag_text}" if tag_code in selected_tags else tag_text
-
-    #                 row.append(InlineKeyboardButton(
-    #                     text=display,
-    #                     callback_data=f"add_tag:{tag_code}"
-    #                 ))
-
-    #                 if len(row) == 3:
-    #                     keyboard.append(row)
-    #                     row = []
-    #             if row:
-    #                 keyboard.append(row)
-    #         else:
-    #             keyboard.append([
-    #                 InlineKeyboardButton(
-    #                     text=f"――― {display_cn} ――― ",
-    #                     callback_data=f"set_tag_type:"
-    #                 )
-    #             ])
-
-    # keyboard.append([
-    #     InlineKeyboardButton(
-    #         text="🔍 开始搜索",
-    #         callback_data=f"search_tag_start"
-    #     )
-    # ])
-
-    # keyboard.append([
-    #     InlineKeyboardButton(
-    #         text="🔙 返回搜索",
-    #         callback_data=f"search"
-    #     )
-    # ])
-
-
-
-    
-
-    
     await _edit_caption_or_text(
         photo=lz_var.skins['search_tag']['file_id'],
         msg=callback.message,
@@ -2178,6 +2129,7 @@ TAG_REFRESH_DELAY = 0.7
 async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     parts = callback_query.data.split(":")
     tag = parts[1]
+    tag_type = parts[2]
     user_id = callback_query.from_user.id
 
 
@@ -2187,8 +2139,6 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected_tags = set(data.get(fsm_key, []))
     
-    print(f"当前已选标签: {fsm_key} : {selected_tags}", flush=True)
-
     if tag in selected_tags:
         selected_tags.remove(tag)
         await callback_query.answer("☑️ 已移除标签，你可以一次性勾选，系统会稍后刷新")
@@ -2213,18 +2163,37 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     async def delayed_refresh():
         try:
             await asyncio.sleep(TAG_REFRESH_DELAY)
-            await get_filter_tag_keyboard(callback_query, current_tag=tag, state=state)
+            keyboard = await get_filter_tag_keyboard(callback_query, current_tag_type=tag_type, state=state)
+            await _edit_caption_or_text(
+                photo=lz_var.skins['search_tag']['file_id'],
+                msg=callback_query.message,
+                text="🏷️ 请选择标签进行筛选...", 
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+            )
+
+
             tag_refresh_tasks.pop(task_key, None)
+            print(f"\n\n---\n")
         except asyncio.CancelledError:
             pass  # 被取消时忽略
 
     tag_refresh_tasks[task_key] = asyncio.create_task(delayed_refresh())
 
+@router.callback_query(F.data.startswith("set_tag_type:"))
+async def handle_set_tag_type(callback_query: CallbackQuery, state: FSMContext):
+    parts = callback_query.data.split(":")
+    type_code = parts[1]
+    keyboard = await get_filter_tag_keyboard(callback_query, state, current_tag_type=type_code)
+    await _edit_caption_or_text(
+        photo=lz_var.skins['search_tag']['file_id'],
+        msg=callback_query.message,
+        text="🏷️ 请选择标签进行筛选...", 
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+    )
 
-def normalize_tag(tag: str) -> str:
-    return tag.strip().lower()
 
-async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMContext, current_tag: str = None):
+
+async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMContext, current_tag_type: str = None):
     keyboard = []
     all_tag_rows = defaultdict(list)
     all_tag_types = {}
@@ -2250,7 +2219,7 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
     data = await state.get_data()
     selected_tags = set(data.get(fsm_key, []))
 
-    print(f"get当前已选标签: {fsm_key} : {selected_tags}", flush=True)
+    print(f"2254:当前已选标签: {fsm_key} : {selected_tags}", flush=True)
 
 
 
@@ -2258,47 +2227,49 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
     # ===== 新增：按规格分组展开 =====
     GROUPS = [
         ['age','par','eth', 'face'], 
-        ['act', 'nudity','fetish','att'],
-        ['feedback', 'pro', 'position', 'hardcore']
+        ['act', 'nudity','fetish'],
+        ['att','feedback'],
+        ['pro', 'position', 'hardcore']
     ]
 
     is_open = False
-    if current_tag is None:
+    if current_tag_type is None:
         is_open = True
-    else:
-        current_tag = normalize_tag(current_tag)
+    
 
     for subgroup in GROUPS:
-        print(f"subgroup={subgroup}", flush=True)
+        
 
-        for _tag in subgroup:
-            print(f"_tag={_tag}", flush=True)
+        for _tag_type in subgroup:
+            
 
-            tag_rows = all_tag_rows.get(_tag, [])
+            tag_rows = all_tag_rows.get(_tag_type, [])
             tag_codes = [i["tag"] for i in tag_rows]
             selected_count = len(set(tag_codes) & set(selected_tags))
             total_count = len(tag_codes)
-            current_type_cn = (all_tag_types.get(_tag) or {}).get("type_cn") or _tag
+
+            current_type_cn = (all_tag_types.get(_tag_type) or {}).get("type_cn") or _tag_type
             display_cn = f"{current_type_cn} ( {selected_count}/{total_count} )"
             
-            print(f"current_tag={current_tag}, subgroup={subgroup}, is_open={is_open}", flush=True)
-            if current_tag in subgroup or is_open :
+            
+            if current_tag_type in subgroup or is_open :
                 
                 header = f"━━━ {display_cn} ━━━ " 
                 keyboard.append([InlineKeyboardButton(text=header, callback_data="noop")])
 
-                print(f"L3----------------- {subgroup} {tag_rows}", flush=True)
+                
 
                 row = []
                 for tag_row in tag_rows:
-                    print(f"tag_row={tag_row}", flush=True)
+                   
                     tag_text = tag_row["tag_cn"] or tag_row["tag"]
-                    tag_code = normalize_tag(tag_row["tag"])
+                    tag_code = tag_row["tag"]
                     display = f"☑️ {tag_text}" if tag_code in selected_tags else tag_text
-                    print(f":::selected_tags={selected_tags}, tag_code={tag_code}, display={display}", flush=True)
+
+                    # print(f":::selected_tags={selected_tags}, tag_code={tag_code}, display={display}", flush=True)
                     row.append(InlineKeyboardButton(
-                        text=display,
-                        callback_data=f"toggle_tag:{tag_code}"
+                        text=f"{display}",
+                        callback_data=f"toggle_tag:{tag_code}:{_tag_type}"
                     ))
 
                     if len(row) == 3:
@@ -2310,7 +2281,7 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
                 keyboard.append([
                     InlineKeyboardButton(
                         text=f"――― {display_cn} ――― ",
-                        callback_data=f"set_tag_type:"
+                        callback_data=f"set_tag_type:{_tag_type}"
                     )
                 ])
         is_open = False  # 重置展开标志
@@ -2332,6 +2303,16 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
     return keyboard
 
 
+@router.callback_query(F.data.startswith("search_tag"))
+async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
+    user_id = callback_query.from_user.id
+    keyword = ""
+    
+    fsm_key = f"selected_tags:{user_id}"
+    data = await state.get_data()
+    selected_tags = set(data.get(fsm_key, []))
+
+    await handle_search_component(callback_query.message, state, keyword)
 
 async def get_html_content(file_path: str, title: str) -> str:
     FILE_PATH = file_path

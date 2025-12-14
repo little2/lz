@@ -9,39 +9,39 @@ from utils.prof import SegTimer
 from functools import wraps 
 
 
-def reconnecting(func):
-    """
-    通用断线重连装饰器：
-    - 只针对 aiomysql.OperationalError
-    - 若错误码为 2006 / 2013 → 认为是断线，重建连接池 + 自动重试一次
-    - 第二次仍失败 / 其它错误 → 直接抛出
-    """
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        # 对于 @classmethod 来说，args[0] 会是 cls
-        cls = args[0] if args else None
+# def reconnecting(func):
+#     """
+#     通用断线重连装饰器：
+#     - 只针对 aiomysql.OperationalError
+#     - 若错误码为 2006 / 2013 → 认为是断线，重建连接池 + 自动重试一次
+#     - 第二次仍失败 / 其它错误 → 直接抛出
+#     """
+#     @wraps(func)
+#     async def wrapper(*args, **kwargs):
+#         # 对于 @classmethod 来说，args[0] 会是 cls
+#         cls = args[0] if args else None
 
-        for attempt in (1, 2):
-            try:
-                return await func(*args, **kwargs)
-            except aiomysql.OperationalError as e:
-                code = e.args[0] if e.args else None
-                msg = e.args[1] if len(e.args) > 1 else ""
+#         for attempt in (1, 2):
+#             try:
+#                 return await func(*args, **kwargs)
+#             except aiomysql.OperationalError as e:
+#                 code = e.args[0] if e.args else None
+#                 msg = e.args[1] if len(e.args) > 1 else ""
 
-                # 没有 cls，或不是断线错误，或已经重试过一次 → 直接抛
-                if not cls or code not in (2006, 2013) or attempt == 2:
-                    print(f"❌ [MySQLPool] OperationalError {code}: {msg}", flush=True)
-                    raise
+#                 # 没有 cls，或不是断线错误，或已经重试过一次 → 直接抛
+#                 if not cls or code not in (2006, 2013) or attempt == 2:
+#                     print(f"❌ [MySQLPool] OperationalError {code}: {msg}", flush=True)
+#                     raise
 
-                # 第一次遇到 2006/2013 → 重建连接池，再重跑一次整个方法
-                print(f"⚠️ [MySQLPool] 侦测到断线 {code}: {msg} → 重建连接池并重试一次", flush=True)
-                try:
-                    await cls._rebuild_pool()
-                except Exception as e2:
-                    print(f"❌ [MySQLPool] 重建连接池失败: {e2}", flush=True)
-                    raise
-                # for 循环继续，进入第二轮
-    return wrapper
+#                 # 第一次遇到 2006/2013 → 重建连接池，再重跑一次整个方法
+#                 print(f"⚠️ [MySQLPool] 侦测到断线 {code}: {msg} → 重建连接池并重试一次", flush=True)
+#                 try:
+#                     await cls._rebuild_pool()
+#                 except Exception as e2:
+#                     print(f"❌ [MySQLPool] 重建连接池失败: {e2}", flush=True)
+#                     raise
+#                 # for 循环继续，进入第二轮
+#     return wrapper
 
 
 class MySQLPool:
@@ -1390,3 +1390,44 @@ class MySQLPool:
                 lines.append(w)
 
         return "\n".join(lines) + "\n"
+
+
+    # TAG
+    
+    @classmethod
+    async def get_all_tags_grouped(cls) -> dict:
+        """
+        返回结构:
+        {
+        "style": [ {tag: "...", tag_cn: "..."}, ... ],
+        "mood": [ ... ],
+        ...
+        }
+        """
+       
+        cache_key = f"all_tags_grouped"
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute("SELECT t.tag, t.tag_cn, t.tag_type, y.type_cn  FROM tag t LEFT JOIN tag_type y ON t.tag_type = y.type_code")
+            rows = await cur.fetchall()
+            
+            if not rows:
+                return []
+            
+            cls.cache.set(cache_key, rows, ttl=30000)
+           
+            return rows
+        finally:
+            await cls.release(conn, cur)
+
+    
+    
+
+
+
+    #** End of lz_mysql.py **#

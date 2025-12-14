@@ -26,7 +26,7 @@ from handlers import lz_menu
 import lz_var
 import re
 
-from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state,check_and_fix_sora_valid_state2
+from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state,check_and_fix_sora_valid_state2,check_file_record
 
 from lz_redis import RedisManager
 lz_var.redis_manager = RedisManager()
@@ -253,13 +253,19 @@ async def update_username(client,username):
         print(f"变更失败：{e}")
 
 async def sync():
-    while True:
+    while False:
+        summary = await check_file_record(limit=100)
+        if summary["checked"] == 0:
+            break
+
+
+    while False:
         summary = await check_and_fix_sora_valid_state(limit=1000)
         if summary["checked"] == 0:
             break
 
 
-    while True:
+    while False:
         summary = await check_and_fix_sora_valid_state2(limit=1000)
         if summary["checked"] == 0:
             break
@@ -316,6 +322,7 @@ async def main():
         MySQLPool.init_pool(),   # MySQL
     )
 
+    await sync()
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
     @dp.shutdown()

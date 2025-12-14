@@ -566,7 +566,7 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
                 ]
             ]
 
-        if product_info['file_type'] in ['document', 'album']:
+        if product_info['file_type'] in ['document', 'album','d','a']:
             buttons.append([
                 InlineKeyboardButton(text="🔒 密码", callback_data=f"set_password:{content_id}")
             ])

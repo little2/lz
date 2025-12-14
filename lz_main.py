@@ -20,7 +20,7 @@ from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SE
 from lz_db import db
 from lz_mysql import MySQLPool
 
-from handlers import lz_media_parser, lz_search_highlighted
+from handlers import lz_media_parser
 from handlers import lz_menu
 
 import lz_var
@@ -313,7 +313,7 @@ async def main():
         print(f"❌ 无法获取人类账号信息：{e}", flush=True)
 
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(lz_search_highlighted.router)
+
     dp.include_router(lz_media_parser.router)  # ✅ 注册你的新功能模块
     dp.include_router(lz_menu.router)
 

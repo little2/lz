@@ -4157,10 +4157,11 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         report_row = await AnanBOTPool.get_next_report_to_judge()
         print(f"下一个待裁定 {report_row}", flush=True)
         next_file_unique_id = report_row['file_unique_id'] if report_row else None
-        report_id = report_row['report_id']
+        
         print(f"下一个待裁定 {next_file_unique_id}", flush=True)
-        if next_file_unique_id and next_file_unique_id is not None:
+        if report_row and next_file_unique_id and next_file_unique_id is not None:
             next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
+            report_id = report_row['report_id']
             result , error = await send_to_review_group(next_content_id, state, chat_id=REPORT_REVIEW_CHAT_ID, thread_id=REPORT_REVIEW_THREAD_ID)
             await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
             await AnanBOTPool.update_report_status(report_id, "published")

@@ -47,7 +47,7 @@ import traceback
 import random
 from lz_main import load_or_create_skins
 
-from handlers.lz_search_highlighted import build_pagination_keyboard
+
 
 from utils.media_utils import Media
 from utils.tpl import Tplate
@@ -66,7 +66,7 @@ import sys
 
 
 from pathlib import Path
-from collections import defaultdict
+
 
 
 
@@ -1135,6 +1135,38 @@ async def _build_pagination(
 
 
 
+def build_pagination_keyboard(keyword_id: int, page: int, has_next: bool, has_prev: bool,
+                              callback_function: str | None = "pageid") -> InlineKeyboardMarkup:
+    """
+    分页键盘（两行）
+    第一行：上一页 / 下一页
+    第二行：返回、刷新
+    """
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    # 第一行：分页按钮
+    page_buttons: list[InlineKeyboardButton] = []
+    if has_prev:
+        page_buttons.append(InlineKeyboardButton(text=f"⬅️ 上一页", callback_data=f"{callback_function}|{keyword_id}|{page - 1}"))
+    if has_next:
+        page_buttons.append(InlineKeyboardButton(text=f"➡️ 下一页", callback_data=f"{callback_function}|{keyword_id}|{page + 1}"))
+    if page_buttons:
+        keyboard.append(page_buttons)
+
+
+    if ENVIRONMENT == "dev":
+        # 第二行：自定义按钮（随意扩展）
+        if callback_function in {"ul_pid", "fd_pid"}:
+            page_buttons: list[InlineKeyboardButton] = []
+            page_buttons.append(InlineKeyboardButton(text="🔙 返回我的历史", callback_data=f"my_history"))
+            keyboard.append(page_buttons)
+        elif callback_function in {"pageid"}:
+            page_buttons: list[InlineKeyboardButton] = []
+            page_buttons.append(InlineKeyboardButton(text="🔙 返回搜寻", callback_data=f"search"))
+            keyboard.append(page_buttons)
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 # == 猜你喜欢菜单 ==
 def guess_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -1739,96 +1771,106 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
             )
         )
 
-    reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-        nav_row,
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=[nav_row])
+
+
+    reply_markup.inline_keyboard.append(
         [
             InlineKeyboardButton(
                 text=f"{resource_icon} {xlj_final_price} (小懒觉会员)",
                 callback_data=f"sora_redeem:{content_id}:xlj"
             )
-        ],
-        [
-            InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
         ]
-    ])
+    ) 
+
+ 
+
+
+
+    
+
+
+
+            # if int(search_key_index) > 0:
+            #     reply_markup.inline_keyboard.append(
+            #         [
+            #             InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"),
+            #         ]
+            #     )
 
 
 
 
-    if ENVIRONMENT == "dev":
-        
-        # reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-        #     [
-        #         InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-        #         InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-        #         InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-        #     ],
-        #     [
-        #         InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-        #     ],
-        # ])
 
-        page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
+    
+    # reply_markup = InlineKeyboardMarkup(inline_keyboard=[
+    #     [
+    #         InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
+    #         InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
+    #         InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
+    #     ],
+    #     [
+    #         InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
+    #     ],
+    # ])
 
-        if search_from == "cm":
+    page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
+
+    if search_from == "cm":
+        reply_markup.inline_keyboard.append(
+            [
+                InlineKeyboardButton(text=" 回合集", callback_data=f"clti:list:{search_key_index}:0"),
+            ]
+        )
+    elif search_from == "cf":
+        reply_markup.inline_keyboard.append(
+            [
+                InlineKeyboardButton(text="📦 回合集", callback_data=f"clti:flist:{search_key_index}:0"),
+            ]
+        )    
+    elif search_from == "ul":
+        reply_markup.inline_keyboard.append(
+            [
+                InlineKeyboardButton(text="📂 回我的上传", callback_data=f"history_update:{page_num}"),
+            ]
+        )    
+    elif search_from == "fd":
+        reply_markup.inline_keyboard.append(
+            [
+                InlineKeyboardButton(text="💠 回我的兑换", callback_data=f"history_redeem:{page_num}"),
+            ]
+        )    
+    else:
+
+        if int(search_key_index) > 0:
             reply_markup.inline_keyboard.append(
                 [
-                    InlineKeyboardButton(text=" 回合集", callback_data=f"clti:list:{search_key_index}:0"),
+                    InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"),
                 ]
             )
-        elif search_from == "cf":
-            reply_markup.inline_keyboard.append(
-                [
-                    InlineKeyboardButton(text="📦 回合集", callback_data=f"clti:flist:{search_key_index}:0"),
-                ]
-            )    
-        elif search_from == "ul":
-            reply_markup.inline_keyboard.append(
-                [
-                    InlineKeyboardButton(text="📂 回我的上传", callback_data=f"history_update:{page_num}"),
-                ]
-            )    
-        elif search_from == "fd":
-            reply_markup.inline_keyboard.append(
-                [
-                    InlineKeyboardButton(text="💠 回我的兑换", callback_data=f"history_redeem:{page_num}"),
-                ]
-            )    
         else:
-
-            if int(search_key_index) > 0:
-                # if current_pos == 0:
-                #     keyword = await db.get_keyword_by_id(search_key_index)
-                #     if keyword:
-                #         # 拉取搜索结果 (用 MemoryCache 非常快)
-                #         search_result = await db.search_keyword_page_plain(keyword)
-                #         if search_result:
-                #             current_pos = get_index_by_source_id(search_result, source_id) 
-                #             # print(f"搜索结果总数: {len(search_result)}", flush=True)
-                        
-                    
-
-
-                
-                reply_markup.inline_keyboard.append(
-                    [
-                        InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"),
-                    ]
-                )
-            else:
+            if ENVIRONMENT == "dev":
                 reply_markup.inline_keyboard.append(
                     [
                         InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
                     ]
                 )
-        
-        reply_markup.inline_keyboard.append(
-            [
-                InlineKeyboardButton(text="🔗 复制资源连结", copy_text=CopyTextButton(text=shared_url)),
-                InlineKeyboardButton(text="➕ 加入合集", callback_data=f"add_to_collection:{content_id}:0")
-            ]
-        )
+    
+    bottom_row = []
+    bottom_row.append(
+        InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+    )
 
+    if ENVIRONMENT == "dev":
+        bottom_row.append(
+            InlineKeyboardButton(text="➕ 加入合集", callback_data=f"add_to_collection:{content_id}:0")
+        ) 
+
+    reply_markup.inline_keyboard.append(bottom_row)
+    
+
+
+    
 
     # else:
     #     reply_markup = InlineKeyboardMarkup(inline_keyboard=[
@@ -2107,8 +2149,7 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
 
 @router.callback_query(F.data == "search_tag")
 async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
-    keyboard = []
-
+   
     keyboard = await get_filter_tag_keyboard(callback_query=callback,  state=state)
 
     await _edit_caption_or_text(
@@ -2117,6 +2158,30 @@ async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
         text="🏷️ 请选择标签进行筛选...", 
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
     )
+
+
+
+
+
+@router.message(Command("search_tag"))
+async def handle_post(message: Message, state: FSMContext, command: Command = Command("search_tag")):
+    keyboard = await get_filter_tag_keyboard(callback_query=message,  state=state)
+
+    product_message = await lz_var.bot.send_photo(
+        chat_id=message.chat.id,
+        caption = "🏷️ 请选择标签进行筛选...", 
+        photo=lz_var.skins['search_tag']['file_id'],
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+        parse_mode="HTML")
+
+
+    await MenuBase.set_menu_status(state, {
+        "current_message": product_message,
+        "current_chat_id": product_message.chat.id,
+        "current_messsage_id": product_message.message_id
+    })
+
+
 
 
     # await callback.message.answer("🏷️ 请选择标签进行筛选...")
@@ -2195,24 +2260,11 @@ async def handle_set_tag_type(callback_query: CallbackQuery, state: FSMContext):
 
 async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMContext, current_tag_type: str = None):
     keyboard = []
-    all_tag_rows = defaultdict(list)
-    all_tag_types = {}
+
     all_tags_by_type = await MySQLPool.get_all_tags_grouped()
+    all_tag_rows = all_tags_by_type['all_tag_rows']
+    all_tag_types = all_tags_by_type['all_tag_types']
     
-    for r in all_tags_by_type:
-        t = r.get("tag_type")
-        if not t:
-            continue  # tag_type 为 NULL 的跳过（或你想塞到 "unknown" 也行）
-
-        all_tag_types[t] = {"tag_type":t, "type_cn": r.get("type_cn")}
-        all_tag_rows[t].append({
-            "tag": r.get("tag"),
-            "tag_cn": r.get("tag_cn"),
-            "type_cn": r.get("type_cn"),
-            "tag_type": t,   # 可要可不要（通常分组后可省略）
-        })
-
-    all_tag_rows = dict(all_tag_rows)
     
     user_id = callback_query.from_user.id     
     fsm_key = f"selected_tags:{user_id}"
@@ -2303,15 +2355,22 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
     return keyboard
 
 
-@router.callback_query(F.data.startswith("search_tag"))
+@router.callback_query(F.data.startswith("search_tag_start"))
 async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     user_id = callback_query.from_user.id
-    keyword = ""
+    all_tags_by_type = await MySQLPool.get_all_tags_grouped()
+    all_tag_rows = all_tags_by_type['all_tag_rows']
     
     fsm_key = f"selected_tags:{user_id}"
     data = await state.get_data()
     selected_tags = set(data.get(fsm_key, []))
 
+    # selected_tags: set[tag]
+    tag2cn = {r["tag"]: (r.get("tag_cn") or r["tag"])
+            for rows in all_tag_rows.values() for r in rows}
+
+    keyword = " ".join(tag2cn.get(t, t) for t in selected_tags)
+    
     await handle_search_component(callback_query.message, state, keyword)
 
 async def get_html_content(file_path: str, title: str) -> str:
@@ -3424,7 +3483,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                         disable_web_page_preview=True
                     )   
                 
-                if receiver_id != 0:
+                if receiver_id != 0 and receiver_id != 666666:
                     try:
                         timer.lap(f"传送给资源拥有者 {receiver_id}")
                         ret = await lz_var.bot.send_message(

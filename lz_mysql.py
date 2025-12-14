@@ -7,7 +7,7 @@ import lz_var
 import asyncio
 from utils.prof import SegTimer
 from functools import wraps 
-
+from collections import defaultdict
 
 # def reconnecting(func):
 #     """
@@ -1419,9 +1419,29 @@ class MySQLPool:
             if not rows:
                 return []
             
-            cls.cache.set(cache_key, rows, ttl=30000)
+            
            
-            return rows
+            all_tag_rows = defaultdict(list)
+            all_tag_types = {}
+
+            for r in rows:
+                t = r.get("tag_type")
+                if not t:
+                    continue  # tag_type 为 NULL 的跳过（或你想塞到 "unknown" 也行）
+
+                all_tag_types[t] = {"tag_type":t, "type_cn": r.get("type_cn")}
+                all_tag_rows[t].append({
+                    "tag": r.get("tag"),
+                    "tag_cn": r.get("tag_cn"),
+                    "type_cn": r.get("type_cn"),
+                    "tag_type": t,   # 可要可不要（通常分组后可省略）
+                })
+
+            all_tag_rows = dict(all_tag_rows)
+
+            result = {"all_tag_rows":all_tag_rows, "all_tag_types": all_tag_types}
+            cls.cache.set(cache_key, result, ttl=30000)
+            return result
         finally:
             await cls.release(conn, cur)
 

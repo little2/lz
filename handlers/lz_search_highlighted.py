@@ -6,7 +6,7 @@ from aiogram.enums import ChatType
 from utils.string_utils import LZString
 from lz_db import db
 import lz_var
-from keyboards.lz_paginator import build_pagination_keyboard
+
 from utils.aes_crypto import AESCrypto
 from lz_config import AES_KEY, ENVIRONMENT, RESULTS_PER_PAGE
 

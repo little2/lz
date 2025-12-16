@@ -566,7 +566,7 @@ class PGPool:
             file_type         = EXCLUDED.file_type,
             "position"        = EXCLUDED."position",
             stage             = EXCLUDED.stage,
-            updated_at        = EXCLUDED.updated_at
+            updated_at        = EXCLUDED.updated_at,
             preview           = EXCLUDED.preview
         ;
         """

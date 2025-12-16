@@ -219,20 +219,20 @@ async def sync():
 
 async def check_file_record(limit:int = 100):
     '''
-    从 Mysql table file_records2 中取出 limit 条记录
+    从 Mysql table file_records3 中取出 limit 条记录
     (1) 用 insert/update 语句插入到 mysql 的 table file_unique_id 中 , 
-    file_records2.file_unique_id 对应 file_unique_id.file_unique_id,
-    file_records2.file_id 对应 file_unique_id.file_id
-    file_records2.file_type 对应 file_unique_id.file_type
-    file_records2.bot_id 转译后对应 file_unique_id.bot (其中 bot_id:7985482732 = bot:Queue9838bot, bot_id:7629569353 = bot:stcparkbot )
-    (2) 根据 file_records2.file_type, 分别维护表 video, photo, document, animation, 并以 insert/update 语句插入/更新对应的记录
-    [Tabble].file_unique_id 对应各表的 file_records2.file_unique_id
-    [Table].file_size 对应各表的 file_records2.file_size
-    [Table].mime_type 对应各表的 file_records2.mime_type
-    [Table].file_name 对应各表的 file_records2.file_name
-    (3) 将 MySQL 中 table sora_content 中 sora_content.source_id = file_records2.file_unique_id 的记录, valid_state 更新为 9, stage 更新为 pending
-    (4) 将 PostgreSQL 中 table sora_content 中 sora_content.source_id = file_records2.file_unique_id 的记录, valid_state 更新为 9, stage 更新为 pending
-    (5) 删除 file_records2 中已经处理过的记录
+    file_records3.file_unique_id 对应 file_unique_id.file_unique_id,
+    file_records3.file_id 对应 file_unique_id.file_id
+    file_records3.file_type 对应 file_unique_id.file_type
+    file_records3.bot_id 转译后对应 file_unique_id.bot (其中 bot_id:7985482732 = bot:Queue9838bot, bot_id:7629569353 = bot:stcparkbot )
+    (2) 根据 file_records3.file_type, 分别维护表 video, photo, document, animation, 并以 insert/update 语句插入/更新对应的记录
+    [Tabble].file_unique_id 对应各表的 file_records3.file_unique_id
+    [Table].file_size 对应各表的 file_records3.file_size
+    [Table].mime_type 对应各表的 file_records3.mime_type
+    [Table].file_name 对应各表的 file_records3.file_name
+    (3) 将 MySQL 中 table sora_content 中 sora_content.source_id = file_records3.file_unique_id 的记录, valid_state 更新为 9, stage 更新为 pending
+    (4) 将 PostgreSQL 中 table sora_content 中 sora_content.source_id = file_records3.file_unique_id 的记录, valid_state 更新为 9, stage 更新为 pending
+    (5) 删除 file_records3 中已经处理过的记录
 
 
     '''
@@ -244,7 +244,7 @@ async def check_file_record(limit:int = 100):
     await MySQLPool.ensure_pool()
     await PGPool.ensure_pool()
 
-    # ---------- 1) Fetch file_records2 ----------
+    # ---------- 1) Fetch file_records3 ----------
     conn, cur = await MySQLPool.get_conn_cursor()
     try:
         await cur.execute(
@@ -259,7 +259,7 @@ async def check_file_record(limit:int = 100):
                 file_size,
                 mime_type,
                 file_name
-            FROM file_records2 
+            FROM file_records3 
             WHERE process = 0
             LIMIT %s
             """,
@@ -267,7 +267,7 @@ async def check_file_record(limit:int = 100):
         )
         rows = await cur.fetchall()
     except Exception as e:
-        print(f"⚠️ [check_file_record] MySQL 查询 file_records2 出错: {e}", flush=True)
+        print(f"⚠️ [check_file_record] MySQL 查询 file_records3 出错: {e}", flush=True)
         await MySQLPool.release(conn, cur)
         return {
             "checked": 0,
@@ -282,7 +282,7 @@ async def check_file_record(limit:int = 100):
         await MySQLPool.release(conn, cur)
 
     if not rows:
-        print("[check_file_record] file_records2 无待处理记录。", flush=True)
+        print("[check_file_record] file_records3 无待处理记录。", flush=True)
         return {
             "checked": 0,
             "upsert_file_ext": 0,
@@ -341,7 +341,7 @@ async def check_file_record(limit:int = 100):
 
     skipped_photo = 0
 
-    # 注意：file_records2 这张表结构里没有 duration/width/height/caption/root_unique_id
+    # 注意：file_records3 这张表结构里没有 duration/width/height/caption/root_unique_id
     # 因此：
     # - video/animation/document 可以写 NULL（允许）
     # - photo 因 width/height NOT NULL -> 缺失只能跳过
@@ -404,7 +404,7 @@ async def check_file_record(limit:int = 100):
                 None,  # caption
             ))
         elif ft_norm == "photo":
-            # file_records2 缺 width/height -> 必须跳过
+            # file_records3 缺 width/height -> 必须跳过
             skipped_photo += 1
             continue
 
@@ -489,7 +489,7 @@ async def check_file_record(limit:int = 100):
             return cur.rowcount or 0
 
         async def _upsert_photo(payload: list) -> int:
-            # 基于你当前 file_records2 缺 width/height，这里通常不会被调用
+            # 基于你当前 file_records3 缺 width/height，这里通常不会被调用
             if not payload:
                 return 0
             sql = """
@@ -530,12 +530,12 @@ async def check_file_record(limit:int = 100):
                 await cur.execute(sql_sc, tuple(batch_sids))
                 updated_mysql += cur.rowcount or 0
 
-        # 4.4 软删除本批已处理 file_records2
+        # 4.4 软删除本批已处理 file_records3
         if record_ids:
             for i in range(0, len(record_ids), BATCH):
                 batch_ids = record_ids[i:i + BATCH]
                 placeholders = ",".join(["%s"] * len(batch_ids))
-                sql_del = f"UPDATE file_records2 SET process = 1 WHERE id IN ({placeholders})"
+                sql_del = f"UPDATE file_records3 SET process = 1 WHERE id IN ({placeholders})"
                 await cur.execute(sql_del, tuple(batch_ids))
 
 

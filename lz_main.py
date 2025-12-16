@@ -195,10 +195,10 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
         "home":    {"file_id": "", "file_unique_id": "AQADHwtrG8puoUd-"},  # Luzai02bot 的默认封面
         "loading": {"file_id": "", "file_unique_id": "AgADcAYAAtiwqUc"},
         "clt_menu":     {"file_id": "", "file_unique_id": "AQAD2wtrG-sSiUd-"},  # Luzai01bot 的默认封面
-        "clt_my":  {"file_id": "", "file_unique_id": "AQADzAtrG-sSiUd-"},
-        "clt_fav": {"file_id": "", "file_unique_id": "AQAD1wtrG-sSiUd-"},
+        "clt_my":  {"file_id": "", "file_unique_id": "AQADcwtrG3QQCEZ-"},
+        "clt_fav": {"file_id": "", "file_unique_id": "AQADcQtrG3QQCEZ-"},
         "clt_cover": {"file_id": "", "file_unique_id": "AQADHgtrG8puoUd-"},
-        "clt_market": {"file_id": "", "file_unique_id": "AQAD2AtrG-sSiUd-"},  # Luzai03bot 的默认封面
+        "clt_market": {"file_id": "", "file_unique_id": "AQADdQtrG3QQCEZ-"},  # Luzai03bot 的默认封面
         "history": {"file_id": "", "file_unique_id": "AQAD6AtrG-sSiUd-"},
         "history_update": {"file_id": "", "file_unique_id": "AQAD4wtrG-sSiUd-"},
         "history_redeem": {"file_id": "", "file_unique_id": "AQAD5wtrG-sSiUd-"},

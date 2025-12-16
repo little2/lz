@@ -1,8 +1,4 @@
 import asyncio
-
-from lz_db import db
-from lz_mysql import MySQLPool
-from lz_pgsql import PGPool
 from utils.product_utils import (
     check_file_record,
     # check_and_fix_sora_valid_state,

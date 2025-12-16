@@ -978,6 +978,7 @@ class AnanBOTPool(LYBase):
                 m.thumb_file_id,
                 m.file_id,
                 fe.file_id AS ext_file_id
+                c.preview 
             FROM album_items AS c
             LEFT JOIN sora_content AS s
                 ON c.member_content_id = s.id
@@ -1034,25 +1035,6 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
 
-    @classmethod
-    async def get_album_list_old(cls, content_id: int, bot_name: str):
-        # TODO  写法和 lz_db.py 目前不同, 需保持一致，方便整合
-        sql = """
-            SELECT s.source_id, c.file_type, s.content, s.file_size, s.duration,
-                   m.source_bot_name, m.thumb_file_id, m.file_id
-            FROM album_items c
-            LEFT JOIN sora_content s ON c.member_content_id = s.id
-            LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
-            WHERE c.content_id = %s
-            ORDER BY c.file_type
-        """
-        params = (bot_name, content_id )
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            await cur.execute(sql, params)
-            return await cur.fetchall()
-        finally:
-            await cls.release(conn, cur)
 
 
 
@@ -1302,10 +1284,10 @@ class AnanBOTPool(LYBase):
         try:
             await cur.executemany(
                 """
-                INSERT IGNORE INTO album_items (content_id, member_content_id, file_type, position)
-                VALUES (%s, %s, %s, %s)
+                INSERT IGNORE INTO album_items (content_id, member_content_id, file_type, position, preview)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
-                [(content_id, mid, ft, pos) for (mid, ft, pos) in members]
+                [(content_id, mid, ft, pos, preview) for (mid, ft, pos, preview) in members]
             )
             affected = cur.rowcount
             await conn.commit()
@@ -1363,7 +1345,7 @@ class AnanBOTPool(LYBase):
             member_cid = exist_map.get(fuid)
             if not member_cid:
                 continue
-            members.append( (int(member_cid), to_short(c.get("file_type")), pos) )
+            preview = c.get("preview", "")
             pos += 1
 
         if members:

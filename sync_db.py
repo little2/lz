@@ -8,10 +8,10 @@ from lz_mysql import MySQLPool    # aiomysql pool 封装
 PG_UPSERT_SQL = """
 INSERT INTO album_items (
     id, content_id, member_content_id, file_unique_id, file_type,
-    position, created_at, updated_at, stage
+    position, created_at, updated_at, stage, preview
 ) VALUES (
     $1, $2, $3, $4, $5,
-    $6, $7, $8, 'update'
+    $6, $7, $8, 'update', $9
 )
 ON CONFLICT (id) DO UPDATE SET
     content_id        = EXCLUDED.content_id,
@@ -21,13 +21,14 @@ ON CONFLICT (id) DO UPDATE SET
     position          = EXCLUDED.position,
     created_at        = EXCLUDED.created_at,
     updated_at        = EXCLUDED.updated_at,
-    stage             = 'update'
+    stage             = 'update',
+    preview           = EXCLUDED.preview
 """
 
 MYSQL_FETCH_SQL = """
 SELECT
     id, content_id, member_content_id, file_unique_id, file_type,
-    position, created_at, updated_at, stage
+    position, created_at, updated_at, stage, preview
 FROM album_items
 WHERE stage = 'pending'
 ORDER BY id ASC

@@ -50,7 +50,7 @@ class LzFSM(StatesGroup):
 
 
 if SESSION_STRING:
-    print("【Telethon】使用 StringSession 登录。",flush=True)
+    print("【Telethon】1使用 StringSession 登录。",flush=True)
     user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
     
 else:
@@ -253,7 +253,7 @@ async def update_username(client,username):
         print(f"变更失败：{e}")
 
 async def sync():
-    while False:
+    while True:
         summary = await check_file_record(limit=100)
         if summary["checked"] == 0:
             break

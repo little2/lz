@@ -748,6 +748,7 @@ class DB:
                 m.thumb_file_id,
                 m.file_id,
                 fe.file_id AS ext_file_id
+                c.preview 
             FROM album_items AS c
             LEFT JOIN sora_content AS s
                 ON c.member_content_id = s.id
@@ -829,14 +830,15 @@ class DB:
 
         sql = """
             INSERT INTO album_items
-                (content_id, member_content_id, file_unique_id, file_type, "position", stage, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+                (content_id, member_content_id, file_unique_id, file_type, "position", stage, preview,updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7,CURRENT_TIMESTAMP)
             ON CONFLICT (content_id, member_content_id)
             DO UPDATE SET
                 file_unique_id = EXCLUDED.file_unique_id,
                 file_type      = EXCLUDED.file_type,
                 "position"     = EXCLUDED."position",
                 stage          = EXCLUDED.stage,
+                preview        = EXCLUDED.preview,
                 updated_at     = CURRENT_TIMESTAMP
         """
         affected = 0

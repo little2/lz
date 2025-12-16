@@ -475,7 +475,8 @@ class PGPool:
                     m.source_bot_name,
                     m.thumb_file_id,
                     m.file_id,
-                    fe.file_id AS ext_file_id
+                    fe.file_id AS ext_file_id,
+                    c.preview 
                 FROM album_items AS c
                 LEFT JOIN sora_content AS s
                     ON c.member_content_id = s.id
@@ -550,10 +551,11 @@ class PGPool:
             "position",
             stage,
             created_at,
-            updated_at
+            updated_at,
+            preview
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
         )
         ON CONFLICT (id) DO UPDATE SET
             content_id        = EXCLUDED.content_id,
@@ -563,6 +565,7 @@ class PGPool:
             "position"        = EXCLUDED."position",
             stage             = EXCLUDED.stage,
             updated_at        = EXCLUDED.updated_at
+            preview           = EXCLUDED.preview
         ;
         """
 
@@ -582,6 +585,7 @@ class PGPool:
                 r.get("stage", "pending"),
                 r.get("created_at") or now,
                 r.get("updated_at") or now,
+                r.get("preview") or "",
             ))
 
         async with cls._pool.acquire() as conn:
@@ -590,51 +594,6 @@ class PGPool:
         return len(payload)
 
 
-    @classmethod
-    async def upsert_album_items_bulk2(cls, rows: List[Dict[str, Any]]) -> int:
-        """
-        批量 UPSERT 到 PostgreSQL 的 public.album_items
-        冲突键： (content_id, member_content_id)
-        更新字段：file_unique_id, file_type, position, updated_at, stage
-        created_at 采用既有值（保持历史），若原表为空则用默认值
-        返回：受影响（插入/更新）行数（近似）
-        """
-        if not rows:
-            return 0
-
-        await cls.ensure_pool()
-        conn = await cls.acquire()
-        try:
-            payload: List[Tuple[int, int, Optional[str], str, int, str]] = []
-            for r in rows:
-                payload.append((
-                    int(r["content_id"]),
-                    int(r["member_content_id"]),
-                    (r.get("file_unique_id") or None),
-                    str(r.get("file_type") or ""),  # 允许空字符串
-                    int(r.get("position") or 0),
-                    str(r.get("stage") or "pending"),
-                ))
-
-            sql = """
-                INSERT INTO album_items
-                    (content_id, member_content_id, file_unique_id, file_type, "position", stage, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
-                ON CONFLICT (content_id, member_content_id)
-                DO UPDATE SET
-                    file_unique_id = EXCLUDED.file_unique_id,
-                    file_type      = EXCLUDED.file_type,
-                    "position"     = EXCLUDED."position",
-                    stage          = EXCLUDED.stage,
-                    updated_at     = CURRENT_TIMESTAMP
-            """
-
-            async with conn.transaction():
-                await conn.executemany(sql, payload)
-            return len(payload)
-
-        finally:
-            await cls.release(conn)
 
     @classmethod
     async def delete_album_items_except(cls, content_id: int, keep_member_ids: List[int]) -> int:

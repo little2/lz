@@ -999,7 +999,7 @@ class MySQLPool:
         try:
             sql = """
                 SELECT s.source_id, c.file_type, s.content, s.file_size, s.duration,
-                       m.source_bot_name, m.thumb_file_id, m.file_id
+                       m.source_bot_name, m.thumb_file_id, m.file_id, c.preview
                 FROM album_items c
                 LEFT JOIN sora_content s ON c.member_content_id = s.id
                 LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
@@ -1034,7 +1034,8 @@ class MySQLPool:
                     `position`,
                     created_at,
                     updated_at,
-                    stage
+                    stage,
+                    preview
                 FROM album_items
                 WHERE content_id = %s
                 ORDER BY `position` ASC, id ASC

@@ -1390,6 +1390,7 @@ async def _process_add_item_async(message: Message, state: FSMContext, meta: dic
     file_unique_id = meta.get("file_unique_id")
     content_id = meta.get("content_id")
     file_id = meta.get("file_id")
+    preview = meta.get("preview")
     type_code = file_type[0]  # "v", "d", "p"
     await AnanBOTPool.update_product_file_type(content_id, "album")
     await AnanBOTPool.upsert_media(file_type, {
@@ -1410,6 +1411,7 @@ async def _process_add_item_async(message: Message, state: FSMContext, meta: dic
         content_id=content_id,
         member_content_id=member_content_id,
         file_unique_id=file_unique_id,
+        preview=preview,
         file_type=type_code  # "v", "d", "p"
     )
 

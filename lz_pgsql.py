@@ -57,7 +57,8 @@ class PGPool:
             if cls._pool is None:
                 last_exc = None
                 app_name = getattr(lz_var, "bot_username", "lz_app")
-
+                if lz_var.bot_username is None:
+                    app_name = "lz_app"
                 for attempt in range(CONNECT_RETRIES + 1):
                     try:
                         cls._pool = await asyncpg.create_pool(
@@ -68,6 +69,7 @@ class PGPool:
                             command_timeout=COMMAND_TIMEOUT,
                             timeout=CONNECT_TIMEOUT,
                             statement_cache_size=1024,
+                            # server_settings=None,  # ✅ 先置空
                             # 👉 把这些会话参数放到这里
                             server_settings={
                                 "application_name": app_name,

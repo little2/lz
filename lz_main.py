@@ -48,67 +48,128 @@ class LzFSM(StatesGroup):
     waiting_for_x_media = State(state="lz:waiting_for_x_media")
 
 
-
-if SESSION_STRING:
-    print("【Telethon】1使用 StringSession 登录。",flush=True)
-    user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
-    
-else:
-    print("【Telethon】使用 USER_SESSION 登录。",flush=True)
-    user_client = TelegramClient(USER_SESSION, API_ID, API_HASH)
-
-lz_var.user_client = user_client  # ✅ 赋值给 lz_var 让其他模块能引用
 lz_var.skins = {}  # 皮肤配置
 
+# def create_user_client():
+#     if SESSION_STRING:
+#         print("【Telethon】使用 StringSession 登录。", flush=True)
+#         return TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+#     else:
+#         print("【Telethon】使用 USER_SESSION 登录。", flush=True)
+#         return TelegramClient(USER_SESSION, API_ID, API_HASH)
 
 
-
-# ================= 9. 私聊媒体处理：人类账号 =================
-@user_client.on(events.NewMessage(incoming=True))
-async def handle_user_private_media(event):
-    # print(f"【Telethon】收到私聊媒体：{event.message.media}，来自 {event.message.from_id}",flush=True)
+# async def handle_user_private_media(event):
+#     # print(f"【Telethon】收到私聊媒体：{event.message.media}，来自 {event.message.from_id}",flush=True)
     
+#     msg = event.message
+#     if not msg.is_private:
+#         return
+    
+#     file_type =''
+#     media = None
+#     if msg.document:
+#         media = msg.document
+#         file_type = 'document'
+#     elif msg.video:
+#         media = msg.video
+#         file_type = 'video'
+#     elif msg.photo:
+#         media = msg.photo
+#         file_type = 'photo'
+#     # elif msg.text:
+#     #     media = msg.text
+#     #     file_type = 'text'        
+#     #     pass
+
+
+#     print(f"【Telethon】收到私聊消息 {event.message.text} {file_type}",flush=True)
+
+#     # 转发到群组，并删除私聊
+#     if media:
+#         print(f"{lz_var.bot_id} {media}")
+#         ret = await user_client.send_file(lz_var.bot_username, media)
+        
+#     elif msg.text:
+#         try:
+#             match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', msg.text, re.IGNORECASE)
+#             if match:
+#                 botname = match.group(1) + match.group(2)
+#                 await user_client.send_message(botname, "/start")
+#                 # await user_client.send_message(botname, "[~bot~]")
+                
+#         except Exception as e:
+#                 print(f"Error kicking bot: {e} {botname}", flush=True)
+    
+    
+
+
+
+# from telethon.sessions import StringSession
+# from telethon import TelegramClient, events
+
+def create_user_client():
+    if SESSION_STRING:
+        print("【Telethon】使用 StringSession 登录。", flush=True)
+        return TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
+    else:
+        print("【Telethon】使用 USER_SESSION 登录。", flush=True)
+        return TelegramClient(USER_SESSION, API_ID, API_HASH)
+
+async def handle_user_private_media(event):
     msg = event.message
     if not msg.is_private:
         return
-    
-    file_type =''
+
+    file_type = ""
     media = None
     if msg.document:
         media = msg.document
-        file_type = 'document'
+        file_type = "document"
     elif msg.video:
         media = msg.video
-        file_type = 'video'
+        file_type = "video"
     elif msg.photo:
         media = msg.photo
-        file_type = 'photo'
-    # elif msg.text:
-    #     media = msg.text
-    #     file_type = 'text'        
-    #     pass
+        file_type = "photo"
 
+    print(f"【Telethon】收到私聊消息 {msg.text} {file_type}", flush=True)
 
-    print(f"【Telethon】收到私聊消息 {event.message.text} {file_type}",flush=True)
-
-    # 转发到群组，并删除私聊
+    # 1) 媒体：转发给 bot
     if media:
-        print(f"{lz_var.bot_id} {media}")
-        ret = await user_client.send_file(lz_var.bot_username, media)
-        
-    elif msg.text:
+        if not getattr(lz_var, "bot_username", None):
+            print("⚠️ bot_username 未就绪，跳过转发", flush=True)
+            return
         try:
-            match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', msg.text, re.IGNORECASE)
+            await lz_var.user_client.send_file(lz_var.bot_username, media)
+            # 转发成功再删
+            try:
+                await event.delete()
+            except Exception as e:
+                print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
+        except Exception as e:
+            print(f"❌ 转发媒体失败：{e}", flush=True)
+        return
+
+    # 2) 文本：kick bot
+    if msg.text:
+        botname = None
+        try:
+            match = re.search(r"\|_kick_\|\s*(.*?)\s*(bot)", msg.text, re.IGNORECASE)
             if match:
                 botname = match.group(1) + match.group(2)
-                await user_client.send_message(botname, "/start")
-                # await user_client.send_message(botname, "[~bot~]")
-                
+                await lz_var.user_client.send_message(botname, "/start")
+                try:
+                    await event.delete()
+                except Exception as e:
+                    print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
         except Exception as e:
-                print(f"Error kicking bot: {e} {botname}", flush=True)
-    
-    
+            print(f"Error kicking bot: {e} botname={botname or '<unknown>'}", flush=True)
     await event.delete()
+
+def register_telethon_handlers(client):
+    client.add_event_handler(handle_user_private_media, events.NewMessage(incoming=True))
+
 
 
 FILE_ID_REGEX = re.compile(
@@ -272,9 +333,7 @@ async def sync():
 
 async def main():
     # 10.2 并行运行 Telethon 与 Aiogram
-    await user_client.start(PHONE_NUMBER)
-    task_telethon = asyncio.create_task(user_client.run_until_disconnected())
-
+   
     # await delete_my_profile_photos(user_client)
     # await update_my_name(user_client,'Luzai', 'Man')
     # await update_username(user_client,"luzai09man")
@@ -302,9 +361,20 @@ async def main():
     except Exception as e:
         print(f"❌ 无法获取 Bot 信息：{e}", flush=True)
         # 记得把 Telethon 停掉
-        await user_client.disconnect()
         await bot.session.close()
         return
+    
+    user_client = create_user_client()
+    lz_var.user_client = user_client
+
+    register_telethon_handlers(user_client)
+
+    await user_client.start(PHONE_NUMBER)
+    task_telethon = asyncio.create_task(user_client.run_until_disconnected())
+
+
+    
+    
     try:
         man_me = await user_client.get_me()
         lz_var.man_bot_id = man_me.id

@@ -1,67 +1,47 @@
-
-
-
 import asyncio
-import os
-import time
-import aiogram
-import json
 
-
-from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER
 from lz_db import db
 from lz_mysql import MySQLPool
-
-from handlers import lz_media_parser
-from handlers import lz_menu
-
-import lz_var
-import re
-
-from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state,check_and_fix_sora_valid_state2,check_file_record
-
-from lz_redis import RedisManager
-lz_var.redis_manager = RedisManager()
-#
-
-
-lz_var.start_time = time.time()
-lz_var.cold_start_flag = True
-
-
-
-
-
-
+from lz_pgsql import PGPool
+from utils.product_utils import (
+    check_file_record,
+    # check_and_fix_sora_valid_state,
+    # check_and_fix_sora_valid_state2,
+)
 
 async def sync():
+    # 1. 同步 / 修复 file_record
     while True:
         summary = await check_file_record(limit=100)
-        if summary["checked"] == 0:
+        if summary.get("checked", 0) == 0:
             break
 
-
-    while False:
-        summary = await check_and_fix_sora_valid_state(limit=1000)
-        if summary["checked"] == 0:
-            break
-
-
-    while False:
-        summary = await check_and_fix_sora_valid_state2(limit=1000)
-        if summary["checked"] == 0:
-            break
+    # 2. 如需启用以下修复逻辑，取消注释即可
+    #
+    # while True:
+    #     summary = await check_and_fix_sora_valid_state(limit=1000)
+    #     if summary.get("checked", 0) == 0:
+    #         break
+    #
+    # while True:
+    #     summary = await check_and_fix_sora_valid_state2(limit=1000)
+    #     if summary.get("checked", 0) == 0:
+    #         break
 
 async def main():
-   
+    # 初始化数据库连接
+    # await asyncio.gather(
+    #     MySQLPool.init_pool(),
+    #     PGPool.init_pool(),
+    # )
 
-
+    # try:
+    
     await sync()
-
-    # 理论上 Aiogram 轮询不会退出，若退出则让 Telethon 同样停止
-    # task_telethon.cancel()
+    # finally:
+    #     # 关闭数据库连接
+    #     await PGPool.close()
+    #     await MySQLPool.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

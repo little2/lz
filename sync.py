@@ -1,6 +1,200 @@
 import asyncio
-from lz_mysql import MySQLPool
+
 from lz_pgsql import PGPool
+
+# sync_mysql_pool.py
+import os
+import aiomysql
+from typing import Optional, Tuple, Any
+
+class SyncMySQLPool:
+    """
+    最小化 MySQL 连接池：仅服务 sync()/check_file_record() 这条链路
+    - init_pool()
+    - ensure_pool()
+    - get_conn_cursor()
+    - release()
+    - close()
+    """
+
+    _pool: Optional[aiomysql.Pool] = None
+
+    @classmethod
+    async def init_pool(cls) -> None:
+        if cls._pool is not None:
+            return
+
+        host = os.getenv("MYSQL_HOST", "127.0.0.1")
+        port = int(os.getenv("MYSQL_PORT", "3306"))
+        user = os.getenv("MYSQL_USER", "root")
+        password = os.getenv("MYSQL_PASSWORD", "")
+        db = os.getenv("MYSQL_DB", "telebot")
+        minsize = int(os.getenv("MYSQL_POOL_MIN", "1"))
+        maxsize = int(os.getenv("MYSQL_POOL_MAX", "10"))
+        charset = os.getenv("MYSQL_CHARSET", "utf8mb4")
+
+        cls._pool = await aiomysql.create_pool(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            db=db,
+            minsize=minsize,
+            maxsize=maxsize,
+            autocommit=False,   # 你在 check_file_record 里有 begin/commit/rollback
+            charset=charset,
+        )
+
+        print("✅ [SyncMySQLPool] MySQL 连接池初始化完成", flush=True)
+
+    @classmethod
+    async def ensure_pool(cls) -> aiomysql.Pool:
+        if cls._pool is None:
+            raise RuntimeError("SyncMySQLPool not initialized. Call init_pool() first.")
+        return cls._pool
+
+    @classmethod
+    async def get_conn_cursor(cls) -> Tuple[aiomysql.Connection, aiomysql.Cursor]:
+        """
+        返回 (conn, cur)；cur 默认 DictCursor，符合你目前代码使用 r['id'] 这种访问方式
+        """
+        pool = await cls.ensure_pool()
+        conn = await pool.acquire()
+        try:
+            cur = await conn.cursor(aiomysql.DictCursor)
+        except Exception:
+            pool.release(conn)
+            raise
+        return conn, cur
+
+    @classmethod
+    async def release(cls, conn: Any, cur: Any) -> None:
+        """
+        与你当前代码风格一致：无论成功失败，都可以安全 release
+        """
+        try:
+            if cur is not None:
+                await cur.close()
+        except Exception:
+            pass
+
+        try:
+            if cls._pool is not None and conn is not None:
+                cls._pool.release(conn)
+        except Exception:
+            pass
+
+    @classmethod
+    async def close(cls) -> None:
+        if cls._pool is None:
+            return
+        cls._pool.close()
+        try:
+            await cls._pool.wait_closed()
+        except Exception:
+            pass
+        cls._pool = None
+        print("🛑 [SyncMySQLPool] MySQL 连接池已关闭", flush=True)
+# sync_mysql_pool.py
+import os
+import aiomysql
+from typing import Optional, Tuple, Any
+
+class MySQLPool:
+    """
+    最小化 MySQL 连接池：仅服务 sync()/check_file_record() 这条链路
+    - init_pool()
+    - ensure_pool()
+    - get_conn_cursor()
+    - release()
+    - close()
+    """
+
+    _pool: Optional[aiomysql.Pool] = None
+
+    @classmethod
+    async def init_pool(cls) -> None:
+        if cls._pool is not None:
+            return
+
+        from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT
+
+        host = os.getenv("MYSQL_HOST", "127.0.0.1")
+        port = int(os.getenv("MYSQL_PORT", "3306"))
+        user = os.getenv("MYSQL_USER", "root")
+        password = os.getenv("MYSQL_PASSWORD", "")
+        db = os.getenv("MYSQL_DB", "telebot")
+        minsize = int(os.getenv("MYSQL_POOL_MIN", "1"))
+        maxsize = int(os.getenv("MYSQL_POOL_MAX", "10"))
+        charset = os.getenv("MYSQL_CHARSET", "utf8mb4")
+
+       
+
+        cls._pool = await aiomysql.create_pool(
+            host=MYSQL_HOST,
+            user=MYSQL_USER,
+            password=MYSQL_PASSWORD,
+            db=MYSQL_DB,
+            port=MYSQL_DB_PORT,
+            charset="utf8mb4",
+            autocommit=True,
+            minsize=2,
+            maxsize=32,
+            pool_recycle=1800,
+            connect_timeout=10,
+        )
+
+        print("✅ [SyncMySQLPool] MySQL 连接池初始化完成", flush=True)
+
+    @classmethod
+    async def ensure_pool(cls) -> aiomysql.Pool:
+        if cls._pool is None:
+            raise RuntimeError("SyncMySQLPool not initialized. Call init_pool() first.")
+        return cls._pool
+
+    @classmethod
+    async def get_conn_cursor(cls) -> Tuple[aiomysql.Connection, aiomysql.Cursor]:
+        """
+        返回 (conn, cur)；cur 默认 DictCursor，符合你目前代码使用 r['id'] 这种访问方式
+        """
+        pool = await cls.ensure_pool()
+        conn = await pool.acquire()
+        try:
+            cur = await conn.cursor(aiomysql.DictCursor)
+        except Exception:
+            pool.release(conn)
+            raise
+        return conn, cur
+
+    @classmethod
+    async def release(cls, conn: Any, cur: Any) -> None:
+        """
+        与你当前代码风格一致：无论成功失败，都可以安全 release
+        """
+        try:
+            if cur is not None:
+                await cur.close()
+        except Exception:
+            pass
+
+        try:
+            if cls._pool is not None and conn is not None:
+                cls._pool.release(conn)
+        except Exception:
+            pass
+
+    @classmethod
+    async def close(cls) -> None:
+        if cls._pool is None:
+            return
+        cls._pool.close()
+        try:
+            await cls._pool.wait_closed()
+        except Exception:
+            pass
+        cls._pool = None
+        print("🛑 [SyncMySQLPool] MySQL 连接池已关闭", flush=True)
+
 
 async def sync():
     # 1. 同步 / 修复 file_record

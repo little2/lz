@@ -2,25 +2,6 @@ import re
 import json
 from typing import List
 import os
-
-class LZString:
-    # --- 小工具：安全转字符串 ---
-    @staticmethod
-    def _to_text(x) -> str:
-        if x is None:
-            return ""
-        if isinstance(x, type) or callable(x):  # 避免把类/函数当成字符串
-            return ""
-        if not isinstance(x, str):
-            try:
-                return str(x)
-            except Exception:
-                return ""
-        return x
-
-
-import json
-import re
 from typing import Iterable
 
 class LZString:
@@ -59,8 +40,19 @@ class LZString:
     )
 
     @staticmethod
-    def _to_text(s) -> str:
-        return "" if s is None else str(s)
+    def _to_text(x) -> str:
+        if x is None:
+            return ""
+        if isinstance(x, type) or callable(x):  # 避免把类/函数当成字符串
+            return ""
+        if not isinstance(x, str):
+            try:
+                return str(x)
+            except Exception:
+                return ""
+        return x
+
+
 
     @staticmethod
     def _cut_at_any(hay: str, marks: Iterable[str]) -> str:

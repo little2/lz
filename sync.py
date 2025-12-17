@@ -1,104 +1,12 @@
 import asyncio
-
+import jieba
 from lz_pgsql import PGPool
 
 # sync_mysql_pool.py
 import os
 import aiomysql
-from typing import Optional, Tuple, Any
-
-class SyncMySQLPool:
-    """
-    最小化 MySQL 连接池：仅服务 sync()/check_file_record() 这条链路
-    - init_pool()
-    - ensure_pool()
-    - get_conn_cursor()
-    - release()
-    - close()
-    """
-
-    _pool: Optional[aiomysql.Pool] = None
-
-    @classmethod
-    async def init_pool(cls) -> None:
-        if cls._pool is not None:
-            return
-
-        host = os.getenv("MYSQL_HOST", "127.0.0.1")
-        port = int(os.getenv("MYSQL_PORT", "3306"))
-        user = os.getenv("MYSQL_USER", "root")
-        password = os.getenv("MYSQL_PASSWORD", "")
-        db = os.getenv("MYSQL_DB", "telebot")
-        minsize = int(os.getenv("MYSQL_POOL_MIN", "1"))
-        maxsize = int(os.getenv("MYSQL_POOL_MAX", "10"))
-        charset = os.getenv("MYSQL_CHARSET", "utf8mb4")
-
-        cls._pool = await aiomysql.create_pool(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            db=db,
-            minsize=minsize,
-            maxsize=maxsize,
-            autocommit=False,   # 你在 check_file_record 里有 begin/commit/rollback
-            charset=charset,
-        )
-
-        print("✅ [SyncMySQLPool] MySQL 连接池初始化完成", flush=True)
-
-    @classmethod
-    async def ensure_pool(cls) -> aiomysql.Pool:
-        if cls._pool is None:
-            raise RuntimeError("SyncMySQLPool not initialized. Call init_pool() first.")
-        return cls._pool
-
-    @classmethod
-    async def get_conn_cursor(cls) -> Tuple[aiomysql.Connection, aiomysql.Cursor]:
-        """
-        返回 (conn, cur)；cur 默认 DictCursor，符合你目前代码使用 r['id'] 这种访问方式
-        """
-        pool = await cls.ensure_pool()
-        conn = await pool.acquire()
-        try:
-            cur = await conn.cursor(aiomysql.DictCursor)
-        except Exception:
-            pool.release(conn)
-            raise
-        return conn, cur
-
-    @classmethod
-    async def release(cls, conn: Any, cur: Any) -> None:
-        """
-        与你当前代码风格一致：无论成功失败，都可以安全 release
-        """
-        try:
-            if cur is not None:
-                await cur.close()
-        except Exception:
-            pass
-
-        try:
-            if cls._pool is not None and conn is not None:
-                cls._pool.release(conn)
-        except Exception:
-            pass
-
-    @classmethod
-    async def close(cls) -> None:
-        if cls._pool is None:
-            return
-        cls._pool.close()
-        try:
-            await cls._pool.wait_closed()
-        except Exception:
-            pass
-        cls._pool = None
-        print("🛑 [SyncMySQLPool] MySQL 连接池已关闭", flush=True)
-# sync_mysql_pool.py
-import os
-import aiomysql
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Dict
+from lexicon_manager import LexiconManager
 
 class MySQLPool:
     """
@@ -196,12 +104,27 @@ class MySQLPool:
         print("🛑 [SyncMySQLPool] MySQL 连接池已关闭", flush=True)
 
 
+
+
 async def sync():
-    # 1. 同步 / 修复 file_record
-    while True:
-        summary = await check_file_record(limit=100)
-        if summary.get("checked", 0) == 0:
-            break
+
+    await MySQLPool.init_pool()
+    await diff_bodyexam_files()
+
+    # # 1. 同步 / 修复 file_record
+    # while False:
+    #     summary = await check_file_record(limit=100)
+    #     if summary.get("checked", 0) == 0:
+    #         break
+
+    # await MySQLPool.init_pool()
+    # while True:
+    #     r = await check_and_fix_file_tag_avalible(limit=2000)
+    #     print(r, flush=True)
+    #     if r["checked"] == 0:
+    #         break
+
+
 
     # 2. 如需启用以下修复逻辑，取消注释即可
     #
@@ -214,6 +137,280 @@ async def sync():
     #     summary = await check_and_fix_sora_valid_state2(limit=1000)
     #     if summary.get("checked", 0) == 0:
     #         break
+
+
+
+
+def _escape_ts_lexeme(s: str) -> str:
+    # 简单转义，避免 to_tsquery 特殊字符影响；必要时再扩充
+    return s.replace("'", "''").replace("&", " ").replace("|", " ").replace("!", " ").replace(":", " ").strip()
+
+
+
+  # 🔹 新增：支持同义词 OR 组的版本
+def _build_tsqueries_from_token_groups(token_groups: list[list[str]]) -> tuple[str, str]:
+    """
+    token_groups 结构示例：
+    [
+        ["鼠标", "滑鼠"],
+        ["买"]
+    ]
+
+    生成：
+    phrase_q: "(鼠标 | 滑鼠) <-> 买"
+    and_q:    "(鼠标 | 滑鼠) & 买"
+    """
+    phrase_parts: list[str] = []
+    and_parts: list[str] = []
+
+    for group in token_groups:
+        # 清洗 + 去空 + 去重
+        cleaned = {
+            _escape_ts_lexeme(t)
+            for t in group
+            if t and t.strip()
+        }
+        if not cleaned:
+            continue
+
+        if len(cleaned) == 1:
+            term = next(iter(cleaned))
+        else:
+            # 同义词 OR
+            term = "(" + " | ".join(sorted(cleaned)) + ")"
+
+        phrase_parts.append(term)
+        and_parts.append(term)
+
+    if not and_parts:
+        return "", ""
+
+    phrase_q = " <-> ".join(phrase_parts) if phrase_parts else ""
+    and_q = " & ".join(and_parts)
+    return phrase_q, and_q
+
+async def search(keyword_str):
+   
+    # 2) 分词
+    jieba.load_userdict("jieba_userdict.txt")
+
+    tokens = list(jieba.cut(keyword_str))
+    print("Tokens after jieba cut:", tokens)
+
+    # 3) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
+    tokens = LexiconManager.filter_stop_words(tokens)
+    print("Tokens after stop-word filter:", tokens)
+
+    # 4) 同义词叠加：每个 token -> [本词 + 全部同义词]
+    token_groups = LexiconManager.expand_tokens(tokens)
+    print("Token groups after synonym expand:", token_groups)
+
+    # 5) 生成 tsquery：用 OR 组构成 phrase_q / and_q
+    phrase_q, and_q = _build_tsqueries_from_token_groups(token_groups)
+    if not and_q:
+        return []
+
+    # 下面的 limit / where_parts / params / SQL 构造都维持原样，不动
+    # 4) 保护 limit
+   
+
+    where_parts = []
+    params = []
+
+    # ===== 先统一决定参数顺序 =====
+    current_idx = 1
+    phrase_idx = None
+    and_idx = None
+
+    cond = []
+
+    if phrase_q:
+        phrase_idx = current_idx
+        params.append(phrase_q)
+        cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${phrase_idx})")
+        current_idx += 1
+
+    # and_q 一定存在
+    and_idx = current_idx
+    params.append(and_q)
+    cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${and_idx})")
+    current_idx += 1
+
+    where_parts.append("(" + " OR ".join(cond) + ")")
+
+
+
+
+    if phrase_idx is not None:
+        rank_expr = f"""
+            GREATEST(
+                COALESCE(ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${phrase_idx})), 0) * 1.5,
+                ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${and_idx}))
+            )
+        """
+    else:
+        rank_expr = f"ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${and_idx}))"
+
+    sql = f"""
+        SELECT
+            source_id,
+            {rank_expr} AS rank
+        FROM sora_content
+        WHERE {' AND '.join(where_parts)} AND valid_state >= 8
+        ORDER BY rank DESC, id DESC
+        
+    """
+
+    # print("SQL:", sql, "PARAMS:", params, flush=True)
+
+    pg_conn = await PGPool.acquire()
+    try:
+
+        async with pg_conn.transaction():
+            rows = await pg_conn.fetch(sql, *params)
+            return rows
+        # asyncpg: "UPDATE <n>"
+       
+    finally:
+        await PGPool.release(pg_conn)
+
+    
+async def get_file_tag_bodyexam():
+    await MySQLPool.ensure_pool()
+    conn, cur = await MySQLPool.get_conn_cursor()
+    try:
+        await cur.execute("""
+            SELECT file_unique_id
+            FROM file_tag
+            WHERE tag = 'bodyexam'
+              AND avalible = 1
+        """)
+        rows = await cur.fetchall()
+        return rows
+    finally:
+        await MySQLPool.release(conn, cur)
+   
+async def diff_bodyexam_files():
+    # A rows：来自 search
+    a_rows = await search("身体检查")
+    a_ids = {r["source_id"] for r in a_rows if r.get("source_id")}
+
+    print(f"[A] search 命中数量: {len(a_ids)}")
+
+    # B rows：来自 file_tag
+    b_rows = await get_file_tag_bodyexam()
+    b_ids = {r["file_unique_id"] for r in b_rows if r.get("file_unique_id")}
+
+    print(f"[B] file_tag(bodyexam, avalible=1) 数量: {len(b_ids)}")
+
+    # C rows：B - A
+    c_ids = b_ids - a_ids
+
+    print(f"[C] 需要处理的 file_unique_id 数量: {len(c_ids)}")
+    if not c_ids:
+        print("✅ 无需更新 content_seg")
+        return set()
+
+    # 🔹 核心新增逻辑
+    updated = await append_bodyexam_to_content_seg(c_ids)
+    print(f"🩺 已更新 content_seg（身体检查）行数: {updated}")
+
+    return c_ids
+
+
+async def append_bodyexam_to_content_seg(file_unique_ids: set[str]) -> int:
+    """
+    给 sora_content.content_seg 追加 '身体检查'
+    - 不重复追加
+    - 自动触发 content_seg_tsv 重算
+    """
+    if not file_unique_ids:
+        return 0
+
+    await PGPool.ensure_pool()
+    pg_conn = await PGPool.acquire()
+    try:
+        sql = """
+            UPDATE sora_content
+            SET content_seg =
+                CASE
+                    WHEN content_seg IS NULL OR content_seg = ''
+                        THEN '身体检查'
+                    WHEN content_seg LIKE '%身体检查%'
+                        THEN content_seg
+                    ELSE content_seg || ' 身体检查'
+                END
+            WHERE source_id = ANY($1::text[])
+        """
+        async with pg_conn.transaction():
+            result = await pg_conn.execute(sql, list(file_unique_ids))
+
+        # asyncpg 返回格式："UPDATE <n>"
+        return int(result.split()[-1])
+    finally:
+        await PGPool.release(pg_conn)
+
+
+
+async def check_and_fix_file_tag_avalible(limit: int = 2000) -> Dict[str, Any]:
+    """
+    修复 file_tag.avalible：
+    - file_tag.avalible=0 且在 file_extension 存在相同 file_unique_id -> avalible=1
+    - file_tag.avalible=0 且在 file_extension 不存在 -> avalible=2
+
+    以批次更新方式减少长事务与锁竞争；不会锁表，只会锁本批次命中的行。
+    """
+   
+    await MySQLPool.ensure_pool()
+
+    conn, cur = await MySQLPool.get_conn_cursor()
+    try:
+        await conn.begin()
+
+        # 1) 存在于 file_extension：置 1
+        sql_exists = """
+            UPDATE file_tag ft
+            INNER JOIN file_extension fe
+                ON fe.file_unique_id = ft.file_unique_id
+            SET ft.avalible = 1
+            WHERE ft.avalible = 0
+            ORDER BY ft.id
+            LIMIT %s
+        """
+        await cur.execute(sql_exists, (int(limit),))
+        updated_to_1 = cur.rowcount or 0
+
+        # 2) 不存在于 file_extension：置 2
+        # 只处理仍为 avalible=0 的（避免覆盖上一步已置 1 的）
+        sql_missing = """
+            UPDATE file_tag ft
+            LEFT JOIN file_extension fe
+                ON fe.file_unique_id = ft.file_unique_id
+            SET ft.avalible = 2
+            WHERE ft.avalible = 0
+                AND fe.file_unique_id IS NULL
+            ORDER BY ft.id
+            LIMIT %s
+        """
+        await cur.execute(sql_missing, (int(limit),))
+        updated_to_2 = cur.rowcount or 0
+
+        await conn.commit()
+
+        return {
+            "checked": updated_to_1 + updated_to_2,  # 本批次实际更新行数
+            "updated_to_1": updated_to_1,
+            "updated_to_2": updated_to_2,
+        }
+
+    except Exception as e:
+        try:
+            await conn.rollback()
+        except Exception:
+            pass
+        raise RuntimeError(f"[check_and_fix_file_tag_avalible] failed: {e}") from e
+    finally:
+        await MySQLPool.release(conn, cur)
 
 
 
@@ -605,19 +802,20 @@ async def check_file_record(limit:int = 100):
 
 
 async def main():
-    # 初始化数据库连接
-    # await asyncio.gather(
-    #     MySQLPool.init_pool(),
-    #     PGPool.init_pool(),
-    # )
+    try:
+        await sync()
+    finally:
+        # 先关 MySQL，再关 PG（顺序不是关键，但要确保都关）
+        try:
+            await MySQLPool.close()
+        except Exception as e:
+            print(f"⚠️ MySQLPool.close failed: {e}", flush=True)
 
-    # try:
-    
-    await sync()
-    # finally:
-    #     # 关闭数据库连接
-    #     await PGPool.close()
-    #     await MySQLPool.close()
+        try:
+            await PGPool.close()   # 你 lz_pgsql.PGPool 应该也有 close()/wait_closed()
+        except Exception as e:
+            print(f"⚠️ PGPool.close failed: {e}", flush=True)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

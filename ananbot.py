@@ -1254,6 +1254,7 @@ async def receive_album_media(message: Message, state: FSMContext):
                     ], batch_size=300)
                 )
 
+                # 批量写入 media 
                 spawn_once(
                     f"upsert_media_bulk:{content_id}",
                     lambda:AnanBOTPool.upsert_media_bulk(candidates, show_sql=True)
@@ -1265,9 +1266,9 @@ async def receive_album_media(message: Message, state: FSMContext):
                
                 product_type = product_info.get('file_type','')
                 
-               
-                if product_type not in {"a","album"} :
-                   
+                print(f"1=>{product_type} -> album",flush=True)
+                if product_type not in ["a","album"] :
+                    print(f"2=>{product_type} -> album",flush=True)
 
                     conn, cur = await AnanBOTPool.get_conn_cursor()
                     try:
@@ -1289,7 +1290,7 @@ async def receive_album_media(message: Message, state: FSMContext):
                     finally:
                         await AnanBOTPool.release(conn, cur)
             
-                
+                print(f"准备 finalize_content_fields for content_id: {content_id}", flush=True)
                 await AnanBOTPool.finalize_content_fields(candidates,content_id,user_id,bot_username)
                 try:
                    

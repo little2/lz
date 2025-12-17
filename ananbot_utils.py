@@ -1305,8 +1305,10 @@ class AnanBOTPool(LYBase):
     @classmethod
     async def finalize_content_fields(cls, candidates,content_id, user_id, bot_username):
         # 5) 批量补齐所有成员 content_id
+       
         fuids = [c.get("file_unique_id") for c in candidates if c.get("file_unique_id")]
         exist_map = await cls.get_content_ids_by_fuids(fuids)  # {fuid: content_id}
+       
 
         missing_rows = []
         for c in candidates:
@@ -1323,15 +1325,20 @@ class AnanBOTPool(LYBase):
                     "file_id": c.get("file_id"),
                     "bot_username": bot_username,
                 })
-
+       
         # 批量插入缺失成员（含初始化 sora_media）
         if missing_rows:
             inserted = await cls.insert_sora_content_media_bulk(missing_rows)
             for r in inserted:
                 exist_map[r["file_unique_id"]] = int(r["content_id"])
 
+       
         # 6) 批量写入 album_items（按 candidates 顺序设置 position）
         members = []
+
+
+
+
         pos = 1
         def to_short(ft: str) -> str:
             FT_SHORT = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
@@ -1342,13 +1349,28 @@ class AnanBOTPool(LYBase):
 
         for c in candidates:
             fuid = c.get("file_unique_id")
+            if not fuid:
+                continue
+
             member_cid = exist_map.get(fuid)
             if not member_cid:
                 continue
-            preview = c.get("preview", "")
+
+            # preview = c.get("preview", 0)
+            raw_preview = c.get("preview", 0)
+            preview = 1 if str(raw_preview).strip().lower() in ("1", "true", "yes", "y") else 0
+
+            members.append((
+                int(member_cid),                 # mid
+                to_short(c.get("file_type")),     # ft: 'v'/'d'/'p'/'n'
+                int(pos),                         # pos
+                int(preview),                     # preview: 0/1
+            ))
+
             pos += 1
 
         if members:
+            print(f"✅ [X-MEDIA] 正在批量插入 album_items，共计 {len(members)} 条", flush=True  )
             await cls.insert_album_items_bulk(content_id, members)
 
     @classmethod

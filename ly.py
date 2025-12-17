@@ -435,6 +435,39 @@ async def handle_private_json(event):
         return
 
 
+    elif text.startswith("/topics"):
+        # 用法：/topics <chat_id> <YYYY-MM-DD> <hour>
+        parts = text.split()
+        if len(parts) != 4:
+            await event.reply("用法：/topics <chat_id> <YYYY-MM-DD> <hour>\n例如：/topics -1001234567890 2025-12-17 13")
+            return
+
+        chat_id = int(parts[1])
+        day = parts[2]
+        hour = int(parts[3])
+
+        from datetime import datetime
+        stat_date = datetime.strptime(day, "%Y-%m-%d").date()
+
+        topics = await PGStatsDB.get_topics_hourly(chat_id, stat_date, hour)
+        if not topics:
+            await event.reply("该小时尚无主题结果（可能还没跑 topic worker）。")
+            return
+
+        lines = []
+        lines.append(f"📌 chat_id={chat_id} | {stat_date} {hour:02d}:00")
+        for t in topics[:10]:
+            kws = (t.get("keywords") or "").split(",")
+            mids = t.get("message_ids") or []
+            
+            lines.append("")
+            lines.append(f"msg_count={t.get('msg_count',0)}")
+            lines.append(f"关键词：{' / '.join(kws[:12])}")
+            lines.append(f"message_id：{', '.join(str(x) for x in mids[:30])}")
+
+        await event.reply("\n".join(lines))
+        return
+
 
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
         print(f"用户 {event.sender_id} 不在允许名单，忽略。")

@@ -31,6 +31,9 @@ class GroupStatsTracker:
     # bot 缓存： { user_id: True/False }
     _bot_cache = {}
 
+    _raw_buffer = []
+    _raw_max_len = 5000  # 单条截断，避免极端长文本
+
     # ------------------------------
     # 初始化 / 绑定 Telethon
     # ------------------------------
@@ -147,6 +150,29 @@ class GroupStatsTracker:
             cls._buffer[key] += 1
             need_flush = len(cls._buffer) >= cls.flush_batch_size
 
+
+        text = (msg.message or "").strip()
+        is_cmd = text.startswith("/")  # 过滤指令
+        if (msg_type == "text") and (not from_bot) and (not is_cmd) and len(text) >= 3:
+            if len(text) > cls._raw_max_len:
+                text = text[:cls._raw_max_len]
+
+            raw_row = {
+                "chat_id": int(chat_id),
+                "message_id": int(msg.id),
+                "thread_id": int(thread_id),
+                "user_id": int(user_id),
+                "msg_time_utc": msg.date,          # UTC
+                "stat_date": stat_date,        # UTC+8 date
+                "hour": int(hour),             # UTC+8 hour
+                "text": text,
+                "from_bot": bool(from_bot),
+            }
+
+            async with cls._lock:
+                cls._raw_buffer.append(raw_row)
+
+
         if need_flush:
             await cls.flush()
 
@@ -156,12 +182,20 @@ class GroupStatsTracker:
     @classmethod
     async def flush(cls):
         async with cls._lock:
-            if not cls._buffer:
+            if not cls._buffer and not cls._raw_buffer:
                 return
             items = list(cls._buffer.items())
             cls._buffer.clear()
-        
-        await PGStatsDB.upsert_daily_counts(items)
+
+            raw_rows = list(cls._raw_buffer)
+            cls._raw_buffer.clear()
+
+        if items:
+            await PGStatsDB.upsert_daily_counts(items)
+
+        if raw_rows:
+            await PGStatsDB.upsert_raw_messages(raw_rows)
+
 
     @classmethod
     async def _periodic_flusher(cls):

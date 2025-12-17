@@ -2,6 +2,7 @@
 import asyncpg
 import asyncio
 from typing import Any, Dict, List,Optional  # ⬅ 新增
+import json
 
 class PGStatsDB:
     """
@@ -71,16 +72,58 @@ class PGStatsDB:
             task_award_count INT DEFAULT 0,
             last_task_award_at TIMESTAMPTZ DEFAULT NULL
         );
+
+        -- 话题系统用：
+        -- 1) tg_group_messages_raw：保存每条文本消息（含 message_id），供 BERTopic 聚类
+        -- 2) tg_group_topics_hourly：保存每小时的话题摘要 + message_ids（证据链）
+
+        CREATE TABLE IF NOT EXISTS tg_group_messages_raw (
+            chat_id      BIGINT      NOT NULL,
+            thread_id    BIGINT      NOT NULL DEFAULT 0,
+            message_id   BIGINT      NOT NULL,
+            user_id      BIGINT      NOT NULL,
+            from_bot     BOOLEAN     NOT NULL DEFAULT FALSE,
+            msg_time_utc TIMESTAMPTZ NOT NULL,
+            stat_date    DATE        NOT NULL,
+            hour         SMALLINT    NOT NULL,
+            text         TEXT        NOT NULL,
+
+            topic_id     INTEGER     NULL,
+            topic_ver    INTEGER     NOT NULL DEFAULT 1,
+            topic_at     TIMESTAMPTZ NULL,
+
+            PRIMARY KEY (chat_id, message_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_raw_chat_date_hour
+        ON tg_group_messages_raw (chat_id, stat_date, hour);
+
+        CREATE INDEX IF NOT EXISTS idx_raw_topic_lookup
+        ON tg_group_messages_raw (chat_id, stat_date, hour, topic_id);
+
+        CREATE TABLE IF NOT EXISTS tg_group_topics_hourly (
+            chat_id     BIGINT   NOT NULL,
+            thread_id   BIGINT   NOT NULL DEFAULT 0,
+            stat_date   DATE     NOT NULL,
+            hour        SMALLINT NOT NULL,
+            topic_id    INTEGER  NOT NULL,
+            msg_count   INTEGER  NOT NULL DEFAULT 0,
+            topic_words TEXT     NOT NULL DEFAULT '',
+            keywords    TEXT     NOT NULL DEFAULT '',
+            message_ids JSONB    NOT NULL DEFAULT '[]'::jsonb,
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (chat_id, thread_id, stat_date, hour, topic_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_topics_chat_date_hour
+        ON tg_group_topics_hourly (chat_id, stat_date, hour);
         """
 
         async with cls._lock:
             if cls.pool is None:
                 raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
-
             async with cls.pool.acquire() as conn:
                 await conn.execute(ddl)
-
-        print("✅ PostgreSQL 表结构已确认（含 user 表）", flush=True)
 
         
 
@@ -404,3 +447,191 @@ class PGStatsDB:
 
         print(f"✅ sync_user_from_mysql: 已同步 {len(records)} 笔 user 记录到 PostgreSQL。", flush=True)
         return len(records)
+
+    # （写入原始语料，含 message_id）
+    @classmethod
+    async def upsert_raw_messages(cls, rows: list[dict]):
+        """
+        rows: [
+          {
+            "chat_id": int,
+            "thread_id": int,
+            "message_id": int,
+            "user_id": int,
+            "from_bot": bool,
+            "msg_time_utc": datetime,   # msg.date
+            "stat_date": date,          # msg.date +8h 的 date
+            "hour": int,                # msg.date +8h 的 hour
+            "text": str,
+          }, ...
+        ]
+        """
+        if not rows:
+            return
+
+        sql = """
+        INSERT INTO tg_group_messages_raw
+            (chat_id, thread_id, message_id, user_id, from_bot,
+             msg_time_utc, stat_date, hour, text)
+        VALUES
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (chat_id, message_id)
+        DO UPDATE SET
+            thread_id    = EXCLUDED.thread_id,
+            user_id      = EXCLUDED.user_id,
+            from_bot     = EXCLUDED.from_bot,
+            msg_time_utc = EXCLUDED.msg_time_utc,
+            stat_date    = EXCLUDED.stat_date,
+            hour         = EXCLUDED.hour,
+            text         = EXCLUDED.text;
+        """
+
+        async with cls._lock:
+            if cls.pool is None:
+                raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
+            async with cls.pool.acquire() as conn:
+                async with conn.transaction():
+                    for r in rows:
+                        await conn.execute(
+                            sql,
+                            int(r["chat_id"]),
+                            int(r.get("thread_id") or 0),
+                            int(r["message_id"]),
+                            int(r["user_id"]),
+                            bool(r.get("from_bot", False)),
+                            r["msg_time_utc"],
+                            r["stat_date"],
+                            int(r["hour"]),
+                            r["text"],
+                        )
+
+
+    @classmethod
+    async def fetch_hour_texts(cls, chat_id: int, stat_date, hour: int, thread_id: int = 0, min_len: int = 3):
+        sql = """
+        SELECT message_id, text
+        FROM tg_group_messages_raw
+        WHERE chat_id=$1 AND stat_date=$2 AND hour=$3 AND thread_id=$4
+          AND from_bot=FALSE
+          AND length(text) >= $5
+        ORDER BY message_id ASC
+        """
+        if cls.pool is None:
+            raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(sql, int(chat_id), stat_date, int(hour), int(thread_id), int(min_len))
+            return [{"message_id": int(r["message_id"]), "text": r["text"]} for r in rows]
+
+    @classmethod
+    async def update_message_topics(cls, chat_id: int, stat_date, hour: int, mapping: dict[int, int], thread_id: int = 0, topic_ver: int = 1):
+        """
+        mapping: { message_id: topic_id, ... }
+        """
+        if not mapping:
+            return
+
+        sql = """
+        UPDATE tg_group_messages_raw
+        SET topic_id=$5, topic_ver=$6, topic_at=NOW()
+        WHERE chat_id=$1 AND stat_date=$2 AND hour=$3 AND thread_id=$4 AND message_id=$7
+        """
+        async with cls._lock:
+            if cls.pool is None:
+                raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
+            async with cls.pool.acquire() as conn:
+                async with conn.transaction():
+                    for mid, tid in mapping.items():
+                        await conn.execute(
+                            sql,
+                            int(chat_id), stat_date, int(hour), int(thread_id),
+                            int(tid), int(topic_ver), int(mid)
+                        )
+
+    @classmethod
+    async def upsert_topics_hourly(
+        cls,
+        chat_id: int,
+        thread_id: int,
+        stat_date,
+        hour: int,
+        topics: list[dict],
+    ):
+        """
+        topics: [
+          {
+            "topic_id": int,
+            "msg_count": int,
+            "topic_words": str,     # BERTopic 的词（可选）
+            "keywords": str,        # pke_zh 精炼短语（建议逗号分隔）
+            "message_ids": list[int]  # 代表消息 ID（证据链）
+          }, ...
+        ]
+        """
+        if not topics:
+            return
+
+        sql = """
+        INSERT INTO tg_group_topics_hourly
+            (chat_id, thread_id, stat_date, hour, topic_id, msg_count, topic_words, keywords, message_ids, updated_at)
+        VALUES
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
+        ON CONFLICT (chat_id, thread_id, stat_date, hour, topic_id)
+        DO UPDATE SET
+            msg_count   = EXCLUDED.msg_count,
+            topic_words = EXCLUDED.topic_words,
+            keywords    = EXCLUDED.keywords,
+            message_ids = EXCLUDED.message_ids,
+            updated_at  = NOW();
+        """
+
+        async with cls._lock:
+            if cls.pool is None:
+                raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
+            async with cls.pool.acquire() as conn:
+                async with conn.transaction():
+                    for t in topics:
+                        await conn.execute(
+                            sql,
+                            int(chat_id),
+                            int(thread_id or 0),
+                            stat_date,
+                            int(hour),
+                            int(t["topic_id"]),
+                            int(t.get("msg_count", 0)),
+                            t.get("topic_words", "") or "",
+                            t.get("keywords", "") or "",
+                            json.dumps([int(x) for x in (t.get("message_ids") or [])], ensure_ascii=False),
+                        )
+
+    @classmethod
+    async def get_topics_hourly(cls, chat_id: int, stat_date, hour: int, thread_id: int = 0, limit: int = 10):
+        sql = """
+        SELECT topic_id, msg_count, keywords, topic_words, message_ids
+        FROM tg_group_topics_hourly
+        WHERE chat_id=$1 AND stat_date=$2 AND hour=$3 AND thread_id=$4
+        ORDER BY msg_count DESC
+        LIMIT $5
+        """
+        if cls.pool is None:
+            raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(sql, int(chat_id), stat_date, int(hour), int(thread_id), int(limit))
+            return [dict(r) for r in rows]
+
+    @classmethod
+    async def get_topic_all_message_ids(cls, chat_id: int, stat_date, hour: int, topic_id: int, thread_id: int = 0, limit: int = 500):
+        """
+        反查：某小时某 topic 的所有 message_id（不仅是代表 message_ids）
+        """
+        sql = """
+        SELECT message_id
+        FROM tg_group_messages_raw
+        WHERE chat_id=$1 AND stat_date=$2 AND hour=$3 AND thread_id=$4 AND topic_id=$5
+        ORDER BY message_id ASC
+        LIMIT $6
+        """
+        if cls.pool is None:
+            raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(sql, int(chat_id), stat_date, int(hour), int(thread_id), int(topic_id), int(limit))
+            return [int(r["message_id"]) for r in rows]

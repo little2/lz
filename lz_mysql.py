@@ -429,7 +429,7 @@ class MySQLPool:
     async def create_user_collection(
         cls,
         user_id: int,
-        title: str = "未命名合集",
+        title: str = "未命名的资源橱窗",
         description: str = "",
         is_public: int = 1,
     ) -> Dict[str, Any]:
@@ -568,7 +568,7 @@ class MySQLPool:
         cls, user_id: int, limit: int = 50, offset: int = 0
     ) -> list[dict]:
         """
-        列出用户收藏的合集（基于 user_collection_favorite.user_collection_id 关联）。
+        列出用户收藏的资源橱窗（基于 user_collection_favorite.user_collection_id 关联）。
         按收藏记录 id 倒序（最新收藏在前）。
         """
         cache_key = f"fav:clt:{user_id}:{limit}:{offset}"
@@ -633,7 +633,7 @@ class MySQLPool:
     @classmethod
     async def list_collection_files_file_id(cls, collection_id: int, limit: int, offset: int) -> tuple[list[dict], bool]:
         """
-        列出合集里文件的 file_id 列表（按 sort 排序）。
+        列出资源橱窗里文件的 file_id 列表（按 sort 排序）。
         这里演示通过 sora_content.id = user_collection_file.content_id 来取 file_id。
         若你的 file_id 存在别的表，请据实替换 JOIN。
         """
@@ -801,7 +801,7 @@ class MySQLPool:
     @classmethod
     async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
         """
-        返回 (合集数量, 第一条合集ID或None)。
+        返回 (资源橱窗数量, 第一条资源橱窗ID或None)。
         只查一次：LIMIT 2 即可区分 0/1/多，并顺便拿到第一条ID。
         """
         conn, cur = await cls.get_conn_cursor()
@@ -824,7 +824,7 @@ class MySQLPool:
     @classmethod
     async def get_clt_files_by_clt_id(cls, collection_id: int) -> list[dict]:
         """
-        查询某个合集的所有文件
+        查询某个资源橱窗的所有文件
         """
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -846,9 +846,9 @@ class MySQLPool:
             await cls.release(conn, cur)
 
     @classmethod
-    async def create_default_collection(cls, user_id: int, title: str = "未命名合集") -> int | None:
+    async def create_default_collection(cls, user_id: int, title: str = "未命名资源橱窗") -> int | None:
         """
-        创建默认合集并返回新建ID；失败返回 None。
+        创建默认资源橱窗并返回新建ID；失败返回 None。
         首选 lastrowid；极少数情况下取不到时，兜底再查一次。
         """
         conn, cur = await cls.get_conn_cursor()
@@ -879,7 +879,7 @@ class MySQLPool:
     @classmethod
     async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
         """
-        把 content_id 加入某个合集。已存在则不报错（联合主键去重）。
+        把 content_id 加入某个资源橱窗。已存在则不报错（联合主键去重）。
         """
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -1000,7 +1000,7 @@ class MySQLPool:
             sql = """
                 SELECT s.source_id, c.file_type, s.content, s.file_size, s.duration,
                        m.source_bot_name, m.thumb_file_id, m.file_id, c.preview
-                FROM album_items c
+                FROM album_items c 
                 LEFT JOIN sora_content s ON c.member_content_id = s.id
                 LEFT JOIN sora_media m ON c.member_content_id = m.content_id AND m.source_bot_name = %s
                 WHERE c.content_id = %s AND s.valid_state != 4
@@ -1010,7 +1010,7 @@ class MySQLPool:
             rows = await cur.fetchall()
             return [dict(r) for r in rows] if rows else []
         except Exception as e:
-            print(f"⚠️ get_album_list 出错: {e}", flush=True)
+            print(f"⚠️ 1013 get_album_list 出错: {e}", flush=True)
             return []
         finally:
             await cls.release(conn, cur)

@@ -475,7 +475,7 @@ def main_menu_keyboard():
             InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
         ],
         [
-            InlineKeyboardButton(text="📦 合集", callback_data="collection"),
+            InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
         ],
         # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
@@ -499,12 +499,12 @@ def ranking_menu_keyboard():
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
-# == 合集菜单 ==
+# == 资源橱窗菜单 ==
 def collection_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📦 我的合集", callback_data="clt_my")],
-        [InlineKeyboardButton(text="❤️ 我收藏的合集", callback_data="clt_favorite")],
-        [InlineKeyboardButton(text="🛍️ 逛逛合集市场", callback_data="explore_marketplace")],
+        [InlineKeyboardButton(text="🪟 我的资源橱窗", callback_data="clt_my")],
+        [InlineKeyboardButton(text="❤️ 我收藏的资源橱窗", callback_data="clt_favorite")],
+        [InlineKeyboardButton(text="🛍️ 逛逛资源橱窗广场", callback_data="explore_marketplace")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -513,10 +513,10 @@ def collection_menu_keyboard():
 # ========= 菜单构建 =========
 def _build_clt_edit_keyboard(collection_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📌 合集主题", callback_data=f"clt:edit_title:{collection_id}")],
-        [InlineKeyboardButton(text="📝 合集简介", callback_data=f"clt:edit_desc:{collection_id}")],
+        [InlineKeyboardButton(text="📌 资源橱窗主题", callback_data=f"clt:edit_title:{collection_id}")],
+        [InlineKeyboardButton(text="📝 资源橱窗简介", callback_data=f"clt:edit_desc:{collection_id}")],
         [InlineKeyboardButton(text="👁 是否公开", callback_data=f"cc:is_public:{collection_id}")],
-        [InlineKeyboardButton(text=f"🔙 返回合集信息{collection_id}", callback_data=f"clt:my:{collection_id}:0:k")]
+        [InlineKeyboardButton(text=f"🔙 返回资源橱窗信息{collection_id}", callback_data=f"clt:my:{collection_id}:0:k")]
     ])
 
 def back_only_keyboard(back_to: str):
@@ -539,7 +539,7 @@ def is_public_keyboard(collection_id: int, is_public: int | None):
 
 
 
-# ===== 合集: 标题 =====
+# ===== 资源橱窗: 标题 =====
 
 @router.callback_query(F.data.regexp(r"^clt:edit_title:\d+$"))
 async def handle_clt_edit_title(callback: CallbackQuery, state: FSMContext):
@@ -598,7 +598,7 @@ async def on_title_input(message: Message, state: FSMContext):
     await _build_clt_edit(cid, anchor_message)
     await state.clear()
 
-# ===== 合集 : 简介 =====
+# ===== 资源橱窗 : 简介 =====
 
 @router.callback_query(F.data.regexp(r"^clt:edit_desc:\d+$"))
 async def handle_clt_edit_desc(callback: CallbackQuery, state: FSMContext):
@@ -619,7 +619,7 @@ async def handle_clt_edit_desc(callback: CallbackQuery, state: FSMContext):
     await state.set_state(LZFSM.waiting_for_description)
     await _edit_caption_or_text(
         callback.message,
-        text="🧾 请输入这个合集的介绍：",
+        text="🧾 请输入这个资源橱窗的介绍：",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"clt:edit:{cid}:0:tk")]
         ]),
@@ -655,7 +655,7 @@ async def on_description_input(message: Message, state: FSMContext):
     await state.clear()
 
 
-# ========= 合集:是否公开 =========
+# ========= 资源橱窗:是否公开 =========
 
 @router.callback_query(F.data.regexp(r"^cc:is_public:\d+$"))
 async def handle_cc_is_public(callback: CallbackQuery):
@@ -665,7 +665,7 @@ async def handle_cc_is_public(callback: CallbackQuery):
     rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
     is_public = rec.get("is_public") if rec else None
 
-    text = "👁 请选择这个合集是否可以公开："
+    text = "👁 请选择这个资源橱窗是否可以公开："
     kb = is_public_keyboard(cid, is_public)  # 如果这是 async 函数，记得加 await
 
     # 判断是否媒体消息（photo/video/animation/document 都视为“媒体+caption”）
@@ -693,7 +693,7 @@ async def handle_cc_public_set(callback: CallbackQuery):
     # await callback.message.edit_reply_markup(reply_markup=is_public_keyboard(cid, rec.get("is_public")))
     await callback.answer("✅ 已更新可见性设置")
 
-# ========= 合集:返回（从输入页回设置菜单 / 从“我的合集”回合集主菜单） =========
+# ========= 资源橱窗:返回（从输入页回设置菜单 / 从“我的资源橱窗”回资源橱窗主菜单） =========
 
 # 可用 clt:edit 取代 TODO
 @router.callback_query(F.data.regexp(r"^cc:back:\d+$"))
@@ -701,7 +701,7 @@ async def handle_cc_back(callback: CallbackQuery,state: FSMContext):
     _, _, cid = callback.data.split(":")
     cid = int(cid)
     rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
-    title = rec.get("title") if rec else "未命名合集"
+    title = rec.get("title") if rec else "未命名资源橱窗"
     desc  = rec.get("description") if rec else ""
     pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
 
@@ -719,7 +719,7 @@ def history_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📜 我的上传", callback_data="history_update:0")],
         [InlineKeyboardButton(text="💎 我的兑换", callback_data="history_redeem:0")],
-        [InlineKeyboardButton(text="❤️ 我的收藏合集", callback_data="clt_my")],
+        [InlineKeyboardButton(text="❤️ 我的收藏资源橱窗", callback_data="clt_my")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -1399,7 +1399,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             result = await _get_clti_list(clt_id,page,user_id,"list")
                
             if result.get("success") is False:
-                await message.answer("这个合集暂时没有收录文件", show_alert=True)
+                await message.answer("这个资源橱窗暂时没有收录文件", show_alert=True)
                 return
 
             await _edit_caption_or_text(
@@ -1408,7 +1408,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 reply_markup=result.get("reply_markup"),
                 state= state
             )
-            print(f"删除合集项目 ID: {content_id} {page} {clt_id}")
+            print(f"删除资源橱窗项目 ID: {content_id} {page} {clt_id}")
             pass
         elif parts[0] == "clt":    #remove_collection_item
             collection_id = parts[1]
@@ -1819,13 +1819,13 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     if search_from == "cm":
         reply_markup.inline_keyboard.append(
             [
-                InlineKeyboardButton(text=" 回合集", callback_data=f"clti:list:{search_key_index}:0"),
+                InlineKeyboardButton(text="🔙 回资源橱窗", callback_data=f"clti:list:{search_key_index}:0"),
             ]
         )
     elif search_from == "cf":
         reply_markup.inline_keyboard.append(
             [
-                InlineKeyboardButton(text="📦 回合集", callback_data=f"clti:flist:{search_key_index}:0"),
+                InlineKeyboardButton(text="🔙 回资源橱窗", callback_data=f"clti:flist:{search_key_index}:0"),
             ]
         )    
     elif search_from == "ul":
@@ -1863,7 +1863,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     if ENVIRONMENT == "dev":
         bottom_row.append(
-            InlineKeyboardButton(text="➕ 加入合集", callback_data=f"add_to_collection:{content_id}:0")
+            InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0")
         ) 
 
     reply_markup.inline_keyboard.append(bottom_row)
@@ -1938,18 +1938,18 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
     kb_rows: list[list[InlineKeyboardButton]] = []
 
     if not rows:
-        # 没有合集就引导创建
-        kb_rows.append([InlineKeyboardButton(text="➕ 创建合集", callback_data="clt:create")])
-        kb_rows.append([InlineKeyboardButton(text="🔙 返回合集菜单", callback_data="clt_my")])
+        # 没有资源橱窗就引导创建
+        kb_rows.append([InlineKeyboardButton(text="➕ 创建资源橱窗", callback_data="clt:create")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="clt_my")])
         return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    # 本页 6 条合集选择按钮
+    # 本页 6 条资源橱窗选择按钮
     for r in rows:
         cid = r.get("id")
-        title = (r.get("title") or "未命名合集")[:30]
+        title = (r.get("title") or "未命名资源橱窗")[:30]
         kb_rows.append([
             InlineKeyboardButton(
-                text=f"📦 {title}  #ID{cid}",
+                text=f"🪟 {title}  #ID{cid}",
                 callback_data=f"choose_collection:{cid}:{content_id}:{page}"
             )
         ])
@@ -1964,7 +1964,7 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
         kb_rows.append(nav)
 
     # 返回
-    kb_rows.append([InlineKeyboardButton(text="🔙 返回合集菜单", callback_data="clt_my")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="clt_my")])
 
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
@@ -1977,43 +1977,43 @@ async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
     page = int(page_str)
     user_id = callback.from_user.id
 
-    # 统计用户合集数量 & 取第一个合集ID
+    # 统计用户资源橱窗数量 & 取第一个资源橱窗ID
     count, first_id = await MySQLPool.get_user_collections_count_and_first(user_id=user_id)
 
     if count == 0:
-        # 自动创建一个默认合集并加入
-        new_id = await MySQLPool.create_default_collection(user_id=user_id, title="未命名合集")
+        # 自动创建一个默认资源橱窗并加入
+        new_id = await MySQLPool.create_default_collection(user_id=user_id, title="未命名资源橱窗")
         if not new_id:
-            await callback.answer("创建合集失败，请稍后再试", show_alert=True)
+            await callback.answer("创建资源橱窗失败，请稍后再试", show_alert=True)
             return
 
         ok = await MySQLPool.add_content_to_user_collection(collection_id=new_id, content_id=content_id)
-        tip = "✅ 已为你创建合集并加入" if ok else "合集已创建，但加入失败"
+        tip = "✅ 已为你创建资源橱窗并加入" if ok else "资源橱窗已创建，但加入失败"
         await callback.answer(tip, show_alert=False)
-        # 也可以顺手把按钮切到“我的合集”：
+        # 也可以顺手把按钮切到“我的资源橱窗”：
         # kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=0)
-        # await _edit_caption_or_text(callback.message, text="你的合集：", reply_markup=kb)
+        # await _edit_caption_or_text(callback.message, text="你的资源橱窗：", reply_markup=kb)
         return
 
     if count == 1 and first_id:
-        # 直接加入唯一合集
+        # 直接加入唯一资源橱窗
         ok = await MySQLPool.add_content_to_user_collection(collection_id=first_id, content_id=content_id)
-        tip = "✅ 已加入你的唯一合集" if ok else "⚠️ 已在该合集里或加入失败"
+        tip = "✅ 已加入你的唯一资源橱窗" if ok else "⚠️ 已在该资源橱窗里或加入失败"
         await callback.answer(tip, show_alert=False)
         return
 
-    # 多个合集 → 弹出分页选择
+    # 多个资源橱窗 → 弹出分页选择
     kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=page)
     await _edit_caption_or_text(
         callback.message,
-        text=f"请选择要加入的合集（第 {page+1} 页）：",
+        text=f"请选择要加入的资源橱窗（第 {page+1} 页）：",
         reply_markup=kb,
         state= state
     )
     await callback.answer()
 
 
-# 选择某个合集 → 写入 user_collection_file（去重）
+# 选择某个资源橱窗 → 写入 user_collection_file（去重）
 @router.callback_query(F.data.regexp(r"^choose_collection:(\d+):(\d+):(\d+)$"))
 async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
     _, cid_str, content_id_str, page_str = callback.data.split(":")
@@ -2026,17 +2026,17 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
 
     ok = await MySQLPool.add_content_to_user_collection(collection_id=collection_id, content_id=content_id)
     if ok:
-        tip = "✅ 已加入该合集"
+        tip = "✅ 已加入该资源橱窗"
     else:
-        tip = "⚠️ 已在该合集里或加入失败"
+        tip = "⚠️ 已在该资源橱窗里或加入失败"
 
     product_info = await _build_product_info(content_id=content_id, search_key_index=search_key_index, state=state, message=callback.message)
-    # 保持在选择页，方便继续加入其他合集
+    # 保持在选择页，方便继续加入其他资源橱窗
     # kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=page)
     try:
         await callback.message.edit_reply_markup(reply_markup=product_info['reply_markup'])
     except Exception as e:
-        print(f"❌ 刷新加入合集页失败: {e}", flush=True)
+        print(f"❌ 刷新加入资源橱窗页失败: {e}", flush=True)
 
     await callback.answer(tip, show_alert=False)
 
@@ -2079,7 +2079,7 @@ async def handle_collection(callback: CallbackQuery):
         message_id=callback.message.message_id,
         media=InputMediaPhoto(
             media=lz_var.skins['clt_menu']['file_id'],
-            caption="👋 合集菜单！请选择操作：",
+            caption="👋 资源橱窗菜单！请选择操作：",
             parse_mode="HTML"
         ),
         reply_markup=collection_menu_keyboard()
@@ -2088,7 +2088,7 @@ async def handle_collection(callback: CallbackQuery):
 
     # await callback.message.answer_photo(
     #     photo=lz_var.skins['clt_menu']['file_id'],
-    #     caption="👋 合集菜单！请选择操作：",
+    #     caption="👋 资源橱窗菜单！请选择操作：",
     #     parse_mode="HTML",
     #     reply_markup=collection_menu_keyboard())   
 
@@ -2481,14 +2481,14 @@ async def _load_collections_rows(user_id: int, page: int, mode: str):
 
 def _collection_btn_text(row: dict) -> str:
     cid   = row.get("id")
-    title = (row.get("title") or "未命名合集")[:30]
+    title = (row.get("title") or "未命名资源橱窗")[:30]
     pub   = "公开" if (row.get("is_public") == 1) else "不公开"
     return f"〈{title}〉（{pub}）#ID{cid}"
 
 async def build_collections_keyboard(user_id: int, page: int, mode: str) -> InlineKeyboardMarkup:
     """
-    mode: 'mine'（我的合集）| 'fav'（我收藏的合集）
-    每页 6 行合集按钮；第 7 行：上一页 | [创建，仅 mine] | 下一页（上一/下一按需显示）
+    mode: 'mine'（我的资源橱窗）| 'fav'（我收藏的资源橱窗）
+    每页 6 行资源橱窗按钮；第 7 行：上一页 | [创建，仅 mine] | 下一页（上一/下一按需显示）
     最后一行：🔙 返回上页
     """
     PAGE_SIZE = 6
@@ -2502,11 +2502,11 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
     if not display:
         # 空列表：mine 显示创建，fav 不显示创建
         if mode == "mine":
-            kb_rows.append([InlineKeyboardButton(text="➕ 创建合集", callback_data="clt:create")])
+            kb_rows.append([InlineKeyboardButton(text="➕ 创建资源橱窗", callback_data="clt:create")])
         kb_rows.append([InlineKeyboardButton(text="🔙 返回上页", callback_data="collection")])
         return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    # 6 行合集按钮
+    # 6 行资源橱窗按钮
     for r in display:
         cid = r.get("id")
         btn_text = _collection_btn_text(r)
@@ -2518,7 +2518,7 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
         nav_row.append(InlineKeyboardButton(text="⬅️ 上一页", callback_data=f"{list_prefix}:{page-1}"))
 
     if mode == "mine":
-        nav_row.append(InlineKeyboardButton(text="➕ 创建合集", callback_data="clt:create"))
+        nav_row.append(InlineKeyboardButton(text="➕ 创建资源橱窗", callback_data="clt:create"))
 
     if has_next:
         nav_row.append(InlineKeyboardButton(text="下一页 ➡️", callback_data=f"{list_prefix}:{page+1}"))
@@ -2529,20 +2529,20 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
 
     # 返回上页
 
-    kb_rows.append([InlineKeyboardButton(text="🔙 返回合集菜单", callback_data="collection")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="collection")])
 
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
 
-# ====== “我的合集”入口用通用键盘（保持既有行为）======
+# ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
 
 @router.callback_query(F.data == "clt_my")
 async def handle_clt_my(callback: CallbackQuery,state: FSMContext):
     user_id = callback.from_user.id
-    # “我的合集”之前是只换按钮；为了统一体验，也可以换 text，但你要求按钮呈现，因此只换按钮：
+    # “我的资源橱窗”之前是只换按钮；为了统一体验，也可以换 text，但你要求按钮呈现，因此只换按钮：
 
-    text = f'这是你的合集'
+    text = f'这是你的资源橱窗'
 
     await _edit_caption_or_text(
         photo=lz_var.skins['clt_my']['file_id'],
@@ -2565,10 +2565,10 @@ async def handle_clt_my_pager(callback: CallbackQuery):
     kb = await build_collections_keyboard(user_id=user_id, page=int(page_str), mode="mine")
     await callback.message.edit_reply_markup(reply_markup=kb)
 
-#查看合集
+#查看资源橱窗
 @router.callback_query(F.data.regexp(r"^clt:my:(\d+)(?::(\d+)(?::([A-Za-z0-9]+))?)?$"))
 async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
-    # ====== “我的合集”入口用通用键盘（保持既有行为）======
+    # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_my_detail: {callback.data}")
     _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
     cid = int(cid_str)
@@ -2612,10 +2612,10 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
     #     "menu_message": new_message
     # })
 
-#编辑合集详情
+#编辑资源橱窗详情
 @router.callback_query(F.data.regexp(r"^clt:edit:\d+:\d+(?::([A-Za-z]+))?$"))
 async def handle_clt_edit(callback: CallbackQuery,state: FSMContext):
-    # ====== “我的合集”入口用通用键盘（保持既有行为）======
+    # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_edit: {callback.data}")
     _, _, cid_str, page_str, refresh_mode = callback.data.split(":")
     cid = int(cid_str)
@@ -2651,7 +2651,7 @@ async def _build_clt_edit(cid: int, anchor_message: Message,state: FSMContext):
 async def _build_clt_edit_caption(cid: int ):
     
     rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
-    title = rec.get("title") if rec else "未命名合集"
+    title = rec.get("title") if rec else "未命名资源橱窗"
     desc  = rec.get("description") if rec else ""
     pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
 
@@ -2668,23 +2668,23 @@ async def _build_clt_edit_caption(cid: int ):
     return text
 
 
-# ====== “我收藏的合集”入口（复用通用键盘，mode='fav'）======
+# ====== “我收藏的资源橱窗”入口（复用通用键盘，mode='fav'）======
 
-#创建合集
+#创建资源橱窗
 @router.callback_query(F.data == "clt:create")
 async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    ret = await MySQLPool.create_user_collection(user_id=user_id)  # 默认：未命名合集、公开
+    ret = await MySQLPool.create_user_collection(user_id=user_id)  # 默认：未命名资源橱窗、公开
     cid = ret.get("id")
 
 
     rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
-    title = rec.get("title") if rec else "未命名合集"
+    title = rec.get("title") if rec else "未命名资源橱窗"
     desc  = rec.get("description") if rec else ""
     pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
 
     text = (
-        f"🆕 已创建合集：\n"
+        f"🆕 已创建资源橱窗：\n"
         f"• ID：{cid}\n"
         f"• 标题：{title}\n"
         f"• 公开：{pub}\n"
@@ -2708,7 +2708,7 @@ async def handle_clt_favorite(callback: CallbackQuery,state: FSMContext):
     await _edit_caption_or_text(
         photo=lz_var.skins['clt_fav']['file_id'],
         msg=callback.message,
-        text="这是你收藏的合集", 
+        text="这是你收藏的资源橱窗", 
         reply_markup=kb,
         state= state
     )
@@ -2725,16 +2725,16 @@ async def handle_clt_favorite_pager(callback: CallbackQuery):
 
 # 收藏列表点击 → 详情（只读，无“标题/简介/公开”按钮）
 def favorite_detail_keyboard(page: int):
-    # 只提供返回收藏列表与回合集主菜单
+    # 只提供返回收藏列表与回资源橱窗主菜单
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 返回收藏列表", callback_data=f"cc:flist:{page}")],
-        [InlineKeyboardButton(text="📦 回合集菜单", callback_data="collection")],
+        [InlineKeyboardButton(text="🪟 回资源橱窗菜单", callback_data="collection")],
     ])
 
 
 @router.callback_query(F.data.regexp(r"^clt:fav:(\d+)(?::(\d+)(?::([A-Za-z0-9]+))?)?$"))
 async def handle_clt_fav(callback: CallbackQuery):
-    # ====== “我收藏的合集”入口（复用通用键盘，mode='fav'）======
+    # ====== “我收藏的资源橱窗”入口（复用通用键盘，mode='fav'）======
     print(f"handle_clt_fav: {callback.data}")
     _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
     cid = int(cid_str)
@@ -2784,19 +2784,19 @@ async def handle_clt_fav(callback: CallbackQuery):
 
 
 
-# ============ /set [id]：合集信息/列表/收藏切换 ============
+# ============ /set [id]：资源橱窗信息/列表/收藏切换 ============
 
 
 
 def _build_clt_info_caption(rec: dict) -> str:
     return (
-        f"<blockquote>{rec.get('title') or '未命名合集'}</blockquote>\n"
+        f"<blockquote>{rec.get('title') or '未命名资源橱窗'}</blockquote>\n"
         f"{rec.get('description') or ''}\n\n"
         f"🆔 {rec.get('id')}     👤 {rec.get('user_id')}\n"
     )
 
 
-#collection > 合集 Partal > 合集列表 CollectionList > [单一合集页 CollectionDetail] > 显示合集内容 CollectItemList 或 编辑合集 CollectionEdit
+#collection > 资源橱窗 Partal > 资源橱窗列表 CollectionList > [单一资源橱窗页 CollectionDetail] > 显示资源橱窗内容 CollectItemList 或 编辑资源橱窗 CollectionEdit
 def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: str = 'handle_clt_fav') -> InlineKeyboardMarkup:
     kb_rows: list[list[InlineKeyboardButton]] = []
 
@@ -2809,10 +2809,10 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
         callback_function = 'clti:flist' 
 
     nav_row: list[InlineKeyboardButton] = []
-    nav_row.append(InlineKeyboardButton(text="📦 显示合集内容", callback_data=f"{callback_function}:{cid}:0"))
+    nav_row.append(InlineKeyboardButton(text="🪟 显示资源橱窗内容", callback_data=f"{callback_function}:{cid}:0"))
 
     if mode == 'edit':
-        nav_row.append(InlineKeyboardButton(text="🔧 编辑合集", callback_data=f"clt:edit:{cid}:0:k"))
+        nav_row.append(InlineKeyboardButton(text="🔧 编辑资源橱窗", callback_data=f"clt:edit:{cid}:0:k"))
     else:
         fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
         nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
@@ -2821,13 +2821,13 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
         kb_rows.append(nav_row)  
 
     shared_url = f"https://t.me/{lz_var.bot_username}?start=clt_{cid}"
-    kb_rows.append([InlineKeyboardButton(text="🔗 复制合集链结", copy_text=CopyTextButton(text=shared_url))])
+    kb_rows.append([InlineKeyboardButton(text="🔗 复制资源橱窗链结", copy_text=CopyTextButton(text=shared_url))])
 
 
     if ops == 'handle_clt_my':
-        kb_rows.append([InlineKeyboardButton(text="🔙 返回我的合集", callback_data="clt_my")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回我的资源橱窗", callback_data="clt_my")])
     elif ops == 'handle_clt_fav':
-        kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的合集", callback_data="clt_favorite")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的资源橱窗", callback_data="clt_favorite")])
     else:
         kb_rows.append([InlineKeyboardButton(text="🔙 返回", callback_data="clt_my")])
 
@@ -2836,16 +2836,16 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
-# 查看合集的按钮
+# 查看资源橱窗的按钮
 def _clti_list_keyboard(cid: int, page: int, has_prev: bool, has_next: bool, is_fav: bool, mode: str = 'view') -> InlineKeyboardMarkup:
     nav_row: list[InlineKeyboardButton] = []
     rows = []
     if mode == 'list':
         callback_function = 'my'
-        title = "🔙 返回我的合集主页"
+        title = "🔙 返回我的资源橱窗主页"
     elif mode == 'flist':
         callback_function = 'fav' 
-        title = "🔙 返回收藏的合集主页"
+        title = "🔙 返回收藏的资源橱窗主页"
 
 
     if has_prev:
@@ -2876,17 +2876,17 @@ def _clti_list_keyboard(cid: int, page: int, has_prev: bool, has_next: bool, is_
 async def handle_set_collection(message: Message):
     args = message.text.split(maxsplit=1)
     if len(args) < 2 or not args[1].strip().isdigit():
-        await message.answer("用法：/set [合集ID]")
+        await message.answer("用法：/set [资源橱窗ID]")
         return
 
     cid = int(args[1].strip())
     user_id = message.from_user.id
     retCollect = await _build_clt_info(cid=cid, user_id=user_id, ops='handle_set_collection')
 
-# 查看合集
+# 查看资源橱窗
 async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str ='set') -> dict:
     bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
-    # 查询合集 + 封面 file_id（遵循你给的 SQL）
+    # 查询资源橱窗 + 封面 file_id（遵循你给的 SQL）
     rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
     if not rec:
         # return await message.answer("⚠️ 未找到该收藏")
@@ -2922,8 +2922,8 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
             return {"success": True,  "caption": caption, "reply_markup": kb}
            
     except Exception as e:
-        print(f"❌ 发送合集信息失败: {e}", flush=True)
-        # return await message.answer("⚠️ 发送合集信息失败")
+        print(f"❌ 发送资源橱窗信息失败: {e}", flush=True)
+        # return await message.answer("⚠️ 发送资源橱窗信息失败")
         return {"success": False,  "caption": caption, "reply_markup": kb}
         
 
@@ -2954,7 +2954,7 @@ async def handle_clti_list(callback: CallbackQuery, state: FSMContext):
     result = await _get_clti_list(clt_id,page,user_id,mode)
 
     if result.get("success") is False:
-        await callback.answer("这个合集暂时没有收录文件", show_alert=True)
+        await callback.answer("这个资源橱窗暂时没有收录文件", show_alert=True)
         return
 
     await _edit_caption_or_text(
@@ -2975,10 +2975,10 @@ async def _get_clti_list(cid,page,user_id,mode):
     is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
 
     if not display:
-        return {"success": False, "message": "这个合集暂时没有收录文件"}
+        return {"success": False, "message": "这个资源橱窗暂时没有收录文件"}
    
     # 组装列表 caption：仅列 file_id
-    lines = [f"合集 #{cid} 文件列表（第 {page+1} 页）", ""]
+    lines = [f"资源橱窗 #{cid} 文件列表（第 {page+1} 页）", ""]
     for idx, f in enumerate(display, start=1):
         # print(f"f{f}",flush=True)
         content = _short(f.get("content"))
@@ -3024,7 +3024,7 @@ async def _get_clti_list(cid,page,user_id,mode):
 
 
 
-# 「合集信息」：恢复信息视图
+# 「资源橱窗信息」：恢复信息视图
 @router.callback_query(F.data.regexp(r"^uc:info:\d+$"))
 async def handle_uc_info(callback: CallbackQuery,state: FSMContext):
     _, _, cid_str = callback.data.split(":")
@@ -3044,7 +3044,7 @@ async def handle_uc_fav(callback: CallbackQuery):
     cid = int(cid_str)
     user_id = callback.from_user.id
 
-    print(f"➡️ 用户 {user_id} 切换合集 {cid} 收藏状态", flush=True)
+    print(f"➡️ 用户 {user_id} 切换资源橱窗 {cid} 收藏状态", flush=True)
 
     is_fav = False
     already = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
@@ -3057,7 +3057,7 @@ async def handle_uc_fav(callback: CallbackQuery):
         tip = "已加入收藏" if ok else "收藏失败"
         is_fav = True
 
-    print(f"➡️ 用户 {user_id} 合集 {cid} 收藏状态切换结果: {tip}", flush=True)
+    print(f"➡️ 用户 {user_id} 资源橱窗 {cid} 收藏状态切换结果: {tip}", flush=True)
 
     # 判断当前是否列表视图：看 caption 文本是否包含“文件列表”
     is_list_view = False
@@ -3095,7 +3095,7 @@ async def handle_uc_fav(callback: CallbackQuery):
 
 @router.callback_query(F.data == "explore_marketplace")
 async def handle_explore_marketplace(callback: CallbackQuery):
-    await callback.message.answer("🛍️ 欢迎来到合集市场，看看其他人都在收藏什么吧！")
+    await callback.message.answer("🛍️ 欢迎来到资源橱窗展场，看看其他人都在收藏什么吧！")
 
 
 
@@ -3159,20 +3159,20 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
                 return
            
         elif search_from == "cm" or search_from == "cf":
-            # print(f"🔍 搜索合集 ID {search_key_index} 的内容")
+            # print(f"🔍 搜索资源橱窗 ID {search_key_index} 的内容")
             # 拉取收藏夹内容
             result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
             if not result:
-                await callback.answer("⚠️ 合集为空", show_alert=True)
+                await callback.answer("⚠️ 资源橱窗为空", show_alert=True)
                 return
         elif search_from == "fd":
-            # print(f"🔍 搜索合集 ID {search_key_index} 的内容")
+            # print(f"🔍 搜索资源橱窗 ID {search_key_index} 的内容")
             result = await PGPool.search_history_redeem(search_key_index)
             if not result:
                 await callback.answer("⚠️ 兑换纪录为空", show_alert=True)
                 return    
         elif search_from == "ul":
-            # print(f"🔍 搜索合集 ID {search_key_index} 的内容")
+            # print(f"🔍 搜索资源橱窗 ID {search_key_index} 的内容")
             result = await PGPool.search_history_upload(search_key_index)
             if not result:
                 await callback.answer("⚠️ 上传纪录为空", show_alert=True)
@@ -3967,7 +3967,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 
                 clt_info = await MySQLPool.get_user_collection_by_id(collection_id=int(search_key_index))
                 
-                ret_content += f"\r\n📦 合集: {clt_info.get('title')}\n\n"
+                ret_content += f"\r\n🪟 资源橱窗: {clt_info.get('title')}\n\n"
             else:
                 keyword = await db.get_keyword_by_id(int(search_key_index))
                 if keyword:

@@ -977,7 +977,7 @@ class AnanBOTPool(LYBase):
                 m.source_bot_name,
                 m.thumb_file_id,
                 m.file_id,
-                fe.file_id AS ext_file_id
+                fe.file_id AS ext_file_id,
                 c.preview 
             FROM album_items AS c
             LEFT JOIN sora_content AS s

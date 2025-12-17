@@ -747,9 +747,9 @@ class DB:
                 m.source_bot_name,
                 m.thumb_file_id,
                 m.file_id,
-                fe.file_id AS ext_file_id
+                fe.file_id AS ext_file_id,
                 c.preview 
-            FROM album_items AS c
+            FROM album_items AS c 
             LEFT JOIN sora_content AS s
                 ON c.member_content_id = s.id
             LEFT JOIN sora_media   AS m
@@ -799,7 +799,7 @@ class DB:
 
                 return dict_rows
         except Exception as e:
-            print(f"⚠️ get_album_list 出错: {e}", flush=True)
+            print(f"⚠️ 802 get_album_list 出错: {e}", flush=True)
             return []
 
 

@@ -107,9 +107,9 @@ class MySQLPool:
 
 
 async def sync():
-
-    await MySQLPool.init_pool()
-    await diff_bodyexam_files()
+    await sync_product_mysql_to_postgres_no_json_fix()
+    # await MySQLPool.init_pool()
+    # await diff_bodyexam_files()
 
     # # 1. 同步 / 修复 file_record
     # while False:
@@ -138,6 +138,176 @@ async def sync():
     #     if summary.get("checked", 0) == 0:
     #         break
 
+
+
+'''
+同步 product 表
+'''
+async def sync_product_mysql_to_postgres_no_json_fix(
+    batch_size: int = 2000,
+) -> Dict[str, int]:
+    """
+    全量同步 MySQL.product -> PostgreSQL.public.product（PG 目前为空也可用）
+    - PG product.id 显式写入 MySQL.id（不走 nextval）
+    - purchase_condition 不做任何清洗/容错：原样写入，并在 PG 端强制 ::jsonb
+      => 只要遇到不合法 JSON，会直接报错中断（符合“不处理 JSON 不合法”的要求）
+    - 同步完成后修正 product_id_seq，避免后续 nextval 撞号
+    """
+    await MySQLPool.init_pool()
+    await PGPool.init_pool()
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    fetched = 0
+    inserted_or_updated = 0
+    last_id = 0
+
+    while True:
+        conn, cur = await MySQLPool.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT
+                    id,
+                    name,
+                    content,
+                    guild_id,
+                    price,
+                    content_id,
+                    file_type,
+                    owner_user_id,
+                    anonymous_mode,
+                    view_times,
+                    purchase_times,
+                    like_times,
+                    dislike_times,
+                    hot_score,
+                    bid_status,
+                    review_status,
+                    purchase_condition,
+                    created_at,
+                    updated_at
+                FROM product
+                WHERE id > %s
+                ORDER BY id ASC
+                LIMIT %s
+                """,
+                (int(last_id), int(batch_size)),
+            )
+            rows = await cur.fetchall()
+        finally:
+            await MySQLPool.release(conn, cur)
+
+        if not rows:
+            break
+
+        fetched += len(rows)
+        last_id = int(rows[-1]["id"])
+
+        payload: List[Tuple[Any, ...]] = []
+        for r in rows:
+            payload.append((
+                int(r["id"]),
+                r.get("name"),
+                r.get("content"),
+                r.get("guild_id"),
+                int(r.get("price") or 0),
+                int(r["content_id"]),
+                r.get("file_type"),
+                r.get("owner_user_id"),
+                int(r.get("anonymous_mode") or 1),
+                int(r.get("view_times") or 0),
+                int(r.get("purchase_times") or 0),
+                int(r.get("like_times") or 0),
+                int(r.get("dislike_times") or 0),
+                int(r.get("hot_score") or 0),
+                int(r.get("bid_status") or 0),
+                int(r.get("review_status") or 0),
+                r.get("purchase_condition"),  # 原样：str/None
+                r.get("created_at"),
+                r.get("updated_at"),
+            ))
+
+        pg_conn = await PGPool.acquire()
+        try:
+            sql = """
+                INSERT INTO public.product (
+                    id,
+                    name,
+                    content,
+                    guild_id,
+                    price,
+                    content_id,
+                    file_type,
+                    owner_user_id,
+                    anonymous_mode,
+                    view_times,
+                    purchase_times,
+                    like_times,
+                    dislike_times,
+                    hot_score,
+                    bid_status,
+                    review_status,
+                    purchase_condition,
+                    created_at,
+                    updated_at
+                )
+                VALUES (
+                    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+                    $11,$12,$13,$14,$15,$16,
+                    $17,
+                    $18,$19
+                )
+                ON CONFLICT (content_id) DO UPDATE SET
+                    id = EXCLUDED.id,
+                    name = EXCLUDED.name,
+                    content = EXCLUDED.content,
+                    guild_id = EXCLUDED.guild_id,
+                    price = EXCLUDED.price,
+                    file_type = EXCLUDED.file_type,
+                    owner_user_id = EXCLUDED.owner_user_id,
+                    anonymous_mode = EXCLUDED.anonymous_mode,
+                    view_times = EXCLUDED.view_times,
+                    purchase_times = EXCLUDED.purchase_times,
+                    like_times = EXCLUDED.like_times,
+                    dislike_times = EXCLUDED.dislike_times,
+                    hot_score = EXCLUDED.hot_score,
+                    bid_status = EXCLUDED.bid_status,
+                    review_status = EXCLUDED.review_status,
+                    purchase_condition = EXCLUDED.purchase_condition,
+                    created_at = COALESCE(EXCLUDED.created_at, public.product.created_at),
+                    updated_at = COALESCE(EXCLUDED.updated_at, public.product.updated_at)
+            """
+            async with pg_conn.transaction():
+                await pg_conn.executemany(sql, payload)
+                inserted_or_updated += len(payload)
+        finally:
+            await PGPool.release(pg_conn)
+
+        print(f"✅ [product sync] batch done, last_id={last_id}, rows={len(rows)}", flush=True)
+
+    # 修正 sequence
+    pg_conn = await PGPool.acquire()
+    try:
+        async with pg_conn.transaction():
+            await pg_conn.execute(
+                """
+                SELECT setval(
+                    'product_id_seq',
+                    GREATEST((SELECT COALESCE(MAX(id), 0) FROM public.product), 1),
+                    true
+                )
+                """
+            )
+    finally:
+        await PGPool.release(pg_conn)
+
+    summary = {"fetched": fetched, "inserted_or_updated": inserted_or_updated}
+    print(f"🎯 [product sync] DONE: {summary}", flush=True)
+    return summary
+
+''''
+'''
 
 
 

@@ -409,6 +409,7 @@ class PGPool:
                 p_owner_user_id = mysql_row.get("owner_user_id")
                 purchase_condition = mysql_row.get("purchase_condition")
                 guild_id = mysql_row.get("guild_id")
+                product_id = mysql_row.get("product_id")
 
                 affected2 = 0
                 if any(v is not None for v in (fee, product_type, p_owner_user_id, purchase_condition, guild_id)):
@@ -420,12 +421,13 @@ class PGPool:
 
                     sql_product = """
                         INSERT INTO product (
-                            content_id, price, file_type, owner_user_id, purchase_condition, guild_id,
+                            id,content_id, price, file_type, owner_user_id, purchase_condition, guild_id,
                             created_at, updated_at
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                         ON CONFLICT (content_id)
                         DO UPDATE SET
+                            content_id         = EXCLUDED.content_id,
                             price              = EXCLUDED.price,
                             file_type          = EXCLUDED.file_type,
                             owner_user_id      = EXCLUDED.owner_user_id,
@@ -435,7 +437,7 @@ class PGPool:
                     """
                     tag_ret2 = await conn.execute(
                         sql_product,
-                        content_id, price_int, product_type, p_owner_user_id, purchase_condition, guild_id
+                        product_id, content_id, price_int, product_type, p_owner_user_id, purchase_condition, guild_id
                     )
                     try:
                         affected2 = int(tag_ret2.split()[-1])
@@ -854,7 +856,7 @@ class PGPool:
                 price = int(r.get("price") or 0)
             except Exception:
                 price = 0
-
+            id = r.get("id")
             file_type = r.get("file_type")
             owner_user_id = r.get("owner_user_id")
             owner_user_id = int(owner_user_id) if owner_user_id is not None else None
@@ -863,6 +865,7 @@ class PGPool:
 
             payload.append(
                 (
+                    id,
                     content_id,
                     price,
                     file_type,
@@ -874,6 +877,7 @@ class PGPool:
 
         sql = """
             INSERT INTO product (
+                id,
                 content_id,
                 price,
                 file_type,
@@ -884,9 +888,10 @@ class PGPool:
                 updated_at
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6, $7, NOW(), NOW()
             )
             ON CONFLICT (content_id) DO UPDATE SET
+                content_id         = EXCLUDED.content_id,
                 price              = EXCLUDED.price,
                 file_type          = EXCLUDED.file_type,
                 owner_user_id      = EXCLUDED.owner_user_id,

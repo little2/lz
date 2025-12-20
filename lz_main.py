@@ -314,7 +314,7 @@ async def update_username(client,username):
         print(f"变更失败：{e}")
 
 async def sync():
-    while True:
+    while False:
         summary = await check_file_record(limit=100)
         if summary["checked"] == 0:
             break

@@ -890,6 +890,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
         for sc in result:
             cid = sc.get("id") or sc.get("content_id")
             fuid = sc.get("source_id") or sc.get("file_unique_id")
+            tfuid = sc.get("thumb_file_unique_id")
 
             if not cid or not fuid:
                 continue
@@ -1029,10 +1030,12 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
 
             async def _one_fetch(fuid: str = fuid):
                 try:
+                    _thumb_file_unique_id = already_prefetched['thumb_file_unique_id'] 
                     # 暂停 1 秒
                     await asyncio.sleep(1.0)
                    
                     await Media.fetch_file_by_file_uid_from_x(state=None, ask_file_unique_id=fuid, timeout_sec=10.0)
+                    await Media.fetch_file_by_file_uid_from_x(state=None, ask_file_unique_id=_thumb_file_unique_id, timeout_sec=10.0)
                     # 成功后，真正的 file_id / thumb_file_id 会被写回 sora_media。
                     # 以后再触发预加载时，PG 查询 + cache 会拿到最新状态。
                 except Exception as e:
@@ -1041,7 +1044,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
             tasks.append(asyncio.create_task(_one_fetch()))
             started += 1
 
-            if started >= (int(RESULTS_PER_PAGE/2)+1):
+            if started >= (int(RESULTS_PER_PAGE/2)-1):
                 break
 
         if tasks:
@@ -1113,6 +1116,7 @@ async def _build_pagination(
         # 注意要把 result 拷贝成 list，避免外面后续修改它
         snapshot = list(result)
 
+        #预加载任务
         spawn_once(
             key,
             lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),
@@ -1254,10 +1258,6 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     # 限制最大长度，避免恶意灌长字串
     if len(keyword) > 50:
         keyword = keyword[:50]
-
-    
-
-    
 
     await db.insert_search_log(message.from_user.id, keyword)
     result = await db.upsert_search_keyword_stat(keyword)

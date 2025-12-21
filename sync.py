@@ -5,7 +5,7 @@ from lz_pgsql import PGPool
 # sync_mysql_pool.py
 import os
 import aiomysql
-from typing import Optional, Tuple, Any, Dict, List
+from typing import Optional, Tuple, Any, Dict, List, Set
 from lexicon_manager import LexiconManager
 
 
@@ -500,7 +500,9 @@ async def diff_bodyexam_files():
     return c_ids
 
 
-async def append_bodyexam_to_content_seg(file_unique_ids: set[str]) -> int:
+from typing import Set
+
+async def append_bodyexam_to_content_seg(file_unique_ids: Set[str]) -> int:
     """
     给 sora_content.content_seg 追加 '身体检查'
     - 不重复追加
@@ -1324,43 +1326,39 @@ async def dedupe_bid_thumbnail_t_update4_to5_batched(
 
 
 
+
 async def apply_thumb_from_bid_thumbnail_t5_batched(
     batch_size: int = 500,
     sleep_seconds: float = 0.0,
     max_rounds: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    处理 bid_thumbnail.t_update=5:
-    - JOIN sora_content ON sc.source_id = bt.file_unique_id
+    对 bid_thumbnail.t_update=5 执行对齐：
+    - sc.source_id = bt.file_unique_id
     - 若 bt.thumb_file_unique_id == sc.thumb_file_unique_id:
-        -> bt.t_update = 1
-    - 否则:
-        -> bt.t_update = 6
-        -> sc.thumb_file_unique_id = bt.thumb_file_unique_id
-        -> sora_media.thumb_file_id = NULL WHERE sora_media.content_id = sc.id
+        bt.t_update = 1
+      否则:
+        bt.t_update = 6
+        sc.thumb_file_unique_id = bt.thumb_file_unique_id
+        sora_media.thumb_file_id = NULL WHERE sora_media.content_id = sc.id
 
-    特性：
-    - 分批处理（LIMIT batch_size）
-    - 每批打印进度
-    - Ctrl+C 可中断（已提交批次不回滚，只停止后续批次）
-
-    注意：
-    - bid_thumbnail 是 MyISAM（表级锁、无事务）
-    - sora_content/sora_media 是 InnoDB（事务可用）
-    - 因此我们按“小批次 + InnoDB 事务”尽量降低不一致窗口
+    说明：
+    - bid_thumbnail(MyISAM) 无事务；sora_content/sora_media(InnoDB) 有事务
+    - 本实现以“小批次 + InnoDB 事务”降低不一致窗口
     """
     await MySQLPool.init_pool()
     await MySQLPool.ensure_pool()
 
     rounds = 0
     total_scanned = 0
-    total_equal_to_1 = 0
-    total_mismatch_to_6 = 0
-    total_sc_updated = 0
-    total_sm_null = 0
+    total_bt_to_1 = 0
+    total_bt_to_6 = 0
+    total_sc_thumb_updated = 0
+    total_sm_thumb_nulled = 0
 
     print(
-        f"🚀 [t5->(1/6)] start: batch_size={batch_size}, sleep={sleep_seconds}, max_rounds={max_rounds}",
+        "[t5->(1/6)] start: batch_size=%s sleep=%s max_rounds=%s"
+        % (batch_size, sleep_seconds, max_rounds),
         flush=True,
     )
 
@@ -1368,14 +1366,14 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
         while True:
             rounds += 1
             if max_rounds is not None and rounds > int(max_rounds):
-                print(f"🛑 Reached max_rounds={max_rounds}. Stop.", flush=True)
+                print("🛑 Reached max_rounds=%s. Stop." % max_rounds, flush=True)
                 break
 
-            # 1) 拉一批 t_update=5 的 join 结果（带 sc.id，方便更新 sora_media）
+            # 1) 拉一批需要处理的记录
             conn, cur = await MySQLPool.get_conn_cursor()
             try:
                 await cur.execute(
-                    f"""
+                    """
                     SELECT
                         bt.bid_thumbnail_id AS bt_id,
                         bt.file_unique_id AS file_unique_id,
@@ -1387,8 +1385,9 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
                       ON sc.source_id = bt.file_unique_id
                     WHERE bt.t_update = 5
                     ORDER BY bt.bid_thumbnail_id ASC
-                    LIMIT {int(batch_size)}
-                    """
+                    LIMIT %s
+                    """,
+                    (int(batch_size),),
                 )
                 rows = await cur.fetchall()
             finally:
@@ -1400,42 +1399,41 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
 
             total_scanned += len(rows)
 
-            # 2) 分流：相等 -> t_update=1；不等 -> t_update=6 + 更新 sc + 清空 sm.thumb_file_id
             equal_bt_ids: List[int] = []
-            mismatch_items: List[Tuple[int, int, str]] = []  # (bt_id, content_id, new_thumb_uid)
+            # (bt_id, content_id, new_thumb_uid)
+            mismatch_items: List[Tuple[int, int, Optional[str]]] = []
 
             for r in rows:
                 bt_id = int(r["bt_id"])
                 content_id = int(r["content_id"])
-                bt_thumb_uid = r.get("bt_thumb_uid")
-                sc_thumb_uid = r.get("sc_thumb_uid")
+                bt_thumb_uid = r.get("bt_thumb_uid")  # Optional[str]
+                sc_thumb_uid = r.get("sc_thumb_uid")  # Optional[str]
 
-                # 这里用“字符串完全相等”判断；None 也会参与比较（None==None 视为相等）
                 if bt_thumb_uid == sc_thumb_uid:
                     equal_bt_ids.append(bt_id)
                 else:
                     mismatch_items.append((bt_id, content_id, bt_thumb_uid))
 
-            # 3) 执行更新（同一个连接，InnoDB 部分用事务；MyISAM 无事务但仍可执行）
+            # 2) 执行更新
             conn, cur = await MySQLPool.get_conn_cursor()
             try:
-                # 3.1 相等：bt.t_update = 1
-                updated_to_1 = 0
+                # 2.1 相等：bt.t_update = 1
+                bt_to_1 = 0
                 if equal_bt_ids:
                     placeholders = ",".join(["%s"] * len(equal_bt_ids))
                     await cur.execute(
-                        f"""
+                        """
                         UPDATE bid_thumbnail
                         SET t_update = 1
                         WHERE t_update = 5
-                          AND bid_thumbnail_id IN ({placeholders})
-                        """,
+                          AND bid_thumbnail_id IN (%s)
+                        """ % placeholders,
                         tuple(equal_bt_ids),
                     )
-                    updated_to_1 = cur.rowcount or 0
+                    bt_to_1 = cur.rowcount or 0
 
-                # 3.2 不等：bt.t_update = 6；同时更新 sora_content + sora_media（InnoDB 事务）
-                updated_to_6 = 0
+                # 2.2 不等：bt.t_update = 6（MyISAM）
+                bt_to_6 = 0
                 sc_updated = 0
                 sm_nulled = 0
 
@@ -1443,25 +1441,27 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
                     mismatch_bt_ids = [x[0] for x in mismatch_items]
                     mismatch_content_ids = [x[1] for x in mismatch_items]
 
-                    # 3.2.1 先把 bt 状态改为 6（MyISAM）
                     placeholders = ",".join(["%s"] * len(mismatch_bt_ids))
                     await cur.execute(
-                        f"""
+                        """
                         UPDATE bid_thumbnail
                         SET t_update = 6
                         WHERE t_update = 5
-                          AND bid_thumbnail_id IN ({placeholders})
-                        """,
+                          AND bid_thumbnail_id IN (%s)
+                        """ % placeholders,
                         tuple(mismatch_bt_ids),
                     )
-                    updated_to_6 = cur.rowcount or 0
+                    bt_to_6 = cur.rowcount or 0
 
-                    # 3.2.2 InnoDB 事务：更新 sora_content.thumb_file_unique_id + 清空 sora_media.thumb_file_id
+                    # 2.3 InnoDB 事务：更新 sora_content + sora_media
                     await conn.begin()
                     try:
-                        # 更新 sora_content（逐条 executemany，确保每个 content_id 设到对应的新 thumb_uid）
-                        # payload: (new_thumb_uid, content_id)
-                        payload_sc = [(new_thumb_uid, int(content_id)) for _, content_id, new_thumb_uid in mismatch_items]
+                        # 2.3.1 更新 sora_content.thumb_file_unique_id
+                        # executemany 的 rowcount 在不同驱动/版本下可能不可靠，所以这里以“执行成功”为主。
+                        payload_sc = []
+                        for _, content_id, new_thumb_uid in mismatch_items:
+                            payload_sc.append((new_thumb_uid, int(content_id)))
+
                         await cur.executemany(
                             """
                             UPDATE sora_content
@@ -1472,14 +1472,14 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
                         )
                         sc_updated = cur.rowcount or 0
 
-                        # 清空 sora_media.thumb_file_id（按 content_id 批量）
+                        # 2.3.2 清空 sora_media.thumb_file_id（按 content_id 批量）
                         placeholders = ",".join(["%s"] * len(mismatch_content_ids))
                         await cur.execute(
-                            f"""
+                            """
                             UPDATE sora_media
                             SET thumb_file_id = NULL
-                            WHERE content_id IN ({placeholders}) AND sora_media.source_bot_name!='salai001bot' AND sora_media.source_bot_name!='yanzai2015bot' AND sora_media.source_bot_name!='yanzai807bot'
-                            """,
+                            WHERE content_id IN (%s)
+                            """ % placeholders,
                             tuple(mismatch_content_ids),
                         )
                         sm_nulled = cur.rowcount or 0
@@ -1492,20 +1492,26 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
                             pass
                         raise
 
-                total_equal_to_1 += updated_to_1
-                total_mismatch_to_6 += updated_to_6
-                total_sc_updated += sc_updated
-                total_sm_null += sm_nulled
+                total_bt_to_1 += bt_to_1
+                total_bt_to_6 += bt_to_6
+                total_sc_thumb_updated += sc_updated
+                total_sm_thumb_nulled += sm_nulled
 
             finally:
                 await MySQLPool.release(conn, cur)
 
             print(
-                f"✅ [t5->(1/6)] round={rounds} scanned={len(rows)} "
-                f"to_1={len(equal_bt_ids)}(upd={total_equal_to_1}) "
-                f"to_6={len(mismatch_items)}(upd={total_mismatch_to_6}) "
-                f"sc_upd_add={total_sc_updated} sm_null_add={total_sm_null} "
-                f"scanned_total={total_scanned}",
+                "✅ [t5->(1/6)] round=%s scanned=%s "
+                "bt_to_1=%s bt_to_6=%s sc_updated=%s sm_nulled=%s total_scanned=%s"
+                % (
+                    rounds,
+                    len(rows),
+                    bt_to_1,
+                    bt_to_6,
+                    total_sc_thumb_updated,
+                    total_sm_thumb_nulled,
+                    total_scanned,
+                ),
                 flush=True,
             )
 
@@ -1514,23 +1520,30 @@ async def apply_thumb_from_bid_thumbnail_t5_batched(
 
     except KeyboardInterrupt:
         print(
-            f"⛔ [t5->(1/6)] interrupted by user. rounds={rounds} scanned={total_scanned} "
-            f"to_1={total_equal_to_1} to_6={total_mismatch_to_6} sc_upd={total_sc_updated} sm_null={total_sm_null}",
+            "⛔ [t5->(1/6)] interrupted. rounds=%s scanned=%s bt_to_1=%s bt_to_6=%s sc_updated=%s sm_nulled=%s"
+            % (
+                rounds,
+                total_scanned,
+                total_bt_to_1,
+                total_bt_to_6,
+                total_sc_thumb_updated,
+                total_sm_thumb_nulled,
+            ),
             flush=True,
         )
 
     result = {
         "rounds": rounds,
         "scanned": total_scanned,
-        "bt_set_to_1": total_equal_to_1,
-        "bt_set_to_6": total_mismatch_to_6,
-        "sora_content_thumb_updated": total_sc_updated,
-        "sora_media_thumb_file_id_nulled": total_sm_null,
+        "bt_set_to_1": total_bt_to_1,
+        "bt_set_to_6": total_bt_to_6,
+        "sora_content_thumb_updated": total_sc_thumb_updated,
+        "sora_media_thumb_file_id_nulled": total_sm_thumb_nulled,
         "batch_size": int(batch_size),
         "sleep_seconds": float(sleep_seconds),
         "max_rounds": None if max_rounds is None else int(max_rounds),
     }
-    print(f"📌 [t5->(1/6)] summary: {result}", flush=True)
+    print("📌 [t5->(1/6)] summary: %s" % result, flush=True)
     return result
 
 

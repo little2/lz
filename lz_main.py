@@ -23,6 +23,8 @@ from lz_mysql import MySQLPool
 from handlers import lz_media_parser
 from handlers import lz_menu
 
+
+
 import lz_var
 import re
 
@@ -373,7 +375,7 @@ async def main():
     task_telethon = asyncio.create_task(user_client.run_until_disconnected())
 
 
-    
+
     
     try:
         man_me = await user_client.get_me()
@@ -387,10 +389,16 @@ async def main():
     dp.include_router(lz_media_parser.router)  # ✅ 注册你的新功能模块
     dp.include_router(lz_menu.router)
 
-    await asyncio.gather(
-        db.connect(),            # PostgreSQL
-        MySQLPool.init_pool(),   # MySQL
-    )
+    from handlers.handle_jieba_export import ensure_lexicon_files
+
+    # 1) 先连 MySQL
+    await MySQLPool.init_pool()
+
+    # 2) 确保本地词库文件存在（不存在就从 MySQL 导出生成）
+    await ensure_lexicon_files(output_dir=".", force=False)
+
+    # 3) 再连 PostgreSQL（此时 db.connect 内加载 jieba 就不会跳过）
+    await db.connect()
 
     await sync()
 

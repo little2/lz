@@ -8,6 +8,7 @@ from datetime import datetime
 import lz_var
 import jieba
 from lexicon_manager import LexiconManager
+from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
 
 # ===================================
 # jieba 字典只加载一次（全局控制）
@@ -82,8 +83,7 @@ class DB:
                
 
                 async with _jieba_lock:
-                    load_jieba_dict_once("jieba_userdict.txt")
-                    LexiconManager.ensure_loaded() 
+                    await ensure_and_load_lexicon_runtime(output_dir=".", export_if_missing=True)
 
                
                 return
@@ -302,6 +302,8 @@ class DB:
         if cached:
             print("Cache hit")
             return cached
+
+        
 
         # 2) 分词
         tokens = list(jieba.cut(keyword_str))

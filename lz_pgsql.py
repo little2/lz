@@ -9,6 +9,8 @@ from lz_config import POSTGRES_DSN
 from lz_memory_cache import MemoryCache
 import lz_var
 from opencc import OpenCC
+from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
+
 
 # ====== 连接池参数（与原文件一致，并支持环境变量覆盖）======
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
@@ -24,6 +26,7 @@ SYNONYM = {
     "萤幕": "显示器",
     "笔电": "笔记本",
 }
+
 
 
 class PGPool:
@@ -78,6 +81,8 @@ class PGPool:
                         )
                        
                         print("✅ PostgreSQL 连接池初始化完成")
+                        # ✅ 新增：启动时自动确保/导出/载入词库（全局幂等）
+                        await ensure_and_load_lexicon_runtime(output_dir=".", export_if_missing=True)
                         break
                     except Exception as e:
                         last_exc = e

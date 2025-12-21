@@ -440,9 +440,9 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
         await callback_query.message.delete()
         print(f"album_content_id=>{album_content_id}")
         thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(album_content_id)
-        print(f"thumb_file_id={thumb_file_id}", flush=True)
+        print(f"443:thumb_file_id={thumb_file_id}", flush=True)
         new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
-        
+        await update_product_preview(album_content_id, thumb_file_id, state, message=new_msg)
         _BATCH_BY_CHAT = {} 
     except Exception as e:
         print(f"❌ 420: {e}", flush=True)
@@ -5222,7 +5222,7 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
     cached = get_cached_product(content_id) or {}
     cached_source_id = cached.get('source_id', "")
     cached_thumb_unique = cached.get('thumb_unique_id', "")
-    print(f"thumb_file_id={thumb_file_id}, cached_thumb_unique={cached_thumb_unique}", flush=True)
+    print(f"5225:thumb_file_id={thumb_file_id}, cached_thumb_unique={cached_thumb_unique}", flush=True)
 
     # 只有在用默认图且我们已知 thumb_unique_id 时，才尝试异步更新真实图
     if thumb_file_id == DEFAULT_THUMB_FILE_ID and cached_thumb_unique:

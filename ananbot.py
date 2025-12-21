@@ -40,7 +40,7 @@ from lz_config import AES_KEY
 from utils.prof import SegTimer
 from utils.aes_crypto import AESCrypto
 
-from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora
+from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora, sync_cover_change
 import textwrap
 import traceback
 import time
@@ -403,7 +403,7 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
         await callback_query.message.delete()
         print(f"album_content_id=>{album_content_id}")
         thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(album_content_id)
-        print(f"thumb_file_id={thumb_file_id}, preview_text={preview_text}, preview_keyboard={preview_keyboard}", flush=True)
+        print(f"thumb_file_id={thumb_file_id}", flush=True)
         new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
         
         _BATCH_BY_CHAT = {} 
@@ -453,6 +453,8 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     # 查找缩图 file_id
     bot_username = await get_bot_username()
     product_info = await AnanBOTPool.search_sora_content_by_id(content_id, bot_username)
+
+   
 
     thumb_file_id = product_info.get("m_thumb_file_id") or DEFAULT_THUMB_FILE_ID
     thumb_unique_id = product_info.get("thumb_file_unique_id")
@@ -1089,7 +1091,7 @@ async def handle_back_to_product_from_tag(callback_query: CallbackQuery, state: 
             
         )
     except Exception as e:
-        logging.exception(f"返回商品卡片失败: {e}")
+        logging.exception(f"a返回商品卡片失败: {e}")
 
     # 6) 轻提示
     await callback_query.answer(
@@ -1659,51 +1661,54 @@ async def receive_preview_photo(message: Message, state: FSMContext):
 
     # print(f"📸 1开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
     
+
+    await set_preview_thumb(message, state=state, content_id=content_id)
+
     photo = message.photo[-1]
-    print(f"找到最大的photo = {photo}")
+    # print(f"找到最大的photo = {photo}")
 
     file_unique_id = photo.file_unique_id
     file_id = photo.file_id
-    width = photo.width
-    height = photo.height
-    file_size = photo.file_size or 0
-    user_id = int(message.from_user.id)
+    # width = photo.width
+    # height = photo.height
+    # file_size = photo.file_size or 0
+    # user_id = int(message.from_user.id)
     photo_message = message
 
-    print(f"📸 2收到预览图：{file_unique_id}", flush=True)
+    # print(f"📸 2收到预览图：{file_unique_id}", flush=True)
 
-    spawn_once(f"copy:{photo_message.message_id}", lambda:lz_var.bot.copy_message(
-        chat_id=lz_var.x_man_bot_id,
-        from_chat_id=message.chat.id,
-        message_id=photo_message.message_id
-    ))
-
-    # await lz_var.bot.copy_message(
+    # spawn_once(f"copy:{photo_message.message_id}", lambda:lz_var.bot.copy_message(
     #     chat_id=lz_var.x_man_bot_id,
     #     from_chat_id=message.chat.id,
     #     message_id=photo_message.message_id
-    # )
+    # ))
 
-    # print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
-    await AnanBOTPool.upsert_media( "photo", {
-        "file_unique_id": file_unique_id,
-        "file_size": file_size,
-        "duration": 0,
-        "width": width,
-        "height": height,
-        "create_time": datetime.now()
-    })
-    bot_username = await get_bot_username()
-    await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
-    await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
-    await AnanBOTPool.upsert_product_thumb(content_id, file_unique_id,file_id, bot_username)
-    # Step 4: 更新 update_bid_thumbnail
+    # # await lz_var.bot.copy_message(
+    # #     chat_id=lz_var.x_man_bot_id,
+    # #     from_chat_id=message.chat.id,
+    # #     message_id=photo_message.message_id
+    # # )
 
-    # print(f"📸 4更新预览图数据库记录：{file_unique_id}", flush=True)
-    row = await AnanBOTPool.get_sora_content_by_id(content_id)
-    if row and row.get("source_id"):
-        source_id = row["source_id"]
-        await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
+    # # print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
+    # await AnanBOTPool.upsert_media( "photo", {
+    #     "file_unique_id": file_unique_id,
+    #     "file_size": file_size,
+    #     "duration": 0,
+    #     "width": width,
+    #     "height": height,
+    #     "create_time": datetime.now()
+    # })
+    # bot_username = await get_bot_username()
+    # await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
+    # await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
+    # await AnanBOTPool.upsert_product_thumb(content_id, file_unique_id,file_id, bot_username)
+    # # Step 4: 更新 update_bid_thumbnail
+
+    # # print(f"📸 4更新预览图数据库记录：{file_unique_id}", flush=True)
+    # row = await AnanBOTPool.get_sora_content_by_id(content_id)
+    # if row and row.get("source_id"):
+    #     source_id = row["source_id"]
+    #     await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
 
 
 
@@ -1764,21 +1769,23 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
         thumb_file_id = None
 
         # Step 2: 取得 thumb_file_unique_id
-        print(f"...🔍 2.查询缩图信息 for source_id: {source_id}", flush=True)
+       
         thumb_row = await AnanBOTPool.get_bid_thumbnail_by_source_id(source_id)
-        print(f"...🔍 2.取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
+        print(f"...🔍 2 从bid_thum取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
         
         # 遍寻 thumb_row
         if thumb_row:
-            print(f"...🔍 3.取得缩图信息: {thumb_row} for source_id: {source_id}", flush=True)
+            print(f"...🔍 3 bid_thum有值:取得缩图信息: {thumb_row} for source_id: {source_id}", flush=True)
             for sub_row in thumb_row:
                 thumb_file_unique_id = sub_row["thumb_file_unique_id"]
                 
                 if sub_row['bot_name'] == bot_username:   
                     print(f"...🔍 3.1 取得缩图 unique_id: {thumb_file_unique_id} for source_id: {source_id}", flush=True)
                     thumb_file_id = sub_row["thumb_file_id"]
+                    break
 
         if thumb_file_unique_id is None and thumb_file_id is None:
+            print(f"4.1 若t_fid,f_fuid 都没有值")
             # print(f"{row.get("file_type")} {row.get("m_file_id")}", flush=True)
             if (row.get("file_type") == 'video' or row.get("file_type") == 'v') and row.get("m_file_id"):
                 send_video_result = await lz_var.bot.send_video(chat_id=callback_query.message.chat.id, video=row.get("m_file_id"))
@@ -1787,7 +1794,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                 _tmp_chat_id = send_video_result.chat.id
                 _tmp_msg_id = send_video_result.message_id
                 
-                print(f"送出的视频信息{send_video_result}")
+                print(f"4.1.1 是视频,且有fuid, 送出的视频信息{send_video_result}")
                 buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
                 
                 if buf and pic:
@@ -1831,12 +1838,13 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                 
                 return
             else:
-                print(f"...⚠️ 找不到对应的分镜缩图 for source_id: {source_id}", flush=True)
+                print(f"4.1.2. 非视频，无法自身产生...⚠️ 找不到对应的分镜缩图 for source_id: {source_id}", flush=True)
                 await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，需要手动上传或是机器人排程生成", show_alert=True)
                 return
 
         elif thumb_file_unique_id and thumb_file_id is None:
         # Step 4: 通知处理 bot 生成缩图（或触发缓存）
+            print(f"4.2 若只有f_fuid:请别的bot给")
             storage = state.storage  # 与全局 Dispatcher 共享的同一个 storage
 
             x_uid = lz_var.x_man_bot_id         
@@ -1850,8 +1858,8 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
 
             await bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{thumb_file_unique_id}")
             # await callback_query.answer("...已通知其他机器人更新，请稍后自动刷新", show_alert=True)
-            timeout_sec = 10
-            max_loop = int((timeout_sec / 0.5) + 0.5)
+            timeout_sec = 12
+            max_loop = int((timeout_sec / 0.9) + 0.9)
             for _ in range(max_loop):
                 data = await storage.get_data(key)
                 x_file_id = data.get("x_file_id")
@@ -1863,7 +1871,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                     print(f"  ✅ [X-MEDIA] 收到 file_id={thumb_file_id}", flush=True)
                     break
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.9)
 
 
         if thumb_file_unique_id and thumb_file_id:
@@ -1871,7 +1879,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
             try:
                 # thumb_file_unique_id = thumb_row["thumb_file_unique_id"]
                 # thumb_file_id = thumb_row["thumb_file_id"]
-                print(f"...🔍 取得分镜图信息: {thumb_file_unique_id}, {thumb_file_id} for source_id: {source_id}", flush=True)
+                print(f"...🔍 5.1 tfuid,tfid 最终是补齐的状况:取得分镜图信息: {thumb_file_unique_id}, {thumb_file_id} for source_id: {source_id}", flush=True)
 
                 # Step 3: 更新 sora_content 缩图字段 (也重置萨莱)
                 await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id,thumb_file_id, bot_username)
@@ -1903,13 +1911,110 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
             except Exception as e:
                 print(f"...⚠️ 更新预览图失败A: {e}", flush=True)
         else:
-            print(f"...⚠️ 找不到对应的缩图2 for source_id: {source_id} {thumb_file_unique_id} {thumb_file_id}", flush=True)
+            print(f"...⚠️ 5.2 找不到对应的缩图2 for source_id: {source_id} {thumb_file_unique_id} {thumb_file_id}", flush=True)
             return await callback_query.answer("⚠️ 找不到对应的缩图", show_alert=True)
 
     except Exception as e:
         logging.exception(f"⚠️ 自动更新预览图失败: {e}")
         await callback_query.answer("⚠️ 自动更新失败", show_alert=True)
 
+async def build_main_data(message: Message, state: FSMContext):
+    await lz_var.bot.copy_message(
+        chat_id=lz_var.x_man_bot_id,
+        from_chat_id=message.chat.id,
+        message_id=message.message_id
+    )
+
+    photo = message.photo[-1]
+    file_unique_id = photo.file_unique_id
+    file_id = photo.file_id
+    width = photo.width
+    height = photo.height
+    file_size = photo.file_size or 0
+    user_id = int(message.from_user.id)
+    photo_message = message
+
+    bot_username = await get_bot_username()
+
+    await AnanBOTPool.upsert_media( "photo", {
+        "file_unique_id": file_unique_id,
+        "file_size": file_size,
+        "duration": 0,
+        "width": width,
+        "height": height,
+        "create_time": datetime.now()
+    })
+
+    await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
+
+    pass
+
+
+async def set_preview_thumb(message: Message, state: FSMContext, content_id: int):
+    photo = message.photo[-1]
+    print(f"找到最大的photo = {photo}")
+
+    file_unique_id = photo.file_unique_id
+    file_id = photo.file_id
+
+    file_size = photo.file_size or 0
+    user_id = int(message.from_user.id)
+    photo_message = message
+
+    print(f"📸 2收到预览图：{file_unique_id}", flush=True)
+
+    bot_username = await get_bot_username()
+
+
+
+    spawn_once(f"build_main_data:{photo_message.message_id}", lambda:build_main_data(  
+        message=photo_message,
+        state=state
+    ))
+
+    # spawn_once(f"copy:{photo_message.message_id}", lambda:lz_var.bot.copy_message(
+    #     chat_id=lz_var.x_man_bot_id,
+    #     from_chat_id=message.chat.id,
+    #     message_id=photo_message.message_id
+    # ))
+
+    # print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
+    # 更新 Table Photo
+    # await AnanBOTPool.upsert_media( "photo", {
+    #     "file_unique_id": file_unique_id,
+    #     "file_size": file_size,
+    #     "duration": 0,
+    #     "width": width,
+    #     "height": height,
+    #     "create_time": datetime.now()
+    # })
+
+    # await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
+
+    # 创建或补齐一条“资源内容（sora_content）”及其“媒体映射（sora_media）”
+    await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
+    
+    # 因为换缩略图了，所以也同时重置所有相同 cotent_id 的机器人的缩略图, 只更新既有资源的“缩略图（预览图）”信息，不会新建内容
+    
+    await sync_cover_change(content_id, file_unique_id, file_id, bot_username)
+
+    # Step 4: 更新 update_bid_thumbnail
+
+    # print(f"📸 4更新预览图数据库记录：{file_unique_id}", flush=True)
+    row = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if row and row.get("source_id"):
+        source_id = row["source_id"]
+        await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
+
+
+
+
+   
+    # print(f"📸 6预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
+    # 编辑原消息，更新为商品卡片
+
+    invalidate_cached_product(content_id)
+   
 
 ############
 #  投稿     
@@ -1937,7 +2042,7 @@ async def cmd_post(message: Message, command: CommandObject, state: FSMContext):
 
 
         except Exception as e:
-            logging.exception(f"返回商品卡片失败: {e}")
+            logging.exception(f"b返回商品卡片失败: {e}")
         
        
 
@@ -2938,11 +3043,14 @@ async def handle_review_command(message: Message, state:FSMContext):
     parts = message.text.strip().split(maxsplit=1)
    
         # return await message.answer("❌ 使用格式: /review [content_id]")
-    
-    aes = AESCrypto(AES_KEY)
-    content_id_encode = parts[1]
-    content_id_str = aes.aes_decode(content_id_encode)
-    content_id = int(content_id_str)
+    # 如果 parts 是数字 
+    if parts[1].isdigit():
+        content_id = int(parts[1])
+    else:
+        aes = AESCrypto(AES_KEY)
+        content_id_encode = parts[1]
+        content_id_str = aes.aes_decode(content_id_encode)
+        content_id = int(content_id_str)
 
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id, check_mode=True)
     newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
@@ -2964,6 +3072,7 @@ async def handle_review_command(message: Message, state:FSMContext):
         # return await message.answer("❌ 使用格式: /review [content_id]")
     
     content_id = parts[1]
+    invalidate_cached_product(content_id)
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
     
     newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
@@ -4390,7 +4499,7 @@ async def close_series_panel(cb: CallbackQuery, state: FSMContext):
             reply_markup=preview_keyboard
         )
     except Exception as e:
-        logging.exception(f"返回商品卡片失败: {e}")
+        logging.exception(f"c返回商品卡片失败: {e}")
         # 兜底：至少把按钮恢复
         try:
             await cb.message.edit_reply_markup(reply_markup=preview_keyboard)
@@ -4754,6 +4863,8 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
     except Exception:
         pass
 
+    
+
     table = meta['file_type']
     file_unique_id = meta['file_unique_id']
     type_map = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
@@ -4778,17 +4889,27 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
 
         thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
         try:
-
+            print(f"4885=>{thumb_file_id} {preview_text}")
+            # thumb_file_id = "AgACAgUAAxkBAAIBrmhyapzZ-aQigPWdtB5oITN4UQR8AAL5yDEbVtpYV7Gs5ZC2v8Y_AQADAgADeQADNgQ"
             photo_msg = await lz_var.bot.edit_message_media(
                 chat_id=message.chat.id,
                 message_id=placeholder_msg_id,
                 media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
                 reply_markup=preview_keyboard
             )  
-
-
         except Exception as e:
-            logging.exception(f"返回商品卡片失败: {e}")
+            
+            if "Bad Request: MEDIA_EMPTY" in str(e):
+                # 若 thumb_file_id 有值,可能已经无效了，删除后，再试一次, 检查 file_extension.file_id 是否相同 ,若相同,也一并删除
+                await MySQLPool.reset_thumb_file_id(content_id,thumb_file_id,bot_username)
+                invalidate_cached_product(content_id)
+                
+                print(f"⚠️ MEDIA_EMPTY: {e}", flush=True)
+                await _handle_batch_upload_async(message=message, state=state, meta=meta, placeholder_msg_id=placeholder_msg_id)
+                
+            else:
+                print(f"⚠️ 编辑商品卡片失败D: {e}", flush=True)
+            # logging.exception(f"d返回商品卡片失败: {e}")
         print(f"⚠️ 内容已存在 content_id={content_id}，跳过创建投稿", flush=True)
         return
 

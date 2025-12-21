@@ -302,7 +302,30 @@ class PGPool:
         finally:
             await cls.release(conn)
 
+    @classmethod
+    async def reset_sora_media_by_id(cls, content_id, bot_username):
+        
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            async with conn.transaction():
+                sql_update_content = """
+                    UPDATE sora_media
+                    SET thumb_file_id = NULL
+                    WHERE content_id = $1 and source_bot_name <> $2
+                """
+                await conn.execute(sql_update_content, int(content_id), bot_username)
+                    # asyncpg 的 execute 返回类似 'UPDATE 1'，取最后的数字即影响行数
+        except Exception as e:
+            # async with conn.transaction() 失败会自动回滚，这里仅打日志
+            print(f"❌ [X-MEDIA][PG] upsert_product_thumb error: {e}", flush=True)
+            raise
+        finally:
+            await cls.release(conn)
 
+
+
+    # 更新 sora_content / product 表（PostgreSQL 版）
     @classmethod
     async def upsert_sora(cls, mysql_row: Dict[str, Any]) -> int:
         """

@@ -393,6 +393,37 @@ async def sync_product(user_id: int):
     print(f"[sync_product] Done: {summary}", flush=True)
     return summary
 
+async def sync_cover_change(content_id: int, thumb_file_unique_id: str, thumb_file_id: str, bot_username: str):
+    """
+    同时更新 MySQL 禾 PostgreSQL 的 product 封面图片。
+    """
+    # 确保两端连接池已就绪（幂等）
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    content_id = int(content_id)
+    
+    await MySQLPool.upsert_product_thumb(
+        content_id=content_id,
+        thumb_file_unique_id=thumb_file_unique_id,
+        thumb_file_id=thumb_file_id,
+        bot_username=bot_username,
+    )
+
+    await PGPool.upsert_product_thumb(
+        content_id=content_id,
+        thumb_file_unique_id=thumb_file_unique_id,
+        thumb_file_id=thumb_file_id,
+        bot_username=bot_username,
+    )
+
+    await MySQLPool.reset_sora_media_by_id(content_id, bot_username)
+    await PGPool.reset_sora_media_by_id(content_id, bot_username)
 
 
 

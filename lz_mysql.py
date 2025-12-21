@@ -345,6 +345,71 @@ class MySQLPool:
         finally:
             await cls.release(conn, cursor)
 
+    @classmethod
+    async def upsert_product_thumb(
+        cls,
+        content_id: int,
+        thumb_file_unique_id: str,
+        thumb_file_id: str,
+        bot_username: str,
+    ):
+        await cls.ensure_pool()   # ✅ 新增
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute(f"""
+                UPDATE sora_content SET thumb_file_unique_id = %s, stage='pending'
+                WHERE id = %s 
+            """, (thumb_file_unique_id, content_id))
+           
+            await cursor.execute(f"""
+                INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    thumb_file_id = VALUES(thumb_file_id)
+            """, (content_id, bot_username, thumb_file_id))
+            
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)   
+
+
+    @classmethod
+    async def reset_sora_media_by_id(cls, content_id, bot_username):
+        await cls.ensure_pool()   # ✅ 新增
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute(f"""
+                UPDATE sora_media SET thumb_file_id = NULL
+                WHERE content_id = %s and source_bot_name <> %s
+            """, (content_id, bot_username))
+    
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)
+
+
+    @classmethod
+    async def reset_thumb_file_id(cls, content_id, thumb_file_id, bot_username):
+        #若 thumb_file_id 有值,可能已经无效了，删除后，再试一次, 检查 file_extension.file_id 是否相同 ,若相同,也一并删除
+        await cls.ensure_pool()  
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute(f"""
+                UPDATE sora_media SET thumb_file_id = NULL
+                WHERE content_id = %s and source_bot_name = %s and thumb_file_id = %s
+            """, (content_id, bot_username,thumb_file_id))
+    
+            await cursor.execute(f"""
+                DELETE FROM file_extension
+                WHERE file_id = %s and bot = %s
+            """, (thumb_file_id, bot_username))    
+
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)
 
     @classmethod
     async def fetch_file_by_file_uid(cls, source_id: str):

@@ -570,6 +570,84 @@ class AnanBOTPool(LYBase):
             await cls.release(conn, cur)
 
 
+    @classmethod    
+    async def reset_content_cover(cls, content_id: int, thumb_file_unique_id: str, thumb_file_id: str, bot_username: str):
+        """
+        更新縮圖資訊：
+        - sora_content: 更新 thumb_file_unique_id（僅當該 content 存在）
+        - sora_media: 依 content_id + source_bot_name 做 UPSERT，更新 thumb_file_id
+
+        回傳：dict，包含各步驟受影響筆數/狀態
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            content_rows = 0
+            print(f"tfud={thumb_file_unique_id} tfid={thumb_file_id} cid={content_id} bot={bot_username}", flush=True)
+            if thumb_file_unique_id!="":
+                # 1) 嘗試更新 sora_content（若該 content_id 不存在則不會有影響）
+                await cur.execute(
+                    """
+                    UPDATE sora_content
+                    SET thumb_file_unique_id = %s
+                    WHERE id = %s 
+                    """,
+                    (thumb_file_unique_id, content_id)
+                )
+                # 打印执行的SQL
+                # cur_sql = cur._last_executed
+                # print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
+
+                content_rows = cur.rowcount  # 受影響筆數（0 代表該 content_id 不存在）
+                print(f"✅ [X-MEDIA] 更新 sora_content 縮略圖(thumb_file_unique_id)", flush=True)
+
+            # 2) 對 sora_media 做 UPSERT（不存在則插入，存在則更新 thumb_file_id）
+            # 依賴唯一鍵 uniq_content_bot (content_id, source_bot_name)
+            print(f"✅ 重置所有的 content_id={content_id} 的 sora_media 縮略圖...", flush=True)
+            await cur.execute(
+                """
+                UPDATE sora_media SET thumb_file_id = NULL WHERE content_id = %s
+                """,
+                (content_id)
+            )
+
+            print(f"✅ [X-MEDIA] 正在 UPSERT sora_media 縮略圖...", flush=True)
+            await cur.execute(
+                """
+                INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    thumb_file_id = VALUES(thumb_file_id)
+                """,
+                (content_id, bot_username, thumb_file_id)
+            )
+            # 在 MariaDB/MySQL 中，ON DUPLICATE 觸發更新時 rowcount 會是 2（1 插入、2 更新的慣例不完全一致，依版本而異）
+            # media_rows = cur.rowcount
+
+            # cur_sql = cur._last_executed
+            # print(f"✅ [X-MEDIA] 执行的 SQL: {cur_sql}", flush=True)
+
+            # print(f"✅ [X-MEDIA] UPSERT sora_media 縮略圖完成，受影響筆數：{media_rows}", flush=True)
+            await conn.commit()
+
+            print(f"✅ [X-MEDIA] 縮略圖更新事務完成", flush=True)
+
+            return {
+                "sora_content_updated_rows": content_rows,
+                # "sora_media_upsert_rowcount": media_rows
+            }
+
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except:
+                pass
+            # 讓上層知道發生了什麼錯
+            raise
+        finally:
+            await cls.release(conn, cur)
+
+
+
     @classmethod
     async def update_product_password(cls, content_id: int, password: str, user_id: int = 0, overwrite: int = 0):
         """

@@ -32,101 +32,158 @@ class PGStatsDB:
         if cls.pool:
             await cls.pool.close()
             cls.pool = None
+    
 
     @classmethod
     async def ensure_table(cls):
         """
-        ✅ 最终版表结构：含 from_bot + hour
+        ✅ PostgreSQL 版 ensure_table（修正 thumbnail_task：移除 MySQL 语法）
         """
-        ddl = """
-        CREATE TABLE IF NOT EXISTS tg_msg_stats_daily (
-            stat_date  DATE        NOT NULL,
-            user_id    BIGINT      NOT NULL,
-            chat_id    BIGINT      NOT NULL,
-            thread_id  BIGINT      NOT NULL DEFAULT 0,
-            msg_type   TEXT        NOT NULL,
-            from_bot   BOOLEAN     NOT NULL DEFAULT FALSE,
-            hour       SMALLINT    NOT NULL,
-            cnt        INTEGER     NOT NULL DEFAULT 0,
-            PRIMARY KEY (
-                stat_date, user_id, chat_id, thread_id,
-                msg_type, from_bot, hour
-            )
-        );
+        ddls = [
+            # 1) 统计表
+            """
+            CREATE TABLE IF NOT EXISTS tg_msg_stats_daily (
+                stat_date  DATE        NOT NULL,
+                user_id    BIGINT      NOT NULL,
+                chat_id    BIGINT      NOT NULL,
+                thread_id  BIGINT      NOT NULL DEFAULT 0,
+                msg_type   TEXT        NOT NULL,
+                from_bot   BOOLEAN     NOT NULL DEFAULT FALSE,
+                hour       SMALLINT    NOT NULL,
+                cnt        INTEGER     NOT NULL DEFAULT 0,
+                PRIMARY KEY (
+                    stat_date, user_id, chat_id, thread_id,
+                    msg_type, from_bot, hour
+                )
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_stats_chat_date
+            ON tg_msg_stats_daily (chat_id, stat_date);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_stats_user_date
+            ON tg_msg_stats_daily (user_id, stat_date);
+            """,
 
-        CREATE INDEX IF NOT EXISTS idx_stats_chat_date
-        ON tg_msg_stats_daily (chat_id, stat_date);
+            # 2) 精简版 user 表
+            """
+            CREATE TABLE IF NOT EXISTS "user" (
+                user_id BIGINT PRIMARY KEY,
+                credit INTEGER DEFAULT 10,
+                point INTEGER NOT NULL DEFAULT 0,
+                task_award_date DATE DEFAULT NULL,
+                task_award_count INTEGER DEFAULT 0,
+                last_task_award_at TIMESTAMPTZ DEFAULT NULL
+            );
+            """,
 
-        CREATE INDEX IF NOT EXISTS idx_stats_user_date
-        ON tg_msg_stats_daily (user_id, stat_date);
+            # 3) 群消息 raw 表（BERTopic 用）
+            """
+            CREATE TABLE IF NOT EXISTS tg_group_messages_raw (
+                chat_id      BIGINT      NOT NULL,
+                thread_id    BIGINT      NOT NULL DEFAULT 0,
+                message_id   BIGINT      NOT NULL,
+                user_id      BIGINT      NOT NULL,
+                from_bot     BOOLEAN     NOT NULL DEFAULT FALSE,
+                msg_time_utc TIMESTAMPTZ NOT NULL,
+                stat_date    DATE        NOT NULL,
+                hour         SMALLINT    NOT NULL,
+                text         TEXT        NOT NULL,
 
-        
-        -- ============================================
-        -- 2) 精简版 user 表（新增）
-        -- ============================================
-        CREATE TABLE IF NOT EXISTS "user" (
-            user_id BIGINT PRIMARY KEY,
-            credit INT DEFAULT 10,
-            point INT NOT NULL DEFAULT 0,
-            task_award_date DATE DEFAULT NULL,
-            task_award_count INT DEFAULT 0,
-            last_task_award_at TIMESTAMPTZ DEFAULT NULL
-        );
+                topic_id     INTEGER     NULL,
+                topic_ver    INTEGER     NOT NULL DEFAULT 1,
+                topic_at     TIMESTAMPTZ NULL,
 
-        -- 话题系统用：
-        -- 1) tg_group_messages_raw：保存每条文本消息（含 message_id），供 BERTopic 聚类
-        -- 2) tg_group_topics_hourly：保存每小时的话题摘要 + message_ids（证据链）
+                PRIMARY KEY (chat_id, message_id)
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_raw_chat_date_hour
+            ON tg_group_messages_raw (chat_id, stat_date, hour);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_raw_topic_lookup
+            ON tg_group_messages_raw (chat_id, stat_date, hour, topic_id);
+            """,
 
-        CREATE TABLE IF NOT EXISTS tg_group_messages_raw (
-            chat_id      BIGINT      NOT NULL,
-            thread_id    BIGINT      NOT NULL DEFAULT 0,
-            message_id   BIGINT      NOT NULL,
-            user_id      BIGINT      NOT NULL,
-            from_bot     BOOLEAN     NOT NULL DEFAULT FALSE,
-            msg_time_utc TIMESTAMPTZ NOT NULL,
-            stat_date    DATE        NOT NULL,
-            hour         SMALLINT    NOT NULL,
-            text         TEXT        NOT NULL,
+            # 4) 每小时话题摘要表
+            """
+            CREATE TABLE IF NOT EXISTS tg_group_topics_hourly (
+                chat_id     BIGINT   NOT NULL,
+                thread_id   BIGINT   NOT NULL DEFAULT 0,
+                stat_date   DATE     NOT NULL,
+                hour        SMALLINT NOT NULL,
+                topic_id    INTEGER  NOT NULL,
+                msg_count   INTEGER  NOT NULL DEFAULT 0,
+                topic_words TEXT     NOT NULL DEFAULT '',
+                keywords    TEXT     NOT NULL DEFAULT '',
+                message_ids JSONB    NOT NULL DEFAULT '[]'::jsonb,
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (chat_id, thread_id, stat_date, hour, topic_id)
+            );
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_topics_chat_date_hour
+            ON tg_group_topics_hourly (chat_id, stat_date, hour);
+            """,
 
-            topic_id     INTEGER     NULL,
-            topic_ver    INTEGER     NOT NULL DEFAULT 1,
-            topic_at     TIMESTAMPTZ NULL,
+            # 5) thumbnail_task（原本是 MySQL 写法，这里改为 PG）
+            """
+            CREATE TABLE IF NOT EXISTS thumbnail_task (
+                id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
 
-            PRIMARY KEY (chat_id, message_id)
-        );
+                file_unique_id VARCHAR(100) NOT NULL,
+                file_type VARCHAR(20) NOT NULL,          -- video
+                doc_id BIGINT NOT NULL,
+                access_hash BIGINT NOT NULL,
+                file_reference BYTEA NULL,
+                mime_type VARCHAR(100) NULL,
+                file_name VARCHAR(255) NULL,
+                file_size BIGINT NULL,
 
-        CREATE INDEX IF NOT EXISTS idx_raw_chat_date_hour
-        ON tg_group_messages_raw (chat_id, stat_date, hour);
+                assigned_bot_name VARCHAR(30) NULL,
+                sent_chat_id BIGINT NULL,
+                sent_message_id BIGINT NULL,
 
-        CREATE INDEX IF NOT EXISTS idx_raw_topic_lookup
-        ON tg_group_messages_raw (chat_id, stat_date, hour, topic_id);
+                -- bot 回传缩图（通常是 photo）
+                thumb_doc_id BIGINT NULL,
+                thumb_access_hash BIGINT NULL,
+                thumb_file_reference BYTEA NULL,
 
-        CREATE TABLE IF NOT EXISTS tg_group_topics_hourly (
-            chat_id     BIGINT   NOT NULL,
-            thread_id   BIGINT   NOT NULL DEFAULT 0,
-            stat_date   DATE     NOT NULL,
-            hour        SMALLINT NOT NULL,
-            topic_id    INTEGER  NOT NULL,
-            msg_count   INTEGER  NOT NULL DEFAULT 0,
-            topic_words TEXT     NOT NULL DEFAULT '',
-            keywords    TEXT     NOT NULL DEFAULT '',
-            message_ids JSONB    NOT NULL DEFAULT '[]'::jsonb,
-            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            PRIMARY KEY (chat_id, thread_id, stat_date, hour, topic_id)
-        );
+                recv_chat_id BIGINT NULL,
+                recv_message_id BIGINT NULL,
+                recv_at TIMESTAMPTZ NULL,
 
-        CREATE INDEX IF NOT EXISTS idx_topics_chat_date_hour
-        ON tg_group_topics_hourly (chat_id, stat_date, hour);
-        """
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','working','failed','completed')),
+
+                sent_at TIMESTAMPTZ NULL,
+                completed_at TIMESTAMPTZ NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """,
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_thumb_file_unique_id
+            ON thumbnail_task (file_unique_id);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_thumb_status_created
+            ON thumbnail_task (status, created_at);
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_thumb_bot_status
+            ON thumbnail_task (assigned_bot_name, status, updated_at);
+            """,
+        ]
 
         async with cls._lock:
             if cls.pool is None:
                 raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 init_pool()")
             async with cls.pool.acquire() as conn:
-                await conn.execute(ddl)
-
-        
-
+                for ddl in ddls:
+                    await conn.execute(ddl)
 
 
 
@@ -635,3 +692,138 @@ class PGStatsDB:
         async with cls.pool.acquire() as conn:
             rows = await conn.fetch(sql, int(chat_id), stat_date, int(hour), int(thread_id), int(topic_id), int(limit))
             return [int(r["message_id"]) for r in rows]
+
+    # ================== 预览图 ==================
+    # ===== thumbnail_task (PostgreSQL) =====
+
+    @classmethod
+    async def insert_thumbnail_task_if_absent(
+        cls,
+        file_unique_id: str,
+        file_type: str,
+        doc_id: int,
+        access_hash: int,
+        file_reference: bytes | None,
+        mime_type: str | None,
+        file_name: str | None,
+        file_size: int | None,
+    ) -> bool:
+        """
+        若 file_unique_id 已存在则不插入；不存在则插入 pending。
+        回传 True=新增成功，False=已存在或未新增。
+        """
+        sql = """
+        INSERT INTO thumbnail_task
+            (file_unique_id, file_type, doc_id, access_hash, file_reference, mime_type, file_name, file_size, status)
+        VALUES
+            ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+        ON CONFLICT (file_unique_id) DO NOTHING
+        RETURNING id;
+        """
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                sql,
+                file_unique_id, file_type, doc_id, access_hash,
+                file_reference, mime_type, file_name, file_size
+            )
+        return row is not None
+
+    @classmethod
+    async def get_working_counts(cls, bot_names: List[str]) -> Dict[str, int]:
+        """
+        回传 {bot_name: working_count}，用于判断 bot 是否在 working。
+        """
+        if not bot_names:
+            return {}
+        sql = """
+        SELECT assigned_bot_name, COUNT(*)::int AS cnt
+        FROM thumbnail_task
+        WHERE status='working'
+          AND assigned_bot_name = ANY($1::text[])
+        GROUP BY assigned_bot_name;
+        """
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(sql, bot_names)
+        return {r["assigned_bot_name"]: r["cnt"] for r in rows}
+
+    @classmethod
+    async def lock_one_pending_task_for_bot(cls, bot_name: str) -> Optional[Dict[str, Any]]:
+        """
+        以 PG 的 SKIP LOCKED 抢 1 笔 pending -> working，并 RETURNING 整行。
+        这比你现有的 “先 SELECT 再 UPDATE” 更抗并发、更不容易抢重。
+        """
+        sql = """
+        WITH picked AS (
+            SELECT id
+            FROM thumbnail_task
+            WHERE status='pending'
+            ORDER BY created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        UPDATE thumbnail_task t
+        SET status='working',
+            assigned_bot_name=$1,
+            updated_at=NOW()
+        FROM picked
+        WHERE t.id = picked.id
+        RETURNING t.*;
+        """
+        async with cls.pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(sql, bot_name)
+        return dict(row) if row else None
+
+    @classmethod
+    async def update_task_sent_info(cls, file_unique_id: str, chat_id: int, message_id: int) -> None:
+        sql = """
+        UPDATE thumbnail_task
+        SET sent_chat_id=$2,
+            sent_message_id=$3,
+            sent_at=NOW(),
+            updated_at=NOW()
+        WHERE file_unique_id=$1;
+        """
+        async with cls.pool.acquire() as conn:
+            await conn.execute(sql, file_unique_id, int(chat_id), int(message_id))
+
+    @classmethod
+    async def complete_task_by_reply(
+        cls,
+        bot_name: str,
+        chat_id: int,
+        reply_to_msg_id: int,
+        thumb_doc_id: int,
+        thumb_access_hash: int,
+        thumb_file_reference: bytes | None,
+        recv_message_id: int,
+    ) -> bool:
+        """
+        bot 用 photo 回复派工消息：
+        用 (assigned_bot_name + sent_chat_id + sent_message_id + status=working) 精确定位任务并完成。
+        """
+        sql = """
+        UPDATE thumbnail_task
+        SET status='completed',
+            completed_at=NOW(),
+            updated_at=NOW(),
+            thumb_doc_id=$4,
+            thumb_access_hash=$5,
+            thumb_file_reference=$6,
+            recv_chat_id=$2,
+            recv_message_id=$7,
+            recv_at=NOW()
+        WHERE status='working'
+          AND assigned_bot_name=$1
+          AND sent_chat_id=$2
+          AND sent_message_id=$3
+        RETURNING id;
+        """
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                sql,
+                bot_name, int(chat_id), int(reply_to_msg_id),
+                int(thumb_doc_id), int(thumb_access_hash),
+                thumb_file_reference, int(recv_message_id)
+            )
+        return row is not None

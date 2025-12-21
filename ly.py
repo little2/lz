@@ -15,7 +15,7 @@ from pg_stats_db import PGStatsDB
 from group_stats_tracker import GroupStatsTracker
 
 from telethon.tl.functions.contacts import ImportContactsRequest
-from telethon.tl.types import InputPhoneContact
+from telethon.tl.types import InputPhoneContact,DocumentAttributeFilename,InputDocument
 from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError
 
 
@@ -34,7 +34,11 @@ from ly_config import (
     PG_MAX_SIZE,
     STAT_FLUSH_INTERVAL,
     STAT_FLUSH_BATCH_SIZE,
-    KEY_USER_ID
+    KEY_USER_ID,
+    THUMB_DISPATCH_INTERVAL,
+    THUMB_BOTS,
+    THUMB_PREFIX,
+    DEBUG_HB_GROUP_ID
 )
 
 # ======== Telethon 启动方式 ========
@@ -52,6 +56,8 @@ GroupStatsTracker.configure(
     flush_interval=STAT_FLUSH_INTERVAL,
     flush_batch_size=STAT_FLUSH_BATCH_SIZE
 )
+
+
 
 
 async def notify_command_receivers_on_start():
@@ -243,7 +249,6 @@ async def replay_offline_transactions(max_batch: int = 200):
     print("🟢 本轮离线交易回放结束。", flush=True)
 
 
-DEBUG_HB_GROUP_ID = -1002675021976  # 换成实际群 ID
 
 # @client.on(events.NewMessage)
 # async def _debug_any_message(event):
@@ -351,7 +356,50 @@ async def handle_private_json(event):
     if not event.is_private:
         return
     
+    msg = event.message
     text = event.raw_text.strip()
+
+    # [NEW] 私聊视频 + caption 以 |_thumbnail_| 开头：登记任务
+    if msg and getattr(msg, "video", None):
+        fu = _parse_thumb_caption(text)
+        if fu:
+            try:
+                created = await insert_thumbnail_task_if_absent(fu, msg)
+                await event.reply("✅ thumbnail 任务已登记" if created else "ℹ️ thumbnail 任务已存在，忽略重复")
+            except Exception as e:
+                await event.reply(f"❌ thumbnail 入库失败: {e}")
+            return
+        else:
+            print(f"📩 私聊视频消息，但 caption 不符合 thumbnail 任务格式，忽略。 text={text}", flush=True)
+
+        # [NEW] bot 回传缩图：photo 且 reply_to_msg_id 存在
+    elif msg and getattr(msg, "photo", None) and getattr(msg, "reply_to_msg_id", None):
+        
+        try:
+            print(f"📩 收到私聊 photo 消息，尝试处理为 thumbnail 回传，reply_to_msg_id={msg.reply_to_msg_id}", flush=True)
+            sender = await event.get_sender()
+            bot_name = getattr(sender, "username", None) or ""
+            if bot_name != "": 
+                bot_name = f"@{bot_name}"
+            if bot_name and bot_name in THUMB_BOTS:
+                ok = await complete_task_by_reply(
+                    bot_name=bot_name,
+                    chat_id=int(event.chat_id),
+                    reply_to_msg_id=int(msg.reply_to_msg_id),
+                    photo_obj=msg.photo,
+                    recv_message_id=int(msg.id),
+                )
+                await event.reply("✅ thumbnail completed 已记录" if ok else "⚠️ 未匹配到 working 任务（请确认是回复派工消息）")
+                return
+            else:
+                print(f"📩 私聊 photo 消息，但发送者不是已知 thumbnail bot，忽略。 bot_name={bot_name}", flush=True)
+        except Exception as e:
+            await event.reply(f"❌ 处理回传缩图失败: {e}")
+            return
+
+
+
+    
 
     if text == "/hello":
         await event.reply("hi")
@@ -470,7 +518,7 @@ async def handle_private_json(event):
 
 
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
-        print(f"用户 {event.sender_id} 不在允许名单，忽略。")
+        print(f"用户 {event.sender_id} 不在允许名单，忽略。 text={text}")
         return
 
     # 尝试解析 JSON
@@ -482,7 +530,7 @@ async def handle_private_json(event):
         print(f"📩 私人消息非 JSON，忽略。")
         return
     
-    await MySQLPool.ensure_pool()
+    # await MySQLPool.ensure_pool()
     # === 查交易 ===
     if "chatinfo" in data:    
         try:
@@ -610,6 +658,196 @@ async def ping_keepalive_task():
         await asyncio.sleep(50)
 
 
+
+# ==================================================================
+# 预览图
+# =================================================================
+def _parse_thumb_caption(text: str) -> str | None:
+    if not text:
+        return None
+    t = text.strip()
+    if not t.startswith(THUMB_PREFIX):
+        return None
+    rest = t[len(THUMB_PREFIX):].strip()
+    if not rest:
+        return None
+    return rest.split()[0].strip() or None
+
+
+def _extract_doc_filename(doc) -> str | None:
+    try:
+        for a in (doc.attributes or []):
+            if isinstance(a, DocumentAttributeFilename):
+                return a.file_name
+    except Exception:
+        pass
+    return None
+
+
+async def insert_thumbnail_task_if_absent(file_unique_id: str, msg) -> bool:
+    """
+    私聊视频任务登记：若已存在则忽略，不存在则新增。
+    """
+    doc = getattr(msg, "video", None)
+    if not doc:
+        return False
+
+    doc_id = int(doc.id)
+    access_hash = int(doc.access_hash)
+    file_reference = getattr(doc, "file_reference", None)  # bytes
+    mime_type = getattr(doc, "mime_type", None)
+    file_size = int(getattr(doc, "size", 0) or 0)
+    file_name = _extract_doc_filename(doc)
+
+    return await PGStatsDB.insert_thumbnail_task_if_absent(
+        file_unique_id=file_unique_id,
+        file_type="video",
+        doc_id=doc_id,
+        access_hash=access_hash,
+        file_reference=file_reference,
+        mime_type=mime_type,
+        file_name=file_name,
+        file_size=file_size,
+    )
+
+
+async def pick_available_bot_from_tasks() -> str | None:
+    """
+    不建 thumbnail_bot_status：只靠 thumbnail_task 推断 bot 是否 working
+    """
+    if not THUMB_BOTS:
+        return None
+
+    working = await PGStatsDB.get_working_counts(THUMB_BOTS)
+    for b in THUMB_BOTS:
+        if working.get(b, 0) == 0:
+            return b
+    return None
+
+
+async def lock_one_pending_task_for_bot(bot_name: str) -> dict | None:
+    return await PGStatsDB.lock_one_pending_task_for_bot(bot_name)
+
+
+async def update_task_sent_info(file_unique_id: str, chat_id: int, message_id: int):
+    await PGStatsDB.update_task_sent_info(file_unique_id, chat_id, message_id)
+
+
+
+async def complete_task_by_reply(bot_name: str, chat_id: int, reply_to_msg_id: int, photo_obj, recv_message_id: int) -> bool:
+    """
+    bot 用 photo 回复派工消息：
+    用 (assigned_bot_name + sent_chat_id + sent_message_id + status=working) 精确定位任务并完成。
+    """
+    thumb_doc_id = int(photo_obj.id)
+    thumb_access_hash = int(photo_obj.access_hash)
+    thumb_file_reference = getattr(photo_obj, "file_reference", None)  # bytes
+
+    return await PGStatsDB.complete_task_by_reply(
+        bot_name=bot_name,
+        chat_id=int(chat_id),
+        reply_to_msg_id=int(reply_to_msg_id),
+        thumb_doc_id=thumb_doc_id,
+        thumb_access_hash=thumb_access_hash,
+        thumb_file_reference=thumb_file_reference,
+        recv_message_id=int(recv_message_id),
+    )
+
+
+async def thumbnail_dispatch_loop():
+    if not THUMB_BOTS:
+        print("ℹ️ THUMB_BOTS 未配置，thumbnail_dispatch_loop 不启动。", flush=True)
+        return
+
+    while True:
+        try:
+            bot_name = await pick_available_bot_from_tasks()
+            if not bot_name:
+                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+                continue
+
+            task = await lock_one_pending_task_for_bot(bot_name)
+            if not task:
+                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+                continue
+
+            fu = task["file_unique_id"]
+
+            # ===== 从 PostgreSQL 取出原视频的引用三件套 =====
+            doc_id = int(task["doc_id"])
+            access_hash = int(task["access_hash"])
+
+            file_ref = task.get("file_reference")
+            if file_ref is None:
+                raise RuntimeError(f"thumbnail_task.file_reference is NULL, file_unique_id={fu}")
+
+            # asyncpg 可能返回 memoryview，必须转 bytes
+            if isinstance(file_ref, memoryview):
+                file_ref = file_ref.tobytes()
+            elif not isinstance(file_ref, (bytes, bytearray)):
+                file_ref = bytes(file_ref)
+
+            input_doc = InputDocument(id=doc_id, access_hash=access_hash, file_reference=file_ref)
+
+            # 建议 caption 带上 file_unique_id，便于 bot 端识别
+            # 也能让你肉眼排查更方便
+            caption = f"{THUMB_PREFIX}{fu}"
+
+            entity = await client.get_entity(bot_name)
+
+            # ===== 关键：把“原媒体”直接发给 bot =====
+            sent = await client.send_file(
+                entity,
+                file=input_doc,
+                caption=caption
+            )
+
+            # 记录派发消息，用于 bot 回图 reply_to_msg_id 精确定位任务
+            await update_task_sent_info(fu, int(sent.chat_id), int(sent.id))
+
+            print(f"📤 thumbnail 派发媒体: fu={fu} -> bot={bot_name} msg_id={sent.id}", flush=True)
+
+        except Exception as e:
+            print(f"❌ thumbnail_dispatch_loop error: {e}", flush=True)
+
+        await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+
+
+
+async def thumbnail_dispatch_loop2():
+    if not THUMB_BOTS:
+        print("ℹ️ THUMB_BOTS 未配置，thumbnail_dispatch_loop 不启动。", flush=True)
+        return
+
+    while True:
+        try:
+            bot_name = await pick_available_bot_from_tasks()
+            if not bot_name:
+                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+                continue
+
+            task = await lock_one_pending_task_for_bot(bot_name)
+            if not task:
+                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+                continue
+
+            fu = task["file_unique_id"]
+            payload = json.dumps({"cmd": "thumbnail", "file_unique_id": fu}, ensure_ascii=False)
+
+            entity = await client.get_entity(bot_name)
+            sent = await client.send_message(entity, payload)
+
+            await update_task_sent_info(fu, int(sent.chat_id), int(sent.id))
+            print(f"📤 thumbnail 派发: fu={fu} -> bot={bot_name} msg_id={sent.id}", flush=True)
+
+        except Exception as e:
+            print(f"❌ thumbnail_dispatch_loop error: {e}", flush=True)
+
+        await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+
+
+
+
 # ==================================================================
 # 启动 bot
 # ==================================================================
@@ -627,10 +865,11 @@ async def main():
 
 
     # 启动群组统计 + 定期离线交易回放
-    await GroupStatsTracker.start_background_tasks(
-        offline_replay_coro=replay_offline_transactions,
-        offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
-    )
+    if True:
+        await GroupStatsTracker.start_background_tasks(
+            offline_replay_coro=replay_offline_transactions,
+            offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
+        )
 
 
     print("🤖 ly bot 启动中(SESSION_STRING)...")
@@ -641,6 +880,8 @@ async def main():
 
     # ✅ 启动 keep-alive 背景任务（每 4 分钟并发访问一轮）
     asyncio.create_task(ping_keepalive_task())
+
+    asyncio.create_task(thumbnail_dispatch_loop())
 
     # ====== 获取自身帐号资讯 ======
     me = await client.get_me()
@@ -684,3 +925,19 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+'''
+多加一个功能。
+当userbot收到私聊消息且是属于视频时，且这个视频的caption是以 |_thumbnail_| 开头，紧接著是 file_unqiue_id
+就会先把这个视频的信息存在一张新的表 (若已存在则不理会,不存在新增)
+之后配合 start_background_tasks, 每隔一段时间，就检查 bot 是否是完成任务的，若是完成任务，就把还没有完成任务的 file_unqiue_id 发送给他 
+
+因为要新建一张表
+这张表有这个媒体的 file_unique_id, file_type, doc_id, access_hash, file_reference, mine_type, file_name, file_size, 
+以及这个这个媒体发送给哪一个 bot_name ,发送后的 chat_id, message_id, 以及目前的状态 status (pending, working, failed, completed), 发送的时间, 以及机器人回报完成的时间, 最近的更新时间
+bot 有多组机器人，可以由这个版看得出哪些机器人的最后的更新时间，知道目前这个机器人是否在 working, 若是 working 就不派给他, 若最近的状况不是 working, 就可以把这个媒体传送给他
+
+ 不建 thumbnail_bot_status, 直接从 thumbnail_task 查找
+工作的bot，会以一张图来回覆 userbot 传给他媒体，当 userbot 收到时，记录这个收到的图的 doc_id, access_hash, file_reference, 收到 chat_id, 收到的 message_id, 并把状况改成 completed
+'''

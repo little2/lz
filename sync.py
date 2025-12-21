@@ -109,10 +109,15 @@ class MySQLPool:
 
 async def sync():
 
-    summary = await apply_thumb_from_bid_thumbnail_t5_batched(
+    summary = await sync_bid_thumbnail_t6_to_pg_then_mark7_batched(
         batch_size=500,
         sleep_seconds=0.05,
     )
+
+    # summary = await apply_thumb_from_bid_thumbnail_t5_batched(
+    #     batch_size=500,
+    #     sleep_seconds=0.05,
+    # )
 
     # summary = await dedupe_bid_thumbnail_t_update4_to5_batched(
     #     batch_groups=500,
@@ -149,6 +154,211 @@ async def sync():
     #     summary = await check_and_fix_sora_valid_state2(limit=1000)
     #     if summary.get("checked", 0) == 0:
     #         break
+
+
+
+import asyncio
+from typing import Dict, Any, Optional, List, Tuple
+
+from lz_mysql import MySQLPool
+from lz_pgsql import PGPool
+
+
+async def sync_bid_thumbnail_t6_to_pg_then_mark7_batched(
+    batch_size: int = 500,
+    sleep_seconds: float = 0.0,
+    max_rounds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    目标：
+    1) 从 MySQL 取 bid_thumbnail.t_update=6 的记录
+    2) 更新 PostgreSQL:
+       - public.sora_content.thumb_file_unique_id = bt.thumb_file_unique_id
+         WHERE public.sora_content.source_id = bt.file_unique_id
+       - public.sora_media.thumb_file_id = NULL
+         WHERE sora_media.content_id IN (本批次被更新的 sora_content.id)
+    3) MySQL: 将已成功同步的 bid_thumbnail.t_update = 7
+
+    特性：
+    - 分批循环（LIMIT batch_size）
+    - 打印进度
+    - Ctrl+C 可中断：已提交批次不会回滚，只停止后续批次
+
+    事务策略：
+    - PG 端使用事务保证 “更新 sora_content + 清空 sora_media.thumb_file_id” 同批次原子
+    - MySQL 的 bid_thumbnail 为 MyISAM（无事务），因此只在 PG 成功后再把 t_update 改为 7
+    """
+
+    await asyncio.gather(MySQLPool.init_pool(), PGPool.init_pool())
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    rounds = 0
+    total_fetched = 0
+    total_pg_sc_updated = 0
+    total_pg_sm_nulled = 0
+    total_mysql_marked_7 = 0
+
+    print(
+        "[t6->PG->t7] start: batch_size=%s sleep=%s max_rounds=%s"
+        % (batch_size, sleep_seconds, max_rounds),
+        flush=True,
+    )
+
+    try:
+        while True:
+            rounds += 1
+            if max_rounds is not None and rounds > int(max_rounds):
+                print("🛑 Reached max_rounds=%s. Stop." % max_rounds, flush=True)
+                break
+
+            # 1) MySQL：取一批 t_update=6
+            mysql_conn, mysql_cur = await MySQLPool.get_conn_cursor()
+            try:
+                await mysql_cur.execute(
+                    """
+                    SELECT
+                        bid_thumbnail_id,
+                        file_unique_id,
+                        thumb_file_unique_id
+                    FROM bid_thumbnail
+                    WHERE t_update = 6
+                    ORDER BY bid_thumbnail_id ASC
+                    LIMIT %s
+                    """,
+                    (int(batch_size),),
+                )
+                rows = await mysql_cur.fetchall()
+            finally:
+                await MySQLPool.release(mysql_conn, mysql_cur)
+
+            if not rows:
+                print("🎯 [t6->PG->t7] no more t_update=6 rows. Done.", flush=True)
+                break
+
+            total_fetched += len(rows)
+
+            bt_ids: List[int] = []
+            source_ids: List[str] = []
+            thumb_uids: List[Optional[str]] = []
+
+            for r in rows:
+                bt_ids.append(int(r["bid_thumbnail_id"]))
+                source_ids.append(str(r["file_unique_id"]))
+                thumb_uids.append(r.get("thumb_file_unique_id"))  # Optional[str]
+
+            # 2) PostgreSQL：批量更新 sora_content，并拿到被更新的 content_id；再批量清空 sora_media.thumb_file_id
+            pg_conn = await PGPool.acquire()
+            sc_updated = 0
+            sm_nulled = 0
+            try:
+                async with pg_conn.transaction():
+                    # 用 unnest(source_ids, thumb_uids) 做“逐行不同值”的批量更新
+                    # RETURNING sc.id，后续用于更新 sora_media
+                    sql_update_sc_return_ids = """
+                        WITH v AS (
+                            SELECT *
+                            FROM unnest($1::text[], $2::text[]) AS t(source_id, thumb_uid)
+                        ),
+                        updated AS (
+                            UPDATE public.sora_content sc
+                            SET thumb_file_unique_id = v.thumb_uid
+                            FROM v
+                            WHERE sc.source_id = v.source_id
+                            RETURNING sc.id
+                        )
+                        SELECT id FROM updated
+                    """
+                    updated_rows = await pg_conn.fetch(sql_update_sc_return_ids, source_ids, thumb_uids)
+                    content_ids = [int(x["id"]) for x in updated_rows]
+
+                    sc_updated = len(content_ids)
+
+                    if content_ids:
+                        sql_null_sm = """
+                            UPDATE public.sora_media
+                            SET thumb_file_id = NULL
+                            WHERE content_id = ANY($1::bigint[])
+                        """
+                        res = await pg_conn.execute(sql_null_sm, content_ids)
+                        # asyncpg 返回 "UPDATE <n>"
+                        try:
+                            sm_nulled = int(str(res).split()[-1])
+                        except Exception:
+                            sm_nulled = 0
+                    else:
+                        sm_nulled = 0
+
+            finally:
+                await PGPool.release(pg_conn)
+
+            total_pg_sc_updated += sc_updated
+            total_pg_sm_nulled += sm_nulled
+
+            # 3) MySQL：仅当 PG 成功后，把本批次 bt_ids 的 t_update=6 -> 7
+            mysql_conn, mysql_cur = await MySQLPool.get_conn_cursor()
+            try:
+                placeholders = ",".join(["%s"] * len(bt_ids))
+                await mysql_cur.execute(
+                    """
+                    UPDATE bid_thumbnail
+                    SET t_update = 7
+                    WHERE t_update = 6
+                      AND bid_thumbnail_id IN (%s)
+                    """ % placeholders,
+                    tuple(bt_ids),
+                )
+                marked_7 = mysql_cur.rowcount or 0
+            finally:
+                await MySQLPool.release(mysql_conn, mysql_cur)
+
+            total_mysql_marked_7 += marked_7
+
+            print(
+                "✅ [t6->PG->t7] round=%s fetched=%s pg_sc_updated=%s pg_sm_nulled=%s mysql_marked_7=%s "
+                "totals: fetched=%s sc=%s sm=%s t7=%s"
+                % (
+                    rounds,
+                    len(rows),
+                    sc_updated,
+                    sm_nulled,
+                    marked_7,
+                    total_fetched,
+                    total_pg_sc_updated,
+                    total_pg_sm_nulled,
+                    total_mysql_marked_7,
+                ),
+                flush=True,
+            )
+
+            if sleep_seconds and sleep_seconds > 0:
+                await asyncio.sleep(float(sleep_seconds))
+
+    except KeyboardInterrupt:
+        print(
+            "⛔ [t6->PG->t7] interrupted. rounds=%s fetched=%s sc=%s sm=%s t7=%s"
+            % (
+                rounds,
+                total_fetched,
+                total_pg_sc_updated,
+                total_pg_sm_nulled,
+                total_mysql_marked_7,
+            ),
+            flush=True,
+        )
+
+    result = {
+        "rounds": rounds,
+        "mysql_fetched": total_fetched,
+        "pg_sora_content_thumb_updated": total_pg_sc_updated,
+        "pg_sora_media_thumb_file_id_nulled": total_pg_sm_nulled,
+        "mysql_marked_t_update_7": total_mysql_marked_7,
+        "batch_size": int(batch_size),
+        "sleep_seconds": float(sleep_seconds),
+        "max_rounds": None if max_rounds is None else int(max_rounds),
+    }
+    print("📌 [t6->PG->t7] summary: %s" % result, flush=True)
+    return result
 
 
 

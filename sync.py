@@ -5,8 +5,9 @@ from lz_pgsql import PGPool
 # sync_mysql_pool.py
 import os
 import aiomysql
-from typing import Optional, Tuple, Any, Dict
+from typing import Optional, Tuple, Any, Dict, List
 from lexicon_manager import LexiconManager
+
 
 class MySQLPool:
     """
@@ -107,7 +108,18 @@ class MySQLPool:
 
 
 async def sync():
-    await sync_product_mysql_to_postgres_no_json_fix()
+
+    summary = await apply_thumb_from_bid_thumbnail_t5_batched(
+        batch_size=500,
+        sleep_seconds=0.05,
+    )
+
+    # summary = await dedupe_bid_thumbnail_t_update4_to5_batched(
+    #     batch_groups=500,
+    #     sleep_seconds=0.05,
+    # )
+    # await sync_bid_thumbnail_t_update_batched()
+    # await sync_product_mysql_to_postgres_no_json_fix()
     # await MySQLPool.init_pool()
     # await diff_bodyexam_files()
 
@@ -969,6 +981,558 @@ async def check_file_record(limit:int = 100):
     }
     print(f"[check_file_record] Done: {summary}", flush=True)
     return summary
+
+
+
+async def sync_bid_thumbnail_t_update_batched(
+    batch_size: int = 2000,
+    sleep_seconds: float = 0.0,
+    max_rounds: Optional[int] = None,
+    ensure_index: bool = False,
+) -> Dict[str, Any]:
+    """
+    分批修复 bid_thumbnail.t_update：
+    - t_update=2 且 file_unique_id 存在于 file_extension -> 置 3
+    - t_update=2 且不存在 -> 置 0
+
+    特性：
+    - 分批（LIMIT batch_size），降低 MyISAM 表锁影响
+    - 每批打印进度
+    - Ctrl+C 可中断：会在批次边界安全退出（已提交的批次不回滚）
+
+    参数：
+    - batch_size: 每批更新行数上限（建议 500~2000）
+    - sleep_seconds: 每批之间 sleep（可用来进一步降低对线上影响）
+    - max_rounds: 最多跑多少轮（None 表示跑到没有可更新为止）
+    - ensure_index: 是否尝试创建 idx_bid_thumb_tupdate_uid(t_update, file_unique_id) 索引
+                    注意：MyISAM 创建索引也会锁表，生产环境谨慎开启
+
+    返回：
+    - 统计信息 dict
+    """
+    await MySQLPool.init_pool()
+    await MySQLPool.ensure_pool()
+
+    total_to_3 = 0
+    total_to_0 = 0
+    rounds = 0
+
+    # 可选：创建索引（建议你手动在低峰做；这里提供开关）
+    if ensure_index:
+        conn, cur = await MySQLPool.get_conn_cursor()
+        try:
+            # MySQL 8+ 可用 IF NOT EXISTS；若你不是 MySQL 8，下面会报错
+            # 为兼容性，改用 SHOW INDEX 判断再建
+            await cur.execute("SHOW INDEX FROM bid_thumbnail WHERE Key_name = 'idx_bid_thumb_tupdate_uid'")
+            exists = await cur.fetchone()
+            if not exists:
+                print("🔧 Creating index idx_bid_thumb_tupdate_uid ...", flush=True)
+                await cur.execute(
+                    "ALTER TABLE bid_thumbnail ADD INDEX idx_bid_thumb_tupdate_uid (t_update, file_unique_id)"
+                )
+                print("✅ Index created.", flush=True)
+            else:
+                print("ℹ️ Index already exists: idx_bid_thumb_tupdate_uid", flush=True)
+        finally:
+            await MySQLPool.release(conn, cur)
+
+    print(
+        f"🚀 [bid_thumbnail] start batched sync: batch_size={batch_size}, sleep={sleep_seconds}, max_rounds={max_rounds}",
+        flush=True,
+    )
+
+    try:
+        while True:
+            rounds += 1
+            if max_rounds is not None and rounds > int(max_rounds):
+                print(f"🛑 Reached max_rounds={max_rounds}. Stop.", flush=True)
+                break
+
+            # ========== Batch 1: EXISTS -> 3 ==========
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                await conn.begin()
+                sql_exists = f"""
+                    UPDATE bid_thumbnail bt
+                    INNER JOIN file_extension fe
+                        ON fe.file_unique_id = bt.thumb_file_unique_id
+                    SET bt.t_update = 4
+                    WHERE bt.t_update = 3
+                    ORDER BY bt.bid_thumbnail_id
+                    LIMIT {int(batch_size)}
+                """
+                await cur.execute(sql_exists)
+                updated_to_3 = cur.rowcount or 0
+                await conn.commit()
+            except Exception:
+                try:
+                    await conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                await MySQLPool.release(conn, cur)
+
+            total_to_3 += updated_to_3
+
+            # ========== Batch 2: MISSING -> 0 ==========
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                await conn.begin()
+                sql_missing = f"""
+                    UPDATE bid_thumbnail bt
+                    LEFT JOIN file_extension fe
+                        ON fe.file_unique_id = bt.thumb_file_unique_id
+                    SET bt.t_update = 0
+                    WHERE bt.t_update = 3
+                      AND fe.file_unique_id IS NULL
+                    ORDER BY bt.bid_thumbnail_id
+                    LIMIT {int(batch_size)}
+                """
+                await cur.execute(sql_missing)
+                updated_to_0 = cur.rowcount or 0
+                await conn.commit()
+            except Exception:
+                try:
+                    await conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                await MySQLPool.release(conn, cur)
+
+            total_to_0 += updated_to_0
+
+            batch_total = updated_to_3 + updated_to_0
+            print(
+                f"✅ [bid_thumbnail] round={rounds} "
+                f"updated_to_3={updated_to_3} updated_to_0={updated_to_0} "
+                f"round_total={batch_total} "
+                f"grand_total={total_to_3 + total_to_0}",
+                flush=True,
+            )
+
+            # 这一轮两步都没有更新：结束
+            if batch_total == 0:
+                print("🎯 [bid_thumbnail] no more rows to update. Done.", flush=True)
+                break
+
+            if sleep_seconds and sleep_seconds > 0:
+                await asyncio.sleep(float(sleep_seconds))
+
+    except KeyboardInterrupt:
+        # 可中断：不会回滚已提交批次，只是停止后续批次
+        print(
+            f"⛔ [bid_thumbnail] interrupted by user. "
+            f"rounds={rounds} total_to_3={total_to_3} total_to_0={total_to_0}",
+            flush=True,
+        )
+
+    result = {
+        "rounds": rounds,
+        "updated_to_3": total_to_3,
+        "updated_to_0": total_to_0,
+        "total": total_to_3 + total_to_0,
+        "batch_size": int(batch_size),
+        "sleep_seconds": float(sleep_seconds),
+        "max_rounds": None if max_rounds is None else int(max_rounds),
+    }
+    print(f"📌 [bid_thumbnail] summary: {result}", flush=True)
+    return result
+
+
+
+async def dedupe_bid_thumbnail_t_update4_to5_batched(
+    batch_groups: int = 1000,
+    sleep_seconds: float = 0.0,
+    max_rounds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    处理 bid_thumbnail.t_update=4 的去重与胜出标记：
+    - 按 file_unique_id 分组
+    - 每组挑 winner：confirm_status 最大；若同分则 bid_thumbnail_id 最大
+    - winner -> t_update=5；同组其他仍为 4 的 -> t_update=0
+
+    特性：
+    - 分批以“file_unique_id 分组”为单位处理，避免一次性锁表过久（MyISAM 表锁更敏感）
+    - 每批打印进度
+    - Ctrl+C 可中断：已提交的批次不回滚，只停止后续批次
+    """
+
+    await MySQLPool.init_pool()
+    await MySQLPool.ensure_pool()
+
+    rounds = 0
+    total_groups = 0
+    total_winners_set_5 = 0
+    total_losers_set_0 = 0
+
+    last_uid = ""  # 用于分页：file_unique_id > last_uid（按字典序）
+    print(
+        f"🚀 [bid_thumbnail] start t_update=4 dedupe: batch_groups={batch_groups}, sleep={sleep_seconds}, max_rounds={max_rounds}",
+        flush=True,
+    )
+
+    try:
+        while True:
+            rounds += 1
+            if max_rounds is not None and rounds > int(max_rounds):
+                print(f"🛑 Reached max_rounds={max_rounds}. Stop.", flush=True)
+                break
+
+            # 1) 取一批 file_unique_id（仅限 t_update=4）
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                await cur.execute(
+                    """
+                    SELECT file_unique_id
+                    FROM bid_thumbnail
+                    WHERE t_update = 4
+                      AND file_unique_id > %s
+                    GROUP BY file_unique_id
+                    ORDER BY file_unique_id ASC
+                    LIMIT %s
+                    """,
+                    (last_uid, int(batch_groups)),
+                )
+                uid_rows = await cur.fetchall()
+            finally:
+                await MySQLPool.release(conn, cur)
+
+            if not uid_rows:
+                print("🎯 [bid_thumbnail] no more t_update=4 groups. Done.", flush=True)
+                break
+
+            uids: List[str] = [r["file_unique_id"] for r in uid_rows if r.get("file_unique_id")]
+            if not uids:
+                break
+
+            last_uid = uids[-1]
+            total_groups += len(uids)
+
+            # 2) 本批在同一连接内：建临时表 -> 算 winners -> 两步 update
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                await conn.begin()
+
+                # 临时表：存本批每个 file_unique_id 的 winner_id（bid_thumbnail_id）
+                await cur.execute("DROP TEMPORARY TABLE IF EXISTS tmp_bt_winners")
+                await cur.execute(
+                    """
+                    CREATE TEMPORARY TABLE tmp_bt_winners (
+                        file_unique_id VARCHAR(50) NOT NULL,
+                        winner_id INT UNSIGNED NOT NULL,
+                        PRIMARY KEY (file_unique_id),
+                        KEY idx_winner_id (winner_id)
+                    ) ENGINE=MEMORY
+                    """
+                )
+
+                # 以 IN 方式限定本批 file_unique_id
+                placeholders = ",".join(["%s"] * len(uids))
+
+                # 计算 winner：
+                # - 先找每组 max(confirm_status)
+                # - 再在 confirm_status=max 的候选里取 max(bid_thumbnail_id)
+                sql_insert_winners = f"""
+                    INSERT INTO tmp_bt_winners (file_unique_id, winner_id)
+                    SELECT x.file_unique_id, MAX(bt.bid_thumbnail_id) AS winner_id
+                    FROM (
+                        SELECT file_unique_id, MAX(confirm_status) AS max_cs
+                        FROM bid_thumbnail
+                        WHERE t_update = 4
+                          AND file_unique_id IN ({placeholders})
+                        GROUP BY file_unique_id
+                    ) x
+                    JOIN bid_thumbnail bt
+                      ON bt.file_unique_id = x.file_unique_id
+                     AND bt.confirm_status = x.max_cs
+                     AND bt.t_update = 4
+                    GROUP BY x.file_unique_id
+                """
+                await cur.execute(sql_insert_winners, tuple(uids))
+
+                # 2.1 winners -> t_update=5
+                sql_set_winner_5 = """
+                    UPDATE bid_thumbnail bt
+                    JOIN tmp_bt_winners w
+                      ON w.winner_id = bt.bid_thumbnail_id
+                    SET bt.t_update = 5
+                    WHERE bt.t_update = 4
+                """
+                await cur.execute(sql_set_winner_5)
+                winners_set_5 = cur.rowcount or 0
+
+                # 2.2 同组其余仍为 t_update=4 的 -> t_update=0
+                # 只处理本批 uids（避免波及下一批）
+                sql_set_loser_0 = f"""
+                    UPDATE bid_thumbnail bt
+                    LEFT JOIN tmp_bt_winners w
+                      ON w.file_unique_id = bt.file_unique_id
+                     AND w.winner_id = bt.bid_thumbnail_id
+                    SET bt.t_update = 0
+                    WHERE bt.t_update = 4
+                      AND bt.file_unique_id IN ({placeholders})
+                      AND w.winner_id IS NULL
+                """
+                await cur.execute(sql_set_loser_0, tuple(uids))
+                losers_set_0 = cur.rowcount or 0
+
+                await conn.commit()
+
+            except Exception:
+                try:
+                    await conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                await MySQLPool.release(conn, cur)
+
+            total_winners_set_5 += winners_set_5
+            total_losers_set_0 += losers_set_0
+
+            print(
+                f"✅ [bid_thumbnail] round={rounds} groups={len(uids)} "
+                f"winners_to_5={winners_set_5} losers_to_0={losers_set_0} "
+                f"grand_groups={total_groups} grand_winners={total_winners_set_5} grand_losers={total_losers_set_0}",
+                flush=True,
+            )
+
+            if sleep_seconds and sleep_seconds > 0:
+                await asyncio.sleep(float(sleep_seconds))
+
+    except KeyboardInterrupt:
+        print(
+            f"⛔ [bid_thumbnail] interrupted by user. rounds={rounds} "
+            f"groups={total_groups} winners_to_5={total_winners_set_5} losers_to_0={total_losers_set_0}",
+            flush=True,
+        )
+
+    result = {
+        "rounds": rounds,
+        "groups_processed": total_groups,
+        "winners_set_to_5": total_winners_set_5,
+        "losers_set_to_0": total_losers_set_0,
+        "batch_groups": int(batch_groups),
+        "sleep_seconds": float(sleep_seconds),
+        "max_rounds": None if max_rounds is None else int(max_rounds),
+    }
+    print(f"📌 [bid_thumbnail] summary: {result}", flush=True)
+    return result
+
+
+
+
+async def apply_thumb_from_bid_thumbnail_t5_batched(
+    batch_size: int = 500,
+    sleep_seconds: float = 0.0,
+    max_rounds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    处理 bid_thumbnail.t_update=5:
+    - JOIN sora_content ON sc.source_id = bt.file_unique_id
+    - 若 bt.thumb_file_unique_id == sc.thumb_file_unique_id:
+        -> bt.t_update = 1
+    - 否则:
+        -> bt.t_update = 6
+        -> sc.thumb_file_unique_id = bt.thumb_file_unique_id
+        -> sora_media.thumb_file_id = NULL WHERE sora_media.content_id = sc.id
+
+    特性：
+    - 分批处理（LIMIT batch_size）
+    - 每批打印进度
+    - Ctrl+C 可中断（已提交批次不回滚，只停止后续批次）
+
+    注意：
+    - bid_thumbnail 是 MyISAM（表级锁、无事务）
+    - sora_content/sora_media 是 InnoDB（事务可用）
+    - 因此我们按“小批次 + InnoDB 事务”尽量降低不一致窗口
+    """
+    await MySQLPool.init_pool()
+    await MySQLPool.ensure_pool()
+
+    rounds = 0
+    total_scanned = 0
+    total_equal_to_1 = 0
+    total_mismatch_to_6 = 0
+    total_sc_updated = 0
+    total_sm_null = 0
+
+    print(
+        f"🚀 [t5->(1/6)] start: batch_size={batch_size}, sleep={sleep_seconds}, max_rounds={max_rounds}",
+        flush=True,
+    )
+
+    try:
+        while True:
+            rounds += 1
+            if max_rounds is not None and rounds > int(max_rounds):
+                print(f"🛑 Reached max_rounds={max_rounds}. Stop.", flush=True)
+                break
+
+            # 1) 拉一批 t_update=5 的 join 结果（带 sc.id，方便更新 sora_media）
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                await cur.execute(
+                    f"""
+                    SELECT
+                        bt.bid_thumbnail_id AS bt_id,
+                        bt.file_unique_id AS file_unique_id,
+                        bt.thumb_file_unique_id AS bt_thumb_uid,
+                        sc.id AS content_id,
+                        sc.thumb_file_unique_id AS sc_thumb_uid
+                    FROM bid_thumbnail bt
+                    JOIN sora_content sc
+                      ON sc.source_id = bt.file_unique_id
+                    WHERE bt.t_update = 5
+                    ORDER BY bt.bid_thumbnail_id ASC
+                    LIMIT {int(batch_size)}
+                    """
+                )
+                rows = await cur.fetchall()
+            finally:
+                await MySQLPool.release(conn, cur)
+
+            if not rows:
+                print("🎯 [t5->(1/6)] no more rows. Done.", flush=True)
+                break
+
+            total_scanned += len(rows)
+
+            # 2) 分流：相等 -> t_update=1；不等 -> t_update=6 + 更新 sc + 清空 sm.thumb_file_id
+            equal_bt_ids: List[int] = []
+            mismatch_items: List[Tuple[int, int, str]] = []  # (bt_id, content_id, new_thumb_uid)
+
+            for r in rows:
+                bt_id = int(r["bt_id"])
+                content_id = int(r["content_id"])
+                bt_thumb_uid = r.get("bt_thumb_uid")
+                sc_thumb_uid = r.get("sc_thumb_uid")
+
+                # 这里用“字符串完全相等”判断；None 也会参与比较（None==None 视为相等）
+                if bt_thumb_uid == sc_thumb_uid:
+                    equal_bt_ids.append(bt_id)
+                else:
+                    mismatch_items.append((bt_id, content_id, bt_thumb_uid))
+
+            # 3) 执行更新（同一个连接，InnoDB 部分用事务；MyISAM 无事务但仍可执行）
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                # 3.1 相等：bt.t_update = 1
+                updated_to_1 = 0
+                if equal_bt_ids:
+                    placeholders = ",".join(["%s"] * len(equal_bt_ids))
+                    await cur.execute(
+                        f"""
+                        UPDATE bid_thumbnail
+                        SET t_update = 1
+                        WHERE t_update = 5
+                          AND bid_thumbnail_id IN ({placeholders})
+                        """,
+                        tuple(equal_bt_ids),
+                    )
+                    updated_to_1 = cur.rowcount or 0
+
+                # 3.2 不等：bt.t_update = 6；同时更新 sora_content + sora_media（InnoDB 事务）
+                updated_to_6 = 0
+                sc_updated = 0
+                sm_nulled = 0
+
+                if mismatch_items:
+                    mismatch_bt_ids = [x[0] for x in mismatch_items]
+                    mismatch_content_ids = [x[1] for x in mismatch_items]
+
+                    # 3.2.1 先把 bt 状态改为 6（MyISAM）
+                    placeholders = ",".join(["%s"] * len(mismatch_bt_ids))
+                    await cur.execute(
+                        f"""
+                        UPDATE bid_thumbnail
+                        SET t_update = 6
+                        WHERE t_update = 5
+                          AND bid_thumbnail_id IN ({placeholders})
+                        """,
+                        tuple(mismatch_bt_ids),
+                    )
+                    updated_to_6 = cur.rowcount or 0
+
+                    # 3.2.2 InnoDB 事务：更新 sora_content.thumb_file_unique_id + 清空 sora_media.thumb_file_id
+                    await conn.begin()
+                    try:
+                        # 更新 sora_content（逐条 executemany，确保每个 content_id 设到对应的新 thumb_uid）
+                        # payload: (new_thumb_uid, content_id)
+                        payload_sc = [(new_thumb_uid, int(content_id)) for _, content_id, new_thumb_uid in mismatch_items]
+                        await cur.executemany(
+                            """
+                            UPDATE sora_content
+                            SET thumb_file_unique_id = %s
+                            WHERE id = %s
+                            """,
+                            payload_sc,
+                        )
+                        sc_updated = cur.rowcount or 0
+
+                        # 清空 sora_media.thumb_file_id（按 content_id 批量）
+                        placeholders = ",".join(["%s"] * len(mismatch_content_ids))
+                        await cur.execute(
+                            f"""
+                            UPDATE sora_media
+                            SET thumb_file_id = NULL
+                            WHERE content_id IN ({placeholders}) AND sora_media.source_bot_name!='salai001bot' AND sora_media.source_bot_name!='yanzai2015bot' AND sora_media.source_bot_name!='yanzai807bot'
+                            """,
+                            tuple(mismatch_content_ids),
+                        )
+                        sm_nulled = cur.rowcount or 0
+
+                        await conn.commit()
+                    except Exception:
+                        try:
+                            await conn.rollback()
+                        except Exception:
+                            pass
+                        raise
+
+                total_equal_to_1 += updated_to_1
+                total_mismatch_to_6 += updated_to_6
+                total_sc_updated += sc_updated
+                total_sm_null += sm_nulled
+
+            finally:
+                await MySQLPool.release(conn, cur)
+
+            print(
+                f"✅ [t5->(1/6)] round={rounds} scanned={len(rows)} "
+                f"to_1={len(equal_bt_ids)}(upd={total_equal_to_1}) "
+                f"to_6={len(mismatch_items)}(upd={total_mismatch_to_6}) "
+                f"sc_upd_add={total_sc_updated} sm_null_add={total_sm_null} "
+                f"scanned_total={total_scanned}",
+                flush=True,
+            )
+
+            if sleep_seconds and sleep_seconds > 0:
+                await asyncio.sleep(float(sleep_seconds))
+
+    except KeyboardInterrupt:
+        print(
+            f"⛔ [t5->(1/6)] interrupted by user. rounds={rounds} scanned={total_scanned} "
+            f"to_1={total_equal_to_1} to_6={total_mismatch_to_6} sc_upd={total_sc_updated} sm_null={total_sm_null}",
+            flush=True,
+        )
+
+    result = {
+        "rounds": rounds,
+        "scanned": total_scanned,
+        "bt_set_to_1": total_equal_to_1,
+        "bt_set_to_6": total_mismatch_to_6,
+        "sora_content_thumb_updated": total_sc_updated,
+        "sora_media_thumb_file_id_nulled": total_sm_null,
+        "batch_size": int(batch_size),
+        "sleep_seconds": float(sleep_seconds),
+        "max_rounds": None if max_rounds is None else int(max_rounds),
+    }
+    print(f"📌 [t5->(1/6)] summary: {result}", flush=True)
+    return result
+
 
 
 async def main():

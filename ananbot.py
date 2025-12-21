@@ -171,6 +171,43 @@ async def health(request):
     return web.Response(text="✅ Bot 正常运行", status=200)
 
 
+
+@dp.message(F.photo, F.caption.startswith("|_SET_THUMB_|"))
+async def on_set_thumb_photo(message: Message):
+    caption = message.caption or ""
+    PREFIX = "|_SET_THUMB_|"
+
+    file_unique_id = caption[len(PREFIX):].strip()
+    if not file_unique_id:
+        # await message.reply("⚠️ 未提供 file_unique_id")
+        print(f"⚠️ 未提供 file_unique_id")
+        return
+
+    # ✅ MySQL 语法全部收敛：这里不再写 SQL
+    content_id = await MySQLPool.get_sora_content_by_fuid(file_unique_id)
+    if not content_id:
+        print(f"⚠️ 找不到对应 content_id\n{file_unique_id}")
+        # await message.reply(f"⚠️ 找不到对应 content_id\n{file_unique_id}")
+        return
+
+    photo = message.photo[-1]
+    photo_file_id = photo.file_id
+    photo_file_unique_id = photo.file_unique_id
+
+    await sync_cover_change(
+        content_id,
+        photo_file_unique_id,
+        photo_file_id,
+        lz_var.bot_username,
+    )
+
+    invalidate_cached_product(content_id)
+
+    print(f"封面已更新 for content_id={content_id} by file_unique_id={file_unique_id}")
+    # await message.reply("✅ 封面已更新")
+
+
+
 @dp.message(
     (F.photo | F.video | F.document)
     & (F.from_user.id == lz_var.x_man_bot_id)
@@ -1553,9 +1590,9 @@ async def cancel_set_price(callback_query: CallbackQuery, state: FSMContext):
     )
 
 
-############
+##################
 #  设置预览图 Thumb     
-############
+#################
 
 @dp.callback_query(F.data.startswith("set_preview:"))
 async def handle_set_preview(callback_query: CallbackQuery, state: FSMContext):
@@ -4897,6 +4934,11 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
                 media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
                 reply_markup=preview_keyboard
             )  
+
+            # newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+            await update_product_preview(content_id, thumb_file_id, state , photo_msg)
+
+
         except Exception as e:
             
             if "Bad Request: MEDIA_EMPTY" in str(e):
@@ -5063,11 +5105,9 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
 async def handle_media(message: Message, state: FSMContext):
     chat_id = message.chat.id
 
-    # 1) 第一个媒体就立刻发 placeholder（ensure_placeholder 会复用，不会重复发）
-    placeholder = await ensure_placeholder(message, state=state, bot=bot)
-    placeholder_msg_id = placeholder.message_id
 
-    # 2) 抽 meta + 入缓冲
+
+    # 1) 抽 meta + 入缓冲
     try:
         meta = await Media.extract_metadata_from_message(message)
         _buffer_meta_for_batch(message, meta)
@@ -5075,22 +5115,18 @@ async def handle_media(message: Message, state: FSMContext):
         print(f"❌ 处理媒体信息失败(handle_media): {e}", flush=True)
         return await message.answer("⚠️ 处理媒体信息失败，请稍后重试。")
 
-    # 3) 维持 copy 行为
-    # spawn_once(
-    #     f"copy_message:{message.message_id}",
-    #     lambda: lz_var.bot.copy_message(
-    #         chat_id=lz_var.x_man_bot_id,
-    #         from_chat_id=message.chat.id,
-    #         message_id=message.message_id
-    #     )
-    # )
-
     spawn_once(
         f"copy_message:{message.message_id}",
         lambda: safe_copy_message(message)
     )
 
-    # 4) 用 COLLECTION_PROMPT_DELAY 做滑动停手窗
+
+    # 2) 第一个媒体就立刻发 placeholder（ensure_placeholder 会复用，不会重复发）
+    placeholder = await ensure_placeholder(message, state=state, bot=bot)
+    placeholder_msg_id = placeholder.message_id
+
+
+    # 3) 用 COLLECTION_PROMPT_DELAY 做滑动停手窗
     restart_debounce(
         media_idle_tasks,
         key=chat_id,
@@ -5184,9 +5220,8 @@ async def update_product_preview(content_id, thumb_file_id, state, message: Mess
         return
 
     cached = get_cached_product(content_id) or {}
-    
+    cached_source_id = cached.get('source_id', "")
     cached_thumb_unique = cached.get('thumb_unique_id', "")
-
     print(f"thumb_file_id={thumb_file_id}, cached_thumb_unique={cached_thumb_unique}", flush=True)
 
     # 只有在用默认图且我们已知 thumb_unique_id 时，才尝试异步更新真实图

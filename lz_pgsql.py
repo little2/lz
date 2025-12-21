@@ -250,7 +250,7 @@ class PGPool:
         conn = await cls.acquire()
         try:
             print(
-                f"[PG upsert_product_thumb] fuid={thumb_file_unique_id} fid={thumb_file_id} "
+                f"[PG upsert_product_thumb] thumb_file_unique_id={thumb_file_unique_id} thumb_file_id={thumb_file_id} "
                 f"content_id={content_id} bot={bot_username}",
                 flush=True,
             )

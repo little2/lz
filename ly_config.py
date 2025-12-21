@@ -87,4 +87,5 @@ THUMB_DISPATCH_INTERVAL = int(os.getenv("THUMB_DISPATCH_INTERVAL", "60"))  # 秒
 THUMB_BOTS = [x.strip() for x in os.getenv("THUMB_BOTS", "").split(",") if x.strip()]
 THUMB_PREFIX = "|_thumbnail_|"
 DEBUG_HB_GROUP_ID = -1002675021976  # 换成实际群 ID
+FORWARD_THUMB_USER =  os.getenv("FORWARD_THUMB_USER", "")
 

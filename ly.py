@@ -38,7 +38,8 @@ from ly_config import (
     THUMB_DISPATCH_INTERVAL,
     THUMB_BOTS,
     THUMB_PREFIX,
-    DEBUG_HB_GROUP_ID
+    DEBUG_HB_GROUP_ID,
+    FORWARD_THUMB_USER
 )
 
 # ======== Telethon 启动方式 ========
@@ -382,6 +383,7 @@ async def handle_private_json(event):
             if bot_name != "": 
                 bot_name = f"@{bot_name}"
             if bot_name and bot_name in THUMB_BOTS:
+                
                 ok = await complete_task_by_reply(
                     bot_name=bot_name,
                     chat_id=int(event.chat_id),
@@ -389,8 +391,43 @@ async def handle_private_json(event):
                     photo_obj=msg.photo,
                     recv_message_id=int(msg.id),
                 )
-                await event.reply("✅ thumbnail completed 已记录" if ok else "⚠️ 未匹配到 working 任务（请确认是回复派工消息）")
+
+                # ===== [NEW] 解析 reply 的那条“派工视频消息”的 file_unique_id =====
+                fu = None
+                try:
+                    reply_msg = await event.get_reply_message()  # Telethon 会取到被 reply 的那条消息
+                    if reply_msg:
+                        # 你的派工视频 caption 是：f"{THUMB_PREFIX}{fu}"
+                        # 直接沿用现有解析器
+                        fu = _parse_thumb_caption((reply_msg.raw_text or "").strip())
+                except Exception as e:
+                    print(f"⚠️ 取 reply_msg / 解析 file_unique_id 失败: {e}", flush=True)
+
+                # ===== [NEW] 再把这张图传给指定用户，caption=fu =====
+                # 只有在 ok==True 且 fu 解析到时才转发，避免误发
+                if ok and fu:
+                    try:
+                        target = await client.get_entity(FORWARD_THUMB_USER)
+                        await client.send_file(
+                            target,
+                            file=msg.photo,
+                            caption=f"|_SET_THUMB_|{str(fu)}"
+                        )
+                        print(f"📤 已转发缩图给 {FORWARD_THUMB_USER}, caption=fu={fu}", flush=True)
+                    except Exception as e:
+                        print(f"❌ 转发缩图给 {FORWARD_THUMB_USER} 失败: {e}", flush=True)
+
+                # 原本的回覆逻辑保留，但如果 fu 取到，可顺便带出便于你确认
+                if ok:
+                    if fu:
+                        await event.reply(f"✅ thumbnail completed 已记录\nfu={fu}")
+                    else:
+                        await event.reply("✅ thumbnail completed 已记录（但未能从 reply 消息解析 fu）")
+                else:
+                    await event.reply("⚠️ 未匹配到 working 任务（请确认是回复派工消息）")
+
                 return
+                
             else:
                 print(f"📩 私聊 photo 消息，但发送者不是已知 thumbnail bot，忽略。 bot_name={bot_name}", flush=True)
         except Exception as e:

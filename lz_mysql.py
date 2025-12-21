@@ -328,6 +328,38 @@ class MySQLPool:
             return None
 
 
+
+
+    @classmethod
+    async def get_sora_content_by_fuid(cls, file_unique_id: str) -> int | None:
+        """
+        通过 sora_content.source_id(file_unique_id) 取得 content_id(sora_content.id)
+        """
+        if not file_unique_id:
+            return None
+
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+                SELECT id
+                FROM sora_content
+                WHERE source_id = %s
+                LIMIT 1
+            """
+            await cur.execute(sql, (file_unique_id,))
+            row = await cur.fetchone()
+            if not row:
+                return None
+            # DictCursor：row["id"]；tuple cursor：row[0]
+            return int(row["id"] if isinstance(row, dict) else row[0])
+        except Exception as e:
+            print(f"⚠️ get_content_id_by_file_unique_id 出错: {e}", flush=True)
+            return None
+        finally:
+            await cls.release(conn, cur)
+
+
     @classmethod
     async def set_sora_content_by_id(cls, content_id: int, update_data: dict):
         await cls.ensure_pool()   # ✅ 新增

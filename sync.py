@@ -6,7 +6,7 @@ from lz_pgsql import PGPool
 import os
 import aiomysql
 from typing import Optional, Tuple, Any, Dict, List, Set
-from lexicon_manager import LexiconManager
+# from lexicon_manager import LexiconManager
 
 
 class MySQLPool:

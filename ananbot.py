@@ -1712,47 +1712,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     # user_id = int(message.from_user.id)
     photo_message = message
 
-    # print(f"📸 2收到预览图：{file_unique_id}", flush=True)
-
-    # spawn_once(f"copy:{photo_message.message_id}", lambda:lz_var.bot.copy_message(
-    #     chat_id=lz_var.x_man_bot_id,
-    #     from_chat_id=message.chat.id,
-    #     message_id=photo_message.message_id
-    # ))
-
-    # # await lz_var.bot.copy_message(
-    # #     chat_id=lz_var.x_man_bot_id,
-    # #     from_chat_id=message.chat.id,
-    # #     message_id=photo_message.message_id
-    # # )
-
-    # # print(f"📸 3预览图已成功设置：{file_unique_id}", flush=True)
-    # await AnanBOTPool.upsert_media( "photo", {
-    #     "file_unique_id": file_unique_id,
-    #     "file_size": file_size,
-    #     "duration": 0,
-    #     "width": width,
-    #     "height": height,
-    #     "create_time": datetime.now()
-    # })
-    # bot_username = await get_bot_username()
-    # await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
-    # await AnanBOTPool.insert_sora_content_media(file_unique_id, "photo", file_size, 0, user_id, file_id, bot_username)
-    # await AnanBOTPool.upsert_product_thumb(content_id, file_unique_id,file_id, bot_username)
-    # # Step 4: 更新 update_bid_thumbnail
-
-    # # print(f"📸 4更新预览图数据库记录：{file_unique_id}", flush=True)
-    # row = await AnanBOTPool.get_sora_content_by_id(content_id)
-    # if row and row.get("source_id"):
-    #     source_id = row["source_id"]
-    #     await AnanBOTPool.update_bid_thumbnail(source_id, file_unique_id, file_id, bot_username)
-
-
-
-
-   
-    # print(f"📸 6预览图更新中，正在返回菜单：{file_unique_id}",flush=True)
-    # 编辑原消息，更新为商品卡片
+    
 
    
     

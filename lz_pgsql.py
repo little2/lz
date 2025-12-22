@@ -563,7 +563,7 @@ class PGPool:
 # lz_pgsql.py
 
     @classmethod
-    async def upsert_album_items_bulk(cls, rows):
+    async def upsert_album_items_bulk2(cls, rows):
         """
         将 MySQL 的 album_items 批量 upsert 到 PG.album_items
         以 id 为主键对齐（MySQL / PG 使用同一套 id）
@@ -618,6 +618,81 @@ class PGPool:
                 r.get("created_at") or now,
                 r.get("updated_at") or now,
                 r.get("preview") or "",
+            ))
+
+        async with cls._pool.acquire() as conn:
+            await conn.executemany(sql, payload)
+
+        return len(payload)
+
+
+    @classmethod
+    async def upsert_album_items_bulk(cls, rows):
+        if not rows:
+            return 0
+
+        await cls.ensure_pool()
+
+        sql = """
+        INSERT INTO album_items (
+            id,
+            content_id,
+            member_content_id,
+            file_unique_id,
+            file_type,
+            "position",
+            stage,
+            created_at,
+            updated_at,
+            preview
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            content_id        = EXCLUDED.content_id,
+            member_content_id = EXCLUDED.member_content_id,
+            file_unique_id    = EXCLUDED.file_unique_id,
+            file_type         = EXCLUDED.file_type,
+            "position"        = EXCLUDED."position",
+            stage             = EXCLUDED.stage,
+            updated_at        = EXCLUDED.updated_at,
+            preview           = EXCLUDED.preview
+        ;
+        """
+
+        from datetime import datetime
+
+        def _to_int(v, default=0):
+            if v is None:
+                return default
+            if isinstance(v, str):
+                v = v.strip()
+                if v == "":
+                    return default
+            try:
+                return int(v)
+            except Exception:
+                return default
+
+        payload = []
+        now = datetime.now()
+
+        for r in rows:
+            # 重点：preview 不能用 ""，要给 int（0/1）
+            preview_val = _to_int(r.get("preview"), default=0)
+
+            payload.append((
+                _to_int(r.get("id"), default=0),
+                _to_int(r.get("content_id"), default=0),
+                _to_int(r.get("member_content_id"), default=0),
+                r.get("file_unique_id") or None,
+                r.get("file_type") or None,
+                _to_int(r.get("position"), default=0),
+                (r.get("stage") or "pending"),
+                r.get("created_at") or now,
+                r.get("updated_at") or now,
+                preview_val,
             ))
 
         async with cls._pool.acquire() as conn:

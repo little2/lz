@@ -3552,7 +3552,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 send_content_kwargs["document"] = file_id
                 sr = await lz_var.bot.send_document(**send_content_kwargs)
         except Exception as e:
-            print(f"❌ 目标 chat 不存在或无法访问(2886): {e}")
+            print(f"❌ (2886): {e}")
+            # 发出是哪一行错了
+            print(traceback.format_exc(), flush=True)
+          
+            return  
 
 
         timer.lap(f"结束全部流程 {reply_text}")

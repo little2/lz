@@ -5,8 +5,9 @@ import asyncpg
 from typing import Optional, Dict, Any, List, Tuple
 import jieba
 
-from lz_config import POSTGRES_DSN
+from lz_config import POSTGRES_DSN,VALKEY_URL
 from lz_memory_cache import MemoryCache
+from lz_cache import TwoLevelCache
 import lz_var
 from opencc import OpenCC
 from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
@@ -52,7 +53,12 @@ class PGPool:
         """
         if cls._pool is not None:
             if not cls._cache_ready:
-                cls.cache = MemoryCache()
+
+                # cls.cache = MemoryCache()
+                cls.cache = TwoLevelCache(
+                    valkey_client=VALKEY_URL,
+                    namespace="lz:"
+                )
                 cls._cache_ready = True
             return cls._pool
 
@@ -92,7 +98,11 @@ class PGPool:
                             raise
 
             if not cls._cache_ready:
-                cls.cache = MemoryCache()
+                # cls.cache = MemoryCache()
+                cls.cache = TwoLevelCache(
+                    valkey_client=VALKEY_URL,
+                    namespace="lz:"
+                )
                 cls._cache_ready = True
 
         return cls._pool

@@ -851,12 +851,15 @@ async def handle_pagination(callback: CallbackQuery, state: FSMContext):
     else:
         photo = lz_var.skins['home']['file_id']
 
+    
 
     pg_result = await _build_pagination(callback_function, keyword_id, page, state=state)
     # print(f"pg_result: {pg_result}", flush=True)
     if not pg_result.get("ok"):
         await callback.answer(pg_result.get("message"), show_alert=True)
         return
+
+    await callback.answer()
 
     current_message = await _edit_caption_or_text(
         photo=photo,
@@ -871,8 +874,40 @@ async def handle_pagination(callback: CallbackQuery, state: FSMContext):
         "fetch_file_unique_id": "fetch_file_unique_id"
     })
 
+    
 
-    await callback.answer()
+
+async def _build_pagination_action(callback_function:str, search_key_index:str, page:int, state: FSMContext):
+
+    product_info = {}
+    keyword_id = int(search_key_index)
+    print(f"Pagination: {callback_function}, {keyword_id}, {page}", flush=True)
+
+    if callback_function == "ul_pid":
+        photo = lz_var.skins['history_update']['file_id']
+    elif callback_function == "fd_pid":
+        photo = lz_var.skins['history_redeem']['file_id']
+    elif callback_function == "pageid":
+        photo = lz_var.skins['search_keyword']['file_id']
+    else:
+        photo = lz_var.skins['home']['file_id']
+
+
+    pg_result = await _build_pagination(callback_function, keyword_id, page, state=state)
+    # print(f"pg_result: {pg_result}", flush=True)
+    if not pg_result.get("ok"):
+        
+        return
+    product_info['ok'] = "1"
+    product_info['cover_file_id'] = photo
+    product_info['caption'] = pg_result.get("text")
+    product_info['reply_markup'] = pg_result.get("reply_markup")
+
+
+    return product_info
+
+
+
 
     
 async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]):
@@ -885,6 +920,10 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
     """
     if state is None or not result:
         return
+
+    id_to_fuid: dict[int, str] = {}
+    id_to_tfuid: dict[int, str] = {}
+
 
     try:
         # 1) 从 result 收集 content_id → file_unique_id 映射
@@ -904,6 +943,8 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
 
             if cid_int not in id_to_fuid:
                 id_to_fuid[cid_int] = fuid
+                if tfuid:
+                    id_to_tfuid[cid_int] = tfuid
 
         if not id_to_fuid:
             return
@@ -954,6 +995,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
                     "file_id": r.get("file_id"),
                     "thumb_file_id": r.get("thumb_file_id"),
                     "file_unique_id": fuid,
+                    "thumb_file_unique_id": id_to_tfuid.get(cid_int),
                     "requested": False,
                 }
 
@@ -978,6 +1020,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
                     "file_id": None,
                     "thumb_file_id": None,
                     "file_unique_id": fuid,
+                    "thumb_file_unique_id": id_to_tfuid.get(cid_int),
                     "requested": False,
                 }
                 if fuid and PGPool.cache:
@@ -994,6 +1037,8 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
         for cid_int, fuid in id_to_fuid.items():
             if not fuid:
                 continue
+
+
 
             cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
             entry = PGPool.cache.get(cache_key) if PGPool.cache else None
@@ -1032,12 +1077,14 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
 
             async def _one_fetch(fuid: str = fuid):
                 try:
-                    _thumb_file_unique_id = already_prefetched['thumb_file_unique_id'] 
+                    # _thumb_file_unique_id = already_prefetched['thumb_file_unique_id'] 
+                    thumb_fuid = (entry or {}).get("thumb_file_unique_id")
                     # 暂停 1 秒
                     await asyncio.sleep(1.0)
                    
                     await Media.fetch_file_by_file_uid_from_x(state=None, ask_file_unique_id=fuid, timeout_sec=10.0)
-                    await Media.fetch_file_by_file_uid_from_x(state=None, ask_file_unique_id=_thumb_file_unique_id, timeout_sec=10.0)
+                    if thumb_fuid:
+                        await Media.fetch_file_by_file_uid_from_x(state=None, ask_file_unique_id=thumb_fuid, timeout_sec=10.0)
                     # 成功后，真正的 file_id / thumb_file_id 会被写回 sora_media。
                     # 以后再触发预加载时，PG 查询 + cache 会拿到最新状态。
                 except Exception as e:
@@ -1449,26 +1496,29 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
             pass
         elif (parts[0] in ["f", "fd", "ul", "cm", "cf"]):
-
+            content_id = 0
             search_key_index = parts[1]
             encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
-            print(f"🔍 搜索关键字索引: {search_key_index}, 编码内容: {encoded}")
-            # encoded = param[2:]  # 取第三位开始的内容
-            try:
-                aes = AESCrypto(AES_KEY)
-                content_id_str = aes.aes_decode(encoded)
-                
+            
+            if encoded: 
+                print(f"🔍 搜索关键字索引: {search_key_index}, 编码内容: {encoded}")
+                # encoded = param[2:]  # 取第三位开始的内容
+                try:
+                    aes = AESCrypto(AES_KEY)
+                    content_id_str = aes.aes_decode(encoded) or None
+                    if content_id_str:
+                        content_id = int(content_id_str)  # ✅ 关键修正
 
-                # date = await state.get_data()
-                # clti_message = date.get("menu_message")
-                state_data = await MenuBase.get_menu_status(state)
-                current_message = state_data.get("current_message") if state_data else None
-            except Exception as e:
-                # tb = traceback.format_exc()
-                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
-                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
-                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
-                print(f"❌ 解密失败A：{e}", flush=True)
+                    # date = await state.get_data()
+                    # clti_message = date.get("menu_message")
+                    state_data = await MenuBase.get_menu_status(state)
+                    current_message = state_data.get("current_message") if state_data else None
+                except Exception as e:
+                    # tb = traceback.format_exc()
+                    notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                    # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+                    spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
+                    print(f"❌ 解密失败A：{e}", flush=True)
 
 
 
@@ -1523,12 +1573,17 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 # //
   
 
-            
-            content_id = int(content_id_str)  # ✅ 关键修正
+           
             
             try:
                 if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
-                    product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])
+                    
+                    if parts[0] == "f" and content_id == 0:
+                        print(f"encoded==>{encoded} {content_id}")
+                        product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
+                        
+                    else:
+                        product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])
                    
             except Exception as e:
                
@@ -1538,7 +1593,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 print(f"❌ 解密失败C：{e}", flush=True)
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 try:
-                    await sync_sora(content_id)
+                    if content_id > 0:
+                        await sync_sora(content_id)
                 except Exception as e2:
                     print(f"❌ 解密失败D：{e2}", flush=True)
                 

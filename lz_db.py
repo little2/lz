@@ -2,13 +2,15 @@
 import asyncpg
 import asyncio
 import os
-from lz_config import POSTGRES_DSN
+from lz_config import POSTGRES_DSN,CACHE_TTL,VALKEY_URL
 from lz_memory_cache import MemoryCache
+from lz_cache import TwoLevelCache
 from datetime import datetime
 import lz_var
 import jieba
 from lexicon_manager import LexiconManager
 from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
+import redis.asyncio as redis_async
 
 # ===================================
 # jieba 字典只加载一次（全局控制）
@@ -54,7 +56,15 @@ class DB:
     def __init__(self):
         self.dsn = POSTGRES_DSN
         self.pool: asyncpg.Pool | None = None
-        self.cache = MemoryCache()
+        # self.cache = MemoryCache()
+
+        
+        valkey_client = redis_async.from_url(VALKEY_URL, decode_responses=True)
+
+        self.cache = TwoLevelCache(
+            valkey_client=valkey_client,
+            namespace="lz"
+        )
 
 
     async def connect(self):
@@ -289,10 +299,10 @@ class DB:
 
         result = [dict(r) for r in rows]
         # ttl=300 秒（5 分钟）
-        self.cache.set(cache_key, result, ttl=300)
+        self.cache.set(cache_key, result, ttl=CACHE_TTL)
         return result
 
-    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 1000):
+    async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 10000):
         # 1) 归一化 + cache
         await self._ensure_pool()
         query = self._normalize_query(keyword_str)
@@ -388,8 +398,8 @@ class DB:
             rows = await conn.fetch(sql, *params)
 
         result = [dict(r) for r in rows]
-        print(f"{result}")
-        self.cache.set(cache_key, result, ttl=600)
+        # print(f"{result}")
+        self.cache.set(cache_key, result, ttl=CACHE_TTL)
         return result
 
 
@@ -531,7 +541,7 @@ class DB:
             # print(f"\r\n\r\nFinal result for content_id {content_id}: {result}")
 
             # self.cache.set(cache_key, result, ttl=3600)
-            self.cache.set(cache_key, result, ttl=3600)
+            self.cache.set(cache_key, result, ttl=CACHE_TTL)
             # print(f"Cache set for {cache_key}")
             return result
 
@@ -649,7 +659,7 @@ class DB:
                 keyword_id
             )
             if row:
-                self.cache.set(cache_key, row["keyword"], ttl=300)
+                self.cache.set(cache_key, row["keyword"], ttl=CACHE_TTL)
                 return row["keyword"]
             return None
 

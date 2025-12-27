@@ -503,8 +503,10 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
 
-    shared_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+    me = await publish_bot.get_me()
+    publish_bot_username = me.username
 
+    shared_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}"
 
     '''
     审核状态
@@ -2127,12 +2129,30 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
         pass
 
     thumb_file_id, preview_text, _ = await get_product_tpl(content_id)
-    submitted_caption = f"{preview_text}\n\n📮 <b>已送审，请耐心等候</b>"
+    submitted_caption = f"{preview_text}\n\n📮 <b>已送审，请耐心等候，你可以用以下连结分享给你的朋友</b>"
+
+    me = await publish_bot.get_me()
+    publish_bot_username = me.username
+
+    aes = AESCrypto(AES_KEY)
+    encoded = aes.aes_encode(content_id)
+    resource_url = f"https://t.me/{publish_bot_username}?start=f_-1_{encoded}" 
+
+    buttons = [
+        [
+            InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=resource_url))
+        ]
+    ]
+    preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+    # publish_bot_username
+
 
     try:
         await callback_query.message.edit_media(
             media=InputMediaPhoto(media=thumb_file_id, caption=submitted_caption, parse_mode="HTML"),
-            reply_markup=None  # 👈 关键：隐藏所有按钮
+            reply_markup=preview_keyboard  # 👈 关键：隐藏所有按钮
         )
     except Exception as e:
         logging.exception(f"编辑媒体失败: {e}")

@@ -5,3 +5,4 @@ pycryptodome>=3.19.0
 asyncpg>=0.29.0
 jieba>=0.42.1
 opencc-python-reimplemented==0.1.7
+redis >= 4.2

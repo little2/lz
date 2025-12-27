@@ -452,8 +452,6 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
             pass
 
 
-
-
 async def get_product_tpl(content_id: int | str, check_mode: bool | None = False) -> tuple[str, str, InlineKeyboardMarkup]:
 
     try:
@@ -3039,7 +3037,7 @@ async def handle_review_command(message: Message, state:FSMContext):
     """
     parts = message.text.strip().split(maxsplit=1)
    
-        # return await message.answer("❌ 使用格式: /review [content_id]")
+        # return await message.answer("❌ 使用格式: /check [content_id]")
     # 如果 parts 是数字 
     if parts[1].isdigit():
         content_id = int(parts[1])
@@ -3069,13 +3067,22 @@ async def handle_review_command(message: Message, state:FSMContext):
         # return await message.answer("❌ 使用格式: /review [content_id]")
     
     content_id = parts[1]
+    await get_review_menu(message, content_id, state)
+    # invalidate_cached_product(content_id)
+    # thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    
+    # newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+    # # await message.answer(content_id)
+    # await update_product_preview(content_id, thumb_file_id, state , newsend)
+
+async def get_review_menu(message:Message, content_id:int, state:FSMContext):
+    
     invalidate_cached_product(content_id)
     thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
     
     newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
     # await message.answer(content_id)
     await update_product_preview(content_id, thumb_file_id, state , newsend)
-
 
 @dp.message(Command("start"))
 async def handle_search(message: Message, state: FSMContext):
@@ -3142,6 +3149,18 @@ async def handle_search(message: Message, state: FSMContext):
             row = await AnanBOTPool.get_sora_content_by_id(content_id)
             if row and row.get("source_id"):
                 await report_content(message.from_user.id, row["source_id"])
+        except Exception as e:
+            print(f"⚠️ 解码失败: {e}", flush=True)
+            pass
+    elif parts[0] == "r":
+        try:
+            aes = AESCrypto(AES_KEY)
+            content_id_str = "_".join(parts[1:])  # 剩下的部分重新用 _ 拼接
+            
+            if content_id_str:
+                content_id = int(aes.aes_decode(content_id_str))
+                await get_review_menu(message, content_id, state)
+                    
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)
             pass
@@ -4762,7 +4781,7 @@ async def handle_stopword_export(message: Message):
 @dp.message(F.chat.type == "private", F.text)
 async def handle_text(message: Message):
     msg = await message.answer("哥哥，我在呢，输入视频参数或描述，会有时间限制，时间过了，请哥哥记得再一次点击按钮，再输入")
-    Media.auto_self_delete(msg, delay=7)
+    Media.auto_self_delete(msg, delay_seconds=7)
 
 
 

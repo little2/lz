@@ -368,7 +368,7 @@ class PGPool:
                 
                 thumb_hash = mysql_row.get("thumb_hash")
                 valid_state = mysql_row.get("valid_state", 1)
-                file_password = mysql_row.get("file_password", "").strip()
+                file_password = (mysql_row.get("file_password") or "").strip()
 
                 # content_seg：同义词替换 + jieba 分词（与检索一致）
                 norm = cls.replace_synonym(content)
@@ -448,6 +448,7 @@ class PGPool:
                 purchase_condition = mysql_row.get("purchase_condition")
                 guild_id = mysql_row.get("guild_id")
                 product_id = mysql_row.get("product_id")
+                review_status = mysql_row.get("review_status", 0)
 
                 affected2 = 0
                 if any(v is not None for v in (fee, product_type, p_owner_user_id, purchase_condition, guild_id)):
@@ -459,10 +460,10 @@ class PGPool:
 
                     sql_product = """
                         INSERT INTO product (
-                            id,content_id, price, file_type, owner_user_id, purchase_condition, guild_id,
+                            id,content_id, price, file_type, owner_user_id, purchase_condition, guild_id, review_status,
                             created_at, updated_at
                         )
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8,NOW(), NOW())
                         ON CONFLICT (content_id)
                         DO UPDATE SET
                             content_id         = EXCLUDED.content_id,
@@ -471,11 +472,12 @@ class PGPool:
                             owner_user_id      = EXCLUDED.owner_user_id,
                             purchase_condition = EXCLUDED.purchase_condition,
                             guild_id           = EXCLUDED.guild_id,
+                            review_status      = EXCLUDED.review_status,
                             updated_at         = NOW()
                     """
                     tag_ret2 = await conn.execute(
                         sql_product,
-                        product_id, content_id, price_int, product_type, p_owner_user_id, purchase_condition, guild_id
+                        product_id, content_id, price_int, product_type, p_owner_user_id, purchase_condition, guild_id, review_status
                     )
                     try:
                         affected2 = int(tag_ret2.split()[-1])

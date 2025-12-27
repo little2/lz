@@ -2,8 +2,9 @@ import inspect
 import functools
 import traceback
 import sys
+import re
 from opencc import OpenCC
-from typing import Any, Callable, Awaitable, Any
+from typing import Any, Callable, Awaitable, Optional
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
@@ -41,7 +42,7 @@ from typing import Coroutine
 import asyncio
 import os
 from lz_db import db
-from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID
+from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME
 import lz_var
 import traceback
 import random
@@ -80,6 +81,41 @@ _background_tasks: dict[str, asyncio.Task] = {}
 class LZFSM(StatesGroup):
     waiting_for_title = State()
     waiting_for_description = State()
+    """资源管理：直接下架原因输入"""
+    waiting_unpublish_reason = State()
+
+
+async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: int) -> Optional[int]:
+    """校验管理权限。
+
+    Returns:
+        owner_user_id：有权限时返回 owner_user_id；无权限则弹窗并返回 None。
+    """
+    try:
+        record = await db.search_sora_content_by_id(int(content_id))
+        owner_user_id = int(record.get("owner_user_id") or 0) if record else 0
+    except Exception as e:
+        print(f"❌ 读取 owner_user_id 失败: {e}", flush=True)
+        await callback.answer("系统忙碌，请稍后再试。", show_alert=True)
+        return None
+
+    uid = int(callback.from_user.id)
+    if uid == owner_user_id or uid in ADMIN_IDS:
+        return owner_user_id
+
+    await callback.answer("你没有权限管理这个资源。", show_alert=True)
+    return None
+
+
+async def _mysql_set_product_review_status_by_content_id(content_id: int, review_status: int, operator_user_id: int = 0, reason: str = "") -> None:
+    """更新 MySQL product.review_status（尽量走 MySQLPool；若无专用方法则 fallback 直连执行）。"""
+    await MySQLPool.ensure_pool()
+
+    # 1) 优先走你已有的封装（若存在）
+    if hasattr(MySQLPool, "set_product_review_status"):
+        await getattr(MySQLPool, "set_product_review_status")(int(content_id), int(review_status), operator_user_id=operator_user_id, reason=reason)
+        return
+
 
 def debug(func: Callable[..., Any]):
     """
@@ -134,7 +170,7 @@ def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
         try:
             # 到这里才真正创建 coroutine，避免“未 await”警告
             coro = coro_factory()
-            await asyncio.wait_for(coro, timeout=15)
+            await asyncio.wait_for(coro, timeout=45)
         except Exception:
             print(f"🔥 background task failed for key={key}", flush=True)
 
@@ -143,22 +179,6 @@ def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
     t.add_done_callback(lambda _: _background_tasks.pop(key, None))
 
 
-def spawn_once1(key: str, coro: "Coroutine"):
-    """相同 key 的后台任务只跑一个；结束后自动清理。"""
-    task = _background_tasks.get(key)
-    if task and not task.done():
-        return
-
-    async def _runner():
-        try:
-            # 可按需加超时
-            await asyncio.wait_for(coro, timeout=15)
-        except Exception:
-            print(f"🔥 background task failed for key={key}", flush=True)
-
-    t = asyncio.create_task(_runner(), name=f"backfill:{key}")
-    _background_tasks[key] = t
-    t.add_done_callback(lambda _: _background_tasks.pop(key, None))
 
 
 # ========= 工具 =========
@@ -225,7 +245,7 @@ async def _edit_caption_or_text(
                         caption=text,
                         parse_mode="HTML",
                     ),
-                    reply_markup=reply_markup,
+                    reply_markup=reply_markup
                 )
                 # print(f"\n\ncurrent_message={current_message}", flush=True)
             else:
@@ -249,7 +269,7 @@ async def _edit_caption_or_text(
                                 caption=text,
                                 parse_mode="HTML",
                             ),
-                            reply_markup=reply_markup,
+                            reply_markup=reply_markup
                         )
                     else:
                         print(f"⚠️ 未找到原图 ID，改为仅改 caption", flush=True)
@@ -286,7 +306,7 @@ async def _edit_caption_or_text(
             await MenuBase.set_menu_status(state, {
                 "current_message": current_message,
                 "current_chat_id": current_message.chat.id,
-                "current_messsage_id": current_message.message_id
+                "current_message_id": current_message.message_id
             })
 
         return current_message
@@ -481,7 +501,7 @@ def main_menu_keyboard():
             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
         ],
         # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
-        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{META_BOT}?start=upload")],
+        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
        
     ])
 
@@ -597,7 +617,7 @@ async def on_title_input(message: Message, state: FSMContext):
 
 
     # 3) 刷新锚点消息的文本与按钮
-    await _build_clt_edit(cid, anchor_message)
+    await _build_clt_edit(cid, anchor_message,state)
     await state.clear()
 
 # ===== 资源橱窗 : 简介 =====
@@ -653,7 +673,7 @@ async def on_description_input(message: Message, state: FSMContext):
     await MySQLPool.update_user_collection(collection_id=cid, description=text)
 
     # 3) 刷新锚点消息
-    await _build_clt_edit(cid, anchor_message)
+    await _build_clt_edit(cid, anchor_message,state)
     await state.clear()
 
 
@@ -684,12 +704,12 @@ async def handle_cc_is_public(callback: CallbackQuery):
         await callback.message.edit_text(text, reply_markup=kb)
 
 @router.callback_query(F.data.regexp(r"^cc:public:\d+:(0|1)$"))
-async def handle_cc_public_set(callback: CallbackQuery):
+async def handle_cc_public_set(callback: CallbackQuery, state: FSMContext   ):
     _, _, cid, val = callback.data.split(":")
     cid, is_public = int(cid), int(val)
     await MySQLPool.update_user_collection(collection_id=cid, is_public=is_public)
     
-    await _build_clt_edit(cid, callback.message)
+    await _build_clt_edit(cid, callback.message, state=state)
 
     # rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
     # await callback.message.edit_reply_markup(reply_markup=is_public_keyboard(cid, rec.get("is_public")))
@@ -1230,7 +1250,7 @@ def guess_menu_keyboard():
 # == 资源上传菜单 ==
 def upload_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{META_BOT}?start=upload")],
+        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -1357,7 +1377,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
 
     # await MenuBase.set_menu_status(state, {
     #     "current_chat_id": menu_message.chat.id,
-    #     "current_messsage_id": menu_message.message_id,
+    #     "current_message_id": menu_message.message_id,
     #     "current_message": menu_message,
     #     "return_function": "search_list",
     #     "return_chat_id": menu_message.chat.id,
@@ -1405,7 +1425,7 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
 
     await MenuBase.set_menu_status(state, {
         "current_chat_id": menu_message.chat.id,
-        "current_messsage_id": menu_message.message_id,
+        "current_message_id": menu_message.message_id,
         "current_message": menu_message,
         "return_function": "search_list",
         "return_chat_id": menu_message.chat.id,
@@ -1545,13 +1565,15 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         current_message = await message.answer_animation(
                             animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                             caption=caption_txt,
-                            parse_mode="HTML"
+                            parse_mode="HTML",
+                            protect_content=True
                         )
                 else:   
                     current_message = await message.answer_animation(
                         animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
                         caption=caption_txt,
-                        parse_mode="HTML"
+                        parse_mode="HTML",
+                        protect_content=True
                     )
 
                     # print(f"clti_message={clti_message}",flush=True)
@@ -1559,7 +1581,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 await MenuBase.set_menu_status(state, {
                     "current_message": current_message,
                     "current_chat_id": current_message.chat.id,
-                    "current_messsage_id": current_message.message_id
+                    "current_message_id": current_message.message_id
                 })
 
             except Exception as e:
@@ -1583,7 +1605,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
                         
                     else:
-                        product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0])
+                        viewer_user_id=int(message.from_user.id)
+                        product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0], viewer_user_id=viewer_user_id)
                    
             except Exception as e:
                
@@ -1643,7 +1666,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     await MenuBase.set_menu_status(state, {
                         "current_message": product_message,
                         "current_chat_id": product_message.chat.id,
-                        "current_messsage_id": product_message.message_id
+                        "current_message_id": product_message.message_id
                     })
 
 
@@ -1696,7 +1719,7 @@ def get_index_by_source_id(search_result: list[dict], source_id: str, one_based:
     idx = next((i for i, r in enumerate(search_result) if r.get("source_id") == source_id), -1)
     return (idx + 1) if (one_based and idx != -1) else idx
 
-async def _build_product_info(content_id :int , search_key_index: str, state: FSMContext, message: Message, search_from : str = 'search', current_pos:int = 0):
+async def _build_product_info(content_id :int , search_key_index: str, state: FSMContext, message: Message, search_from : str = 'search', current_pos:int = 0, viewer_user_id: int | None = None):
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
 
@@ -1719,6 +1742,9 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     await MenuBase.set_menu_status(state, {
         "collection_id": int(content_id),
         "search_key_index": search_key_index,
+        "search_from": search_from,
+        "current_pos": int(current_pos),
+        "current_content_id": int(content_id),
         'message': message,
         'action':'_build_product_info'
     })
@@ -1841,36 +1867,6 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         ]
     ) 
 
- 
-
-
-
-    
-
-
-
-            # if int(search_key_index) > 0:
-            #     reply_markup.inline_keyboard.append(
-            #         [
-            #             InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"),
-            #         ]
-            #     )
-
-
-
-
-
-    
-    # reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-    #     [
-    #         InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-    #         InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-    #         InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-    #     ],
-    #     [
-    #         InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-    #     ],
-    # ])
 
     page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
 
@@ -1927,26 +1923,303 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     reply_markup.inline_keyboard.append(bottom_row)
     
 
+    viewer_id = (
+        int(viewer_user_id)
+        if viewer_user_id is not None
+        else int(message.from_user.id)
+    )
+
+
+    if ((viewer_id == owner_user_id) or (viewer_id in ADMIN_IDS)):
+        # 如果是资源拥有者，添加编辑按钮
+        if viewer_id == owner_user_id:
+            role_tag = "（你是拥有者）"
+        else:
+            role_tag = "（你是管理员）"
+
+        reply_markup.inline_keyboard.append(
+            [
+                InlineKeyboardButton(text=f"⚙️ 管理 {role_tag}", callback_data=f"sora_operation:{content_id}")
+            ]
+        )
+    
+
+
+    return {'ok': True, 'caption': ret_content, 'file_type':'photo','cover_file_id': thumb_file_id, 'reply_markup': reply_markup}
+
+
+
+@router.callback_query(F.data.startswith("sora_operation:"))
+async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext):
+    # 解析 content_id
+    try:
+        _, content_id_str = callback.data.split(":", 1)
+        content_id = int(content_id_str)
+        db.cache.delete(f"sora_content_id:{content_id}")
+
+       
+        spawn_once(
+            f"sync_sora:{content_id}",
+            lambda: sync_sora(content_id)
+        )
+
+        
+    except Exception as e:
+        print(f"❌ sora_operation entry failed: {e}", flush=True)
+        await callback.answer("参数错误", show_alert=True)
+        return
 
     
 
-    # else:
-    #     reply_markup = InlineKeyboardMarkup(inline_keyboard=[
-    #         [
-    #             InlineKeyboardButton(text=f"⬅️", callback_data=f"sora_page:{search_key_index}:{current_pos}:-1:{search_from}"),
-    #             InlineKeyboardButton(text=f"{resource_icon} {fee}", callback_data=f"sora_redeem:{content_id}"),
-    #             InlineKeyboardButton(text=f"➡️", callback_data=f"sora_page:{search_key_index}:{current_pos}:1:{search_from}"),
-    #         ],
+    # 权限校验（owner 或 ADMIN）
+    owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
+    if owner_user_id is None:
+        return
 
-    #         [
-    #             InlineKeyboardButton(text=f"{resource_icon} {xlj_final_price} (小懒觉会员)", callback_data=f"sora_redeem:{content_id}:xlj")
-    #         ],
-    #         [
-    #             InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
-    #         ]
-    #     ])
+    # 记录返回所需信息（可选：用于返回上一页时重建）
+    data = await state.get_data()
+    search_key_index = data.get("search_key_index")  # 你现有搜索流程会写这个
+    await state.update_data(
+        sora_op_content_id=content_id,
+        sora_op_owner_user_id=owner_user_id,
+        sora_op_search_key_index=search_key_index,
+    )
 
-    return {'ok': True, 'caption': ret_content, 'file_type':'photo','cover_file_id': thumb_file_id, 'reply_markup': reply_markup}
+    record = await db.search_sora_content_by_id(int(content_id))
+    print(f"{record}",flush=True)
+
+    text = (
+        "请选择你要处理的方式:\n\n"
+        "<b>📝 退回编辑:</b>\n"
+        "当你需要修改内容说明或积分设定时，请选择此项。\n"
+        "资源将被切换到编辑模式，完成修改后需重新提交审核，审核通过后才能再次上架。\n\n"
+        "<b>🛑 直接下架:</b>\n"
+        "资源将立即下架，所有用户将无法存取。\n"
+        "若日后需要重新上架，需先将状态改为「退回编辑」，并完成编辑与审核流程。\n"
+    )
+
+    rows_kb: list[list[InlineKeyboardButton]] = []
+
+    if record.get("review_status") in [1]:
+        aes = AESCrypto(AES_KEY)
+        encoded = aes.aes_encode(content_id)
+    
+        rows_kb.append([
+            InlineKeyboardButton(text="📝 编辑", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=r_{encoded}")
+        ])
+    else:
+        rows_kb.append([
+            InlineKeyboardButton(text="📝 退回编辑", callback_data=f"sora_op:return_edit:{content_id}")
+        ])
+
+    rows_kb.append([
+        InlineKeyboardButton(text="🛑 直接下架", callback_data=f"sora_op:unpublish:{content_id}")
+    ])
+
+    rows_kb.append([
+        InlineKeyboardButton(text="🔙 返回", callback_data=f"sora_op:back:{content_id}")
+    ])
+
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+
+
+
+    await _edit_caption_or_text(callback.message, text=text, reply_markup=kb, state=state)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sora_op:return_edit:"))
+async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext):
+    try:
+        _, _, content_id_str = callback.data.split(":", 2)
+        content_id = int(content_id_str)
+        
+        aes = AESCrypto(AES_KEY)
+        encoded = aes.aes_encode(content_id)
+    except Exception:
+        await callback.answer("参数错误", show_alert=True)
+        return
+
+    owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
+    if owner_user_id is None:
+        return
+
+    try:
+        await _mysql_set_product_review_status_by_content_id(content_id, 1, operator_user_id=callback.from_user.id, reason="退回编辑")
+        await sync_sora(content_id)
+        db.cache.delete(f"sora_content_id:{content_id}")
+        
+    except Exception as e:
+        print(f"❌ sora_op return_edit failed: {e}", flush=True)
+        await callback.answer("操作失败，请稍后再试", show_alert=True)
+        return
+
+    
+
+    rows_kb: list[list[InlineKeyboardButton]] = []
+
+    rows_kb.append([
+        InlineKeyboardButton(text="📝 编辑", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=r_{encoded}")
+    ])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+
+    tip = f"✅ 已退回编辑。\n请使用 @{UPLOADER_BOT_NAME} 修改资料，修改完成后需重新审核才能上架。"
+
+    # 退回后仍停留在管理页，或你也可以直接返回上一页（这里先停留）
+    await _edit_caption_or_text(callback.message, text=tip, reply_markup=kb, state=state)
+    await callback.answer("已退回编辑", show_alert=False)
+
+@router.callback_query(F.data.startswith("sora_op:unpublish:"))
+async def handle_sora_op_unpublish_prompt(callback: CallbackQuery, state: FSMContext):
+    try:
+        _, _, content_id_str = callback.data.split(":", 2)
+        content_id = int(content_id_str)
+    except Exception:
+        await callback.answer("参数错误", show_alert=True)
+        return
+
+    owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
+    if owner_user_id is None:
+        return
+
+    # 发一条“输入原因”的提示消息（你要求：有取消按钮、取消则删除该消息）
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ 取消", callback_data="sora_op:cancel_unpublish")]
+    ])
+    prompt = await callback.message.answer("请输入下架原因（可输入一句话）：", reply_markup=kb)
+
+    # 进入等待原因状态，并记录 prompt_message_id 用于删除
+    await state.update_data(
+        sora_op_content_id=content_id,
+        sora_op_unpublish_prompt_chat_id=prompt.chat.id,
+        sora_op_unpublish_prompt_message_id=prompt.message_id,
+    )
+    await state.set_state(LZFSM.waiting_unpublish_reason)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "sora_op:cancel_unpublish")
+async def handle_sora_op_cancel_unpublish(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    msg_id = data.get("sora_op_unpublish_prompt_message_id")
+    chat_id = data.get("sora_op_unpublish_prompt_chat_id")
+
+    # 删除提示消息（按你要求）
+    try:
+        if chat_id and msg_id:
+            await lz_var.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+    except Exception as e:
+        print(f"❌ delete unpublish prompt failed: {e}", flush=True)
+
+    # 清状态
+    data = await state.get_data()
+    # 删除提示消息略...
+    await state.update_data(
+        sora_op_unpublish_prompt_chat_id=None,
+        sora_op_unpublish_prompt_message_id=None,
+    )
+    await state.set_state(None)   # 或者 state.clear() 但你要先把需要的 key 保存回去
+    await callback.answer("已取消", show_alert=False)
+
+
+@router.message(LZFSM.waiting_unpublish_reason)
+async def handle_sora_op_unpublish_reason(message: Message, state: FSMContext):
+    reason = (message.text or "").strip()
+    if not reason:
+        await message.reply("原因不能为空，请重新输入；或点取消。")
+        return
+
+    data = await state.get_data()
+    content_id = int(data.get("sora_op_content_id") or 0)
+    if not content_id:
+        await message.reply("找不到 content_id，已取消本次操作。")
+        await state.clear()
+        return
+
+    # 再做一次权限校验（message 进来时也要挡）
+    try:
+        record = await db.search_sora_content_by_id(int(content_id))
+        owner_user_id = int(record.get("owner_user_id") or 0) if record else 0
+    except Exception as e:
+        print(f"❌ 读取 owner_user_id 失败: {e}", flush=True)
+        await message.reply("系统忙碌，请稍后再试。")
+        return
+
+    uid = int(message.from_user.id)
+    if not (uid == owner_user_id or uid in ADMIN_IDS):
+        await message.reply("你没有权限执行此操作。")
+        await state.clear()
+        return
+
+    # 写 review_status=20 并同步
+    try:
+        
+        db.cache.delete(f"sora_content_id:{content_id}")
+        print(f"🛑 用户 {uid} 为 content_id={content_id} 直接下架，原因：{reason}", flush=True)
+
+        await _mysql_set_product_review_status_by_content_id(content_id, 20, operator_user_id=uid, reason=reason)
+        await sync_sora(content_id)
+        db.cache.delete(f"sora_content_id:{content_id}")
+        
+    except Exception as e:
+        print(f"❌ sora_op unpublish failed: {e}", flush=True)
+        await message.reply("下架失败，请稍后再试。")
+        return
+
+    # 删除“输入原因”提示消息（按你要求）
+    try:
+        chat_id = data.get("sora_op_unpublish_prompt_chat_id")
+        msg_id = data.get("sora_op_unpublish_prompt_message_id")
+        if chat_id and msg_id:
+            await lz_var.bot.delete_message(chat_id=int(chat_id), message_id=int(msg_id))
+    except Exception as e:
+        print(f"❌ delete unpublish prompt failed: {e}", flush=True)
+
+    await state.clear()
+
+    await message.reply(
+        "✅ 已直接下架。\n"
+        f"下架原因：{reason}\n"
+        "若要重新上架，需要将状态改成退回编辑。"
+    )
+
+@router.callback_query(F.data.startswith("sora_op:back:"))
+async def handle_sora_op_back(callback: CallbackQuery, state: FSMContext):
+    try:
+        _, _, content_id_str = callback.data.split(":", 2)
+        content_id = int(content_id_str)
+    except Exception:
+        await callback.answer("参数错误", show_alert=True)
+        return
+
+    # 不强制权限也行（但管理页回上一页通常仍在 owner/admin 手里）
+    data = await state.get_data()
+    search_key_index = data.get("sora_op_search_key_index") or 0
+
+    try:
+        product_info = await _build_product_info(
+            content_id=content_id,
+            search_key_index=search_key_index,
+            state=state,
+            message=callback.message,
+            viewer_user_id=int(callback.from_user.id),
+        )
+        await _edit_caption_or_text(
+            msg=callback.message,
+            text=product_info.get("caption"),
+            reply_markup=product_info.get("reply_markup"),
+            photo=product_info.get("cover_file_id"),
+            state=state
+        )
+    except Exception as e:
+        print(f"❌ sora_op back failed: {e}", flush=True)
+        await callback.answer("返回失败", show_alert=True)
+        return
+
+    await callback.answer()
+
 
 
 
@@ -2088,7 +2361,8 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
     else:
         tip = "⚠️ 已在该资源橱窗里或加入失败"
 
-    product_info = await _build_product_info(content_id=content_id, search_key_index=search_key_index, state=state, message=callback.message)
+    viewer_user_id = int(callback.from_user.id)
+    product_info = await _build_product_info(content_id=content_id, search_key_index=search_key_index, state=state, message=callback.message, viewer_user_id=viewer_user_id)
     # 保持在选择页，方便继续加入其他资源橱窗
     # kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=page)
     try:
@@ -2180,7 +2454,7 @@ async def handle_upload_resource(callback: CallbackQuery):
 async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
     await MenuBase.set_menu_status(state, {
         "current_chat_id": callback.message.chat.id,
-        "current_messsage_id": callback.message.message_id,
+        "current_message_id": callback.message.message_id,
         "menu_message": callback.message
     })
     # await state.update_data({
@@ -2222,7 +2496,7 @@ async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
 
 
 @router.message(Command("search_tag"))
-async def handle_post(message: Message, state: FSMContext, command: Command = Command("search_tag")):
+async def handle_search_tag(message: Message, state: FSMContext, command: Command = Command("search_tag")):
     keyboard = await get_filter_tag_keyboard(callback_query=message,  state=state)
 
     product_message = await lz_var.bot.send_photo(
@@ -2236,7 +2510,7 @@ async def handle_post(message: Message, state: FSMContext, command: Command = Co
     await MenuBase.set_menu_status(state, {
         "current_message": product_message,
         "current_chat_id": product_message.chat.id,
-        "current_messsage_id": product_message.message_id
+        "current_message_id": product_message.message_id
     })
 
 
@@ -2275,7 +2549,7 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
 
 
     # 生成刷新任务 key
-    task_key = (int(user_id))
+    task_key = (int(user_id), str(tag_type))
 
     # 如果已有延迟任务，取消旧的
     old_task = tag_refresh_tasks.get(task_key)
@@ -2628,8 +2902,16 @@ async def handle_clt_my_pager(callback: CallbackQuery):
 async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
     # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_my_detail: {callback.data}")
-    _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
-    cid = int(cid_str)
+    # _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
+    # cid = int(cid_str)
+
+    parts = callback.data.split(":")
+    # 例：clt:my:{cid}:{page}:{mode}
+    cid = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    refresh_mode = parts[4] if len(parts) > 4 else "tk"
+
+
     user_id = callback.from_user.id
 
     new_message = callback.message    
@@ -2663,7 +2945,7 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
         "current_message": new_message,
         "menu_message": new_message,
         "current_chat_id": new_message.chat.id,
-        "current_messsage_id": new_message.message_id
+        "current_message_id": new_message.message_id
     })
 
     # await state.update_data({
@@ -2755,8 +3037,9 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
         reply_markup=_build_clt_edit_keyboard(cid),
         state= state
     )
-    cache_key = f"collection_info_{cid}"
-    MySQLPool.cache.delete(cache_key)
+    await MySQLPool.delete_cache(f"collection_info_{cid}")
+
+
 
 
 @router.callback_query(F.data == "clt_favorite")
@@ -2999,7 +3282,7 @@ async def handle_clti_list(callback: CallbackQuery, state: FSMContext):
         "collection_id": clt_id,
         'action':mode,
         "current_chat_id": callback.message.chat.id,
-        "current_messsage_id": callback.message.message_id,
+        "current_message_id": callback.message.message_id,
     })
     # await state.update_data({
     #     "menu_message": callback.message,
@@ -3267,12 +3550,12 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
             "current_message": callback.message,
             "menu_message": callback.message,
             "current_chat_id": callback.message.chat.id,
-            "current_messsage_id": callback.message.message_id
+            "current_message_id": callback.message.message_id
         })
 
         
-
-        product_info = await _build_product_info(content_id=next_content_id, search_key_index=search_key_index,  state=state,  message= callback.message, search_from=search_from , current_pos=new_pos)
+        viewer_id = callback.from_user.id
+        product_info = await _build_product_info(content_id=next_content_id, search_key_index=search_key_index,  state=state,  message= callback.message, search_from=search_from , current_pos=new_pos, viewer_user_id=viewer_id)
 
         if product_info.get("ok") is False:
             print(f"❌ _build_product_info failed: {product_info}")
@@ -3303,7 +3586,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
                 "current_message": result_edit_media,
                 "menu_message": result_edit_media,
                 "current_chat_id": result_edit_media.chat.id,
-                "current_messsage_id": result_edit_media.message_id
+                "current_message_id": result_edit_media.message_id
             })
 
           
@@ -3316,6 +3599,50 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         print(f"❌ handle_sora_page error: {e}")
         await callback.answer("⚠️ 翻页失败", show_alert=True)
+
+
+
+
+@router.callback_query(F.data.startswith("keyframe:"))
+async def handle_redeem(callback: CallbackQuery, state: FSMContext):
+    content_id = callback.data.split(":")[1]
+    result = await load_sora_content_by_id(int(content_id), state)
+    ret_content, file_info, purchase_info = result
+    source_id = file_info[0] if len(file_info) > 0 else None
+    file_type = file_info[1] if len(file_info) > 1 else None
+    file_id = file_info[2] if len(file_info) > 2 else None
+    thumb_file_id = file_info[3] if len(file_info) > 3 else None
+
+    owner_user_id = purchase_info[0] if purchase_info[0] else None
+    fee = purchase_info[1] if purchase_info[1] else 0
+    purchase_condition = purchase_info[2] if len(purchase_info) > 2 else None
+    reply_text = ''
+    answer_text = ''
+
+    rows_kb: list[list[InlineKeyboardButton]] = []
+    aes = AESCrypto(AES_KEY)
+    encoded = aes.aes_encode(content_id)
+
+    shared_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
+    # # rows_kb.append([
+    # #     InlineKeyboardButton(
+    # #         text="⚠️ 我要打假",
+    # #         url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
+    # #     )
+    # # ])
+
+    rows_kb.append([
+        InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
+    ])
+
+    feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+
+
+    from_user_id = callback.from_user.id
+    send_content_kwargs = dict(chat_id=from_user_id, video=file_id, caption=ret_content, parse_mode="HTML", protect_content=True, reply_markup=feedback_kb)
+    sr = await lz_var.bot.send_video(**send_content_kwargs)
+    await callback.answer("已开启亮点模式，点选介绍文字中的时间轴，可以直接跳转视频中到对应时间。", show_alert=True)
+
 
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
@@ -3342,6 +3669,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     reply_text = ''
     answer_text = ''
     
+
+
+
+
+
+
     if ret_content.startswith("⚠️"):
 
         timer.lap("⚠️")
@@ -3569,13 +3902,35 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
 
         feedback_kb = None
-        if lz_var.UPLOADER_BOT_NAME and source_id:
-            feedback_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        if UPLOADER_BOT_NAME and source_id:
+
+           
+            rows_kb: list[list[InlineKeyboardButton]] = []
+
+            rows_kb.append([
                 InlineKeyboardButton(
-                    text="⚠️ 举报内容",
-                    url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
+                    text="⚠️ 我要打假",
+                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
                 )
-            ]])
+            ])
+
+            if file_type == "video" or file_type == "v":
+                #只有视频有亮点模式
+                pattern = r"\b\d{2}:\d{2}\b"
+                matches = re.findall(pattern, ret_content)
+                print(f"{matches} {len(matches)}", flush=True)
+                if len(matches) >= 3:
+                    rows_kb.append([
+                        InlineKeyboardButton(
+                            text="⚡️ 亮点模式",
+                            callback_data=f"keyframe:{content_id}"
+                        )
+                    ])
+
+
+            feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+
+       
 
 
         try:
@@ -3635,7 +3990,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         #     "menu_message": NewMessage,
         #     "current_message": new_message,
         #     "current_chat_id": callback.message.chat.id,
-        #     "current_messsage_id": new_message.message_id
+        #     "current_message_id": new_message.message_id
         # })
 
         # await lz_var.bot.delete_message(
@@ -3688,8 +4043,8 @@ async def _build_mediagroup_box(page,source_id,content_id,material_status):
         # 追加反馈按钮（单独一行）
         rows_kb.append([
             InlineKeyboardButton(
-                text="⚠️ 反馈内容",
-                url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
+                text="⚠️ 我要打假",
+                url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
             )
         ])
 
@@ -3879,7 +4234,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     # print(f"content_id = {content_id}, search_key_index={search_key_index}, search_from={search_from}")
     record = await db.search_sora_content_by_id(content_id)
 
-    print(f"🔍 载入 ID: {content_id}, Record: {record}", flush=True)
+    print(f"\n\n\n🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
        
          # 取出字段，并做基本安全处理
@@ -3902,6 +4257,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         thumb_file_unique_id = record.get('thumb_file_unique_id', '')
         thumb_file_id = record.get('thumb_file_id', '')
         product_type = record.get('product_type')  # free, paid, vip
+        file_password = record.get('file_password', '')
         if product_type is None:
             product_type = file_type  # 默认付费
 
@@ -4001,6 +4357,10 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if tag:
             ret_content += f"{record['tag']}\n\n"
 
+
+        if(file_password  and file_password.strip() != ''):
+            ret_content += f"🔐 密码: <code>{file_password}</code>  (点选复制)\n\n"
+
         profile = ""
         if file_size and (product_type != "album" and product_type != "a"):
             # print(f"🔍 资源大小: {file_size}")
@@ -4083,15 +4443,45 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         # print(f"1847:🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
         # ✅ 返回三个值
 
+      
+        '''
+    
+        审核状态
+        0   编辑中(投稿者) o
+        1   未通过审核(投稿者) v
+        2   初审进行中 o
+        3   通过初审,复审进行中 o
+        4   经检举,初审进行中 v
+        6   通过终核,上架进行中 o
+        7   上架失败
+        9   成功上架 
+        10  文件死忙
+        11  文件同步失败
+        12 投稿重复-给出原投稿的跳转链接
+        20  上传者自行下架
+
+
+
+
+        '''
+      
         print(f"valid_state:{valid_state}, review_status:{review_status}")
-        if valid_state==20 or review_status== 20:
-            ret_content = "😭 该资源已被下架，无法兑换或查看内容。"
+        
+        if review_status == 4:
+            ret_content = f"<b>⚠️ 这个资源已被举报，正在审核中，请慎重兑换 ⚠️ </b>\n\n{ret_content}"
+
+        elif valid_state==20 or review_status in [1,20]:
+            if review_status==1:
+                ret_content = f"<b>😭 作者还没有正式发布，无法兑换或查看内容。 </b>"
+            else:
+                ret_content = "😭 该资源已被下架，无法兑换或查看内容。"    # 如果开头是 ⚠️ 会停
+            
             source_id = None
             product_type = None
             file_id = None
             thumb_file_id = None
 
-
+        
         return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:

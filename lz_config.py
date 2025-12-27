@@ -16,6 +16,16 @@ AES_KEY = os.getenv("AES_KEY", "")
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "prd").lower()
 
+# 管理员名单（逗号或分号分隔的一串 user_id）
+ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
+
+ADMIN_IDS: set[int] = set()
+if ADMIN_IDS_RAW:
+    for part in ADMIN_IDS_RAW.replace(";", ",").split(","):
+        part = part.strip()
+        if part.isdigit():
+            ADMIN_IDS.add(int(part))
+
 RESULTS_PER_PAGE = 6
 CACHE_TTL = 3000  # 緩存時間，單位秒
 
@@ -43,5 +53,6 @@ MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))
 
 META_BOT        = config.get('meta_bot', os.getenv('META_BOT', ''))
+UPLOADER_BOT_NAME = config.get('uploader_bot_name', os.getenv('UPLOADER_BOT_NAME', ''))
 KEY_USER_ID     = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
 

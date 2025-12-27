@@ -140,8 +140,16 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             InlineKeyboardButton(
                 text="👀 看看先",
                 url=f"https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
+            ),
+            InlineKeyboardButton(
+                text="🐥 上传鲁馆",
+                url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
             )
         ]])
+
+
+
+
 
         review_status = None
         

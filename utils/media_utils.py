@@ -452,8 +452,8 @@ class Media:
             # 追加反馈按钮（单独一行）
             rows_kb.append([
                 InlineKeyboardButton(
-                    text="⚠️ 反馈内容",
-                    url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
+                    text="⚠️ 我要打假",
+                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
                 )
             ])
 

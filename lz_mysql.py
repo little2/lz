@@ -304,9 +304,9 @@ class MySQLPool:
         try:
             await cursor.execute('''
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
-                    s.thumb_file_unique_id,
+                    s.thumb_file_unique_id, s.valid_state, s.file_password,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
-                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.id as product_id, 
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.id as product_id,  p.review_status,
                     g.guild_id, g.guild_keyword, g.guild_resource_chat_id, g.guild_resource_thread_id, g.guild_chat_id, g.guild_thread_id  
                 FROM sora_content s
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = %s
@@ -486,13 +486,24 @@ class MySQLPool:
         return None
 
     @classmethod
-    async def set_product_review_status(cls, content_id: int, review_status: int):
+    async def set_product_review_status(cls, content_id: int, review_status: int, operator_user_id: int = 0, reason: str = ""):
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute("""
-                UPDATE product SET review_status = %s
+                UPDATE product SET review_status = %s, stage='pending'
                 WHERE content_id = %s
             """, (review_status, content_id))
+
+            await cursor.execute("""
+                UPDATE sora_content SET valid_state = %s, stage='pending' 
+                WHERE id = %s
+            """, (review_status, content_id))
+
+            await cursor.execute("""
+                INSERT INTO review_log (content_id, to_status, operator_user_id, note)
+                VALUES (%s, %s, %s, %s)
+            """, (content_id, review_status, operator_user_id, reason))
+
             
         except Exception as e:
             print(f"⚠️ 数据库执行出错: {e}")

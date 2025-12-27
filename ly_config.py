@@ -40,7 +40,7 @@ MYSQL_DB        = config.get('db_name', os.getenv('MYSQL_DB_NAME', ''))
 MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 META_BOT       = config.get('meta_bot', os.getenv('META_BOT', ''))
-
+UPLOADER_BOT_NAME = config.get('uploader_bot_name', os.getenv('UPLOADER_BOT_NAME', ''))
 
 '''
 ALLOWED_GROUP_IDS = {

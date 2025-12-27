@@ -453,7 +453,7 @@ class DB:
             row = await conn.fetchrow(
                 '''
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
-                    s.thumb_file_unique_id, s.valid_state,
+                    s.thumb_file_unique_id, s.valid_state, s.file_password,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
                     p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status 
                 FROM sora_content s
@@ -535,7 +535,8 @@ class DB:
                 "owner_user_id": row.get("owner_user_id"),
                 "purchase_condition": row.get("purchase_condition"),
                 "valid_state": row.get("valid_state"),
-                "review_status": row.get("review_status")
+                "review_status": row.get("review_status"),
+                "file_password": row.get("file_password")
             }
 
             # print(f"\r\n\r\nFinal result for content_id {content_id}: {result}")

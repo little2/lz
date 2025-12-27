@@ -8,7 +8,7 @@ from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
-from lz_config import AES_KEY
+from lz_config import AES_KEY,UPLOADER_BOT_NAME
 import lz_var
 from lz_db import db
 import json
@@ -136,6 +136,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
         content = await Tplate.pure_text_tpl(tpl_data)
 
+
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(
                 text="👀 看看先",
@@ -146,6 +147,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
             )
         ]])
+
 
 
 

@@ -1798,12 +1798,17 @@ class AnanBOTPool(LYBase):
 
 
     @classmethod
-    async def set_product_review_status(cls, content_id: int, status: int = 1) -> int:
+    async def set_product_review_status(cls, content_id: int, status: int = 1, operator_user_id: int = 0, reason: str = "") -> int:
         """
         将 product.review_status 设为指定值（默认 1），返回受影响行数。
         """
         conn, cur = await cls.get_conn_cursor()
         try:
+            await cur.execute("""
+                INSERT INTO review_log (content_id, to_status, operator_user_id, note)
+                VALUES (%s, %s, %s, %s)
+            """, (content_id, status, operator_user_id, reason))
+
             await cur.execute(
                 """
                 UPDATE product

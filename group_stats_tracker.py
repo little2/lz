@@ -225,16 +225,18 @@ class GroupStatsTracker:
     # ------------------------------
     @classmethod
     def get_thread_id(cls, msg) -> int:
-        for attr in ("reply_to_top_id", "topic_id"):
-            tid = getattr(msg, attr, None)
-            if tid:
-                return int(tid)
-        try:
-            if msg.reply_to and getattr(msg.reply_to, "top_msg_id", None):
-                return int(msg.reply_to.top_msg_id)
-        except Exception:
-            pass
+        if getattr(msg, "reply_to_top_id", None):
+            return int(msg.reply_to_top_id)
+
+        if getattr(msg, "topic_id", None):
+            return int(msg.topic_id)
+
+        reply = getattr(msg, "reply_to", None)
+        if reply and getattr(reply, "top_msg_id", None):
+            return int(reply.top_msg_id)
+
         return 0
+
 
     @classmethod
     def has_url(cls, msg) -> bool:

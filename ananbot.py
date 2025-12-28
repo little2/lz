@@ -4482,22 +4482,22 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         report_reason = report_info.get("report_reason") or ""
 
         reply_msg = (
-            f"你所举报的资源 <a href='https://t.me/{lz_var.bot_username}?start={file_unique_id}'>{file_unique_id}</a>\n"
+            f"你所打假的资源 <a href='https://t.me/{lz_var.bot_username}?start={file_unique_id}'>{file_unique_id}</a>\n"
             f"检举理由: {report_reason}\n"
         )
 
         option_buttons = []
 
         if decision == "Y":  # 认可举报
-            reply_msg += f"举报内容成立，将退还 {sender_fee} 积分"
+            reply_msg += f"举报内容成立，将退还 {(sender_fee*2)} 积分"
 
             print(f"sender_id = {sender_id}")
             # 1) 记录退费交易
             ret_refund = await AnanBOTPool.transaction_log({
                 "sender_id": owner_user_id,
-                "sender_fee": -1 * receiver_fee,
+                "sender_fee": -2 * receiver_fee,
                 "receiver_id": sender_id,
-                "receiver_fee": -1 * sender_fee,
+                "receiver_fee": -2 * sender_fee,
                 "transaction_type": "refund",
                 "transaction_description": str(report_id)
             })

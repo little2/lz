@@ -108,8 +108,11 @@ class GroupStatsTracker:
         if not user_id:
             return
 
+        
+
         chat_id = event.chat_id
         thread_id = cls.get_thread_id(msg)
+        
         msg_type = cls.classify_message(msg)
 
         # ================================
@@ -225,17 +228,25 @@ class GroupStatsTracker:
     # ------------------------------
     @classmethod
     def get_thread_id(cls, msg) -> int:
-        if getattr(msg, "reply_to_top_id", None):
-            return int(msg.reply_to_top_id)
+        # 1) 最标准的：Telethon forum topic root id
+        for attr in ("reply_to_top_id", "topic_id"):
+            tid = getattr(msg, attr, None)
+            if tid:
+                return int(tid)
 
-        if getattr(msg, "topic_id", None):
-            return int(msg.topic_id)
+        # 2) 你的样本命中的情况：reply header 标记 forum_topic，但没给 top_id
+        rt = getattr(msg, "reply_to", None)
+        if rt and getattr(rt, "forum_topic", False):
+            rid = getattr(rt, "reply_to_top_id", None) or getattr(rt, "reply_to_msg_id", None)
+            if rid:
+                return int(rid)
 
-        reply = getattr(msg, "reply_to", None)
-        if reply and getattr(reply, "top_msg_id", None):
-            return int(reply.top_msg_id)
+        # 3) 传统回复链的 top_msg_id（有些版本/场景会走这里）
+        if rt and getattr(rt, "top_msg_id", None):
+            return int(rt.top_msg_id)
 
         return 0
+
 
 
     @classmethod

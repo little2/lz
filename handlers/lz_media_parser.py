@@ -68,7 +68,7 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     else:
         return
 
-    print(f"✅ [X-MEDIA] 收到 {file_type}，file_unique_id={file_unique_id} {file_id}，"
+    print(f"✅ [01 X-MEDIA] 收到 {file_type}，file_unique_id={file_unique_id} {file_id}，"
           f"from={message.from_user.id}，reply_to_msg_id={reply_to.message_id}", flush=True)
 
 
@@ -80,10 +80,10 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     fetch_file_unique_id = store_data.get("fetch_file_unique_id")
     current_message = store_data.get("current_message")
 
-    print(f"✅ [X-MEDIA] fetch_thumb_file_unique_id={fetch_thumb_file_unique_id} fetch_file_unique_id={fetch_file_unique_id}, ")
+    print(f"✅ [02 X-MEDIA] fetch_thumb_file_unique_id={fetch_thumb_file_unique_id} fetch_file_unique_id={fetch_file_unique_id}, ")
 
     if fetch_thumb_file_unique_id == file_unique_id:
-        print(f"✅ [X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)
+        print(f"✅ [03 X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)
         try:
             # 判断 menu_message 是否有 message_id 和 chat.id
             if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
@@ -97,37 +97,60 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
                         ),
                     reply_markup=current_message.reply_markup  # 保留原按钮
                 )
-                print(f"✅ [X-MEDIA] 成功更新菜单消息的缩略图", flush=True)
+                print(f"✅ [04 X-MEDIA] 成功更新菜单消息的缩略图", flush=True)
             else:
-                print(f"❌ [X-MEDIA] menu_message 无法更新缩略图，缺少 message_id 或 chat 信息 {current_message}", flush=True)
+                print(f"❌ [04 X-MEDIA] menu_message 无法更新缩略图，缺少 message_id 或 chat 信息 {current_message}", flush=True)
         except Exception as e:
-            print(f"❌ [X-MEDIA] 更新菜单消息缩略图失败: {e}", flush=True)
+            print(f"❌ [05 X-MEDIA] 更新菜单消息缩略图失败: {e}", flush=True)
     
     if fetch_file_unique_id == file_unique_id:
-        print(f"✅ [X-MEDIA] 发现匹配的 file_unique_id，准备继续处理", flush=True)
-       
-    
-        old_kb = current_message.reply_markup
+        print(f"✅ [06 X-MEDIA] 发现匹配的 file_unique_id，准备继续处理", flush=True)
 
-        if not old_kb:
-            print(f"❌ [X-MEDIA] 菜单消息没有回复键盘，无法替换按钮 current_message={current_message}", flush=True)
-            return
+        # 状态里不一定已经有 current_message（例如：异步预加载/其它 handler 清理了状态）。
+        # 直接访问 current_message.reply_markup 会触发 NoneType 异常。
+        if current_message is None:
+            print(
+                f"❌ [07 X-MEDIA] current_message is None，无法替换按钮。"
+                f" file_unique_id={file_unique_id} fetch_file_unique_id={fetch_file_unique_id}",
+                flush=True,
+            )
+            
+        else:
+            old_kb = getattr(current_message, "reply_markup", None)
 
-       
-        # === 🔄→💎 替换逻辑（克隆保留所有字段）===
-        new_inline_keyboard = []
-        for row in (old_kb.inline_keyboard or []):
-            new_row = []
-            for btn in row:
-                new_text = (btn.text or "").replace("🔄", "💎")
-                # 克隆按钮并仅更新 text
-                cloned_btn = btn.model_copy(update={"text": new_text})
-                new_row.append(cloned_btn)
-            new_inline_keyboard.append(new_row)
+            if not old_kb:
+                print(f"❌ [08 X-MEDIA] 菜单消息没有回复键盘，无法替换按钮 current_message={current_message}", flush=True)
+               
+            else:
+                # 若已经不是“加载中”状态（没有 🔄），就不要重复编辑，避免无意义请求。
+                try:
+                    has_loading = any(
+                        "🔄" in (btn.text or "")
+                        for row in (old_kb.inline_keyboard or [])
+                        for btn in (row or [])
+                    )
+                except Exception:
+                    has_loading = False
 
-        new_kb = InlineKeyboardMarkup(inline_keyboard=new_inline_keyboard)
+                if not has_loading:
+                    print("ℹ️ [09 X-MEDIA] 已是最终按钮状态，跳过替换", flush=True)
+                    return
 
-        await current_message.edit_reply_markup(reply_markup=new_kb)
+            
+                # === 🔄→💎 替换逻辑（克隆保留所有字段）===
+                new_inline_keyboard = []
+                for row in (old_kb.inline_keyboard or []):
+                    new_row = []
+                    for btn in row:
+                        new_text = (btn.text or "").replace("🔄", "💎")
+                        # 克隆按钮并仅更新 text
+                        cloned_btn = btn.model_copy(update={"text": new_text})
+                        new_row.append(cloned_btn)
+                    new_inline_keyboard.append(new_row)
+
+                new_kb = InlineKeyboardMarkup(inline_keyboard=new_inline_keyboard)
+
+                await Media.safe_edit_reply_markup(current_message, new_kb)
        
        
 
@@ -135,6 +158,7 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
 
     user_id = str(message.from_user.id) if message.from_user else None
     
+
     await db.upsert_file_extension(
         file_type,
         file_unique_id=file_unique_id,

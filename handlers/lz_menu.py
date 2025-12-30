@@ -189,6 +189,11 @@ def _short(text: str | None, n: int = 60) -> str:
     text = text.replace("\r", " ").replace("\n", " ")
     return text[:n] + ("..." if len(text) > n else "")
 
+
+
+
+
+
 async def _edit_caption_or_text(
     msg: Message | None = None,
     *,
@@ -209,110 +214,120 @@ async def _edit_caption_or_text(
       - 若要求“换媒体”但未传 photo，则尝试复用原图（仅当原媒体是 photo）
       - 若原媒体不是 photo，则回退为仅改 caption（避免类型不匹配错误）
     """
-    try:
-        # print(f"text=>{text}")
-        if msg is None and (chat_id is None or message_id is None):
-            # 没有 msg，也没提供 chat_id/message_id，无法定位消息
-            return
+    return await Media.edit_caption_or_text(
+        msg=msg,
+        text=text,
+        reply_markup=reply_markup,
+        chat_id=chat_id,
+        message_id=message_id,
+        photo=photo,
+        state=state,
+    )
+    
+    # try:
+    #     # print(f"text=>{text}")
+    #     if msg is None and (chat_id is None or message_id is None):
+    #         # 没有 msg，也没提供 chat_id/message_id，无法定位消息
+    #         return
 
-        if hasattr(msg, 'chat'):
-            if chat_id is None:
-                chat_id = msg.chat.id
-            if message_id is None:
-                message_id = msg.message_id
+    #     if hasattr(msg, 'chat'):
+    #         if chat_id is None:
+    #             chat_id = msg.chat.id
+    #         if message_id is None:
+    #             message_id = msg.message_id
         
-        if message_id is None:
-            print('没有 message_id，无法定位消息', flush=True)
-            return False
+    #     if message_id is None:
+    #         print('没有 message_id，无法定位消息', flush=True)
+    #         return False
 
 
-        # 判断是否为媒体消息（按优先顺序找出第一种存在的媒体属性）
-        media_attr = next(
-            (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
-            None
-        )
+    #     # 判断是否为媒体消息（按优先顺序找出第一种存在的媒体属性）
+    #     media_attr = next(
+    #         (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
+    #         None
+    #     )
 
-        if media_attr:
-            # ——————————— 有媒体的情况 ———————————
-            if photo:
-                # print(f"‼️ 编辑消息，换图 + caption {chat_id} {message_id}", flush=True)
-                # 明确要换图：用传入的 photo
-                current_message = await lz_var.bot.edit_message_media(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    media=InputMediaPhoto(
-                        media=photo,
-                        caption=text,
-                        parse_mode="HTML",
-                    ),
-                    reply_markup=reply_markup
-                )
-                # print(f"\n\ncurrent_message={current_message}", flush=True)
-            else:
-                # 未传 photo：尝试“复用原媒体”
-                if media_attr == "photo":
-                    print(f"‼️ 编辑消息，仅改 caption，复用原图", flush=True)
-                    # Aiogram 的 Message.photo 是 PhotoSize 列表，取最后一项（最大尺寸）
-                    try:
-                        orig_photo_id = (msg.photo[-1].file_id) if getattr(msg, "photo", None) else None
-                    except Exception:
-                        orig_photo_id = None
+    #     if media_attr:
+    #         # ——————————— 有媒体的情况 ———————————
+    #         if photo:
+    #             # print(f"‼️ 编辑消息，换图 + caption {chat_id} {message_id}", flush=True)
+    #             # 明确要换图：用传入的 photo
+    #             current_message = await lz_var.bot.edit_message_media(
+    #                 chat_id=chat_id,
+    #                 message_id=message_id,
+    #                 media=InputMediaPhoto(
+    #                     media=photo,
+    #                     caption=text,
+    #                     parse_mode="HTML",
+    #                 ),
+    #                 reply_markup=reply_markup
+    #             )
+    #             # print(f"\n\ncurrent_message={current_message}", flush=True)
+    #         else:
+    #             # 未传 photo：尝试“复用原媒体”
+    #             if media_attr == "photo":
+    #                 print(f"‼️ 编辑消息，仅改 caption，复用原图", flush=True)
+    #                 # Aiogram 的 Message.photo 是 PhotoSize 列表，取最后一项（最大尺寸）
+    #                 try:
+    #                     orig_photo_id = (msg.photo[-1].file_id) if getattr(msg, "photo", None) else None
+    #                 except Exception:
+    #                     orig_photo_id = None
 
-                    if orig_photo_id:
-                        print(f"‼️ 找到原图 ID，复用", flush=True)
-                        # 用 edit_message_media + 原图，实现“换媒体但沿用原图 + 改 caption”
-                        current_message =  await lz_var.bot.edit_message_media(
-                            chat_id=chat_id,
-                            message_id=message_id,
-                            media=InputMediaPhoto(
-                                media=orig_photo_id,
-                                caption=text,
-                                parse_mode="HTML",
-                            ),
-                            reply_markup=reply_markup
-                        )
-                    else:
-                        print(f"⚠️ 未找到原图 ID，改为仅改 caption", flush=True)
-                        # 兜底：拿不到原图 id，就仅改 caption
-                        current_message = await lz_var.bot.edit_message_caption(
-                            chat_id=chat_id,
-                            message_id=message_id,
-                            caption=text,
-                            parse_mode="HTML",
-                            reply_markup=reply_markup,
-                        )
-                else:
-                    print(f"‼️ 原媒体不是 photo，仅改 caption", flush=True)
-                    # 原媒体不是 photo（例如 animation/video/document）：
-                    # 为避免 “can't use file of type ... as Photo” 错误，这里不强行换媒体，改为仅改 caption
-                    current_message = await lz_var.bot.edit_message_caption(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        caption=text,
-                        parse_mode="HTML",
-                        reply_markup=reply_markup,
-                    )
-        else:
-            print(f"‼️ 编辑消息，仅改 text（无媒体）", flush=True)
-            # ——————————— 无媒体的情况 ———————————
-            current_message = await lz_var.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                reply_markup=reply_markup,
-            )
+    #                 if orig_photo_id:
+    #                     print(f"‼️ 找到原图 ID，复用", flush=True)
+    #                     # 用 edit_message_media + 原图，实现“换媒体但沿用原图 + 改 caption”
+    #                     current_message =  await lz_var.bot.edit_message_media(
+    #                         chat_id=chat_id,
+    #                         message_id=message_id,
+    #                         media=InputMediaPhoto(
+    #                             media=orig_photo_id,
+    #                             caption=text,
+    #                             parse_mode="HTML",
+    #                         ),
+    #                         reply_markup=reply_markup
+    #                     )
+    #                 else:
+    #                     print(f"⚠️ 未找到原图 ID，改为仅改 caption", flush=True)
+    #                     # 兜底：拿不到原图 id，就仅改 caption
+    #                     current_message = await lz_var.bot.edit_message_caption(
+    #                         chat_id=chat_id,
+    #                         message_id=message_id,
+    #                         caption=text,
+    #                         parse_mode="HTML",
+    #                         reply_markup=reply_markup,
+    #                     )
+    #             else:
+    #                 print(f"‼️ 原媒体不是 photo，仅改 caption", flush=True)
+    #                 # 原媒体不是 photo（例如 animation/video/document）：
+    #                 # 为避免 “can't use file of type ... as Photo” 错误，这里不强行换媒体，改为仅改 caption
+    #                 current_message = await lz_var.bot.edit_message_caption(
+    #                     chat_id=chat_id,
+    #                     message_id=message_id,
+    #                     caption=text,
+    #                     parse_mode="HTML",
+    #                     reply_markup=reply_markup,
+    #                 )
+    #     else:
+    #         print(f"‼️ 编辑消息，仅改 text（无媒体）", flush=True)
+    #         # ——————————— 无媒体的情况 ———————————
+    #         current_message = await lz_var.bot.edit_message_text(
+    #             chat_id=chat_id,
+    #             message_id=message_id,
+    #             text=text,
+    #             reply_markup=reply_markup,
+    #         )
         
-        if state is not None:
-            await MenuBase.set_menu_status(state, {
-                "current_message": current_message,
-                "current_chat_id": current_message.chat.id,
-                "current_message_id": current_message.message_id
-            })
+    #     if state is not None:
+    #         await MenuBase.set_menu_status(state, {
+    #             "current_message": current_message,
+    #             "current_chat_id": current_message.chat.id,
+    #             "current_message_id": current_message.message_id
+    #         })
 
-        return current_message
-    except Exception as e:
-        # 你也可以在这里加上 traceback 打印，或区分 TelegramBadRequest
-        print(f"❌ 编辑消息失败a: {e}", flush=True)
+    #     return current_message
+    # except Exception as e:
+    #     # 你也可以在这里加上 traceback 打印，或区分 TelegramBadRequest
+    #     print(f"❌ 编辑消息失败a: {e}", flush=True)
 
 
 
@@ -3604,7 +3619,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("keyframe:"))
-async def handle_redeem(callback: CallbackQuery, state: FSMContext):
+async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     content_id = callback.data.split(":")[1]
     result = await load_sora_content_by_id(int(content_id), state)
     ret_content, file_info, purchase_info = result
@@ -3806,7 +3821,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         'receiver_fee': receiver_fee
     })
     timer.lap("2780 结束")
-    print(f"结束")
+
     
 
 
@@ -3948,7 +3963,6 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                      return   
 
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id)
-                
                 
                 if result and not result.get('ok'):
                     await callback.answer(result.get('message'), show_alert=True)

@@ -786,6 +786,8 @@ class DB:
             async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
                 rows = await conn.fetch(sql, bot_name, content_id)
 
+               
+
                 # 先把记录转成可变 dict，并收集需要回写的条目
                 dict_rows: list[dict] = []
                 to_upsert: list[tuple[int, str, str]] = []  # (content_id, bot_name, file_id)

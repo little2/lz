@@ -4,6 +4,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InputMediaPhoto
+from aiogram.exceptions import TelegramBadRequest
+from typing import Any
 
 from aiogram import Bot
 import lz_var
@@ -12,7 +15,7 @@ import asyncio
 from io import BytesIO
 from typing import Optional, Tuple
 from aiogram.types import BufferedInputFile, PhotoSize
-
+from lz_config import UPLOADER_BOT_NAME
 
 
 class ProductPreviewFSM(StatesGroup):
@@ -20,6 +23,154 @@ class ProductPreviewFSM(StatesGroup):
 
 
 class Media:
+
+    @classmethod
+    def _dump_reply_markup(cls, markup: InlineKeyboardMarkup | None) -> Any:
+        if not markup:
+            return None
+        if hasattr(markup, "model_dump"):
+            return markup.model_dump()
+        if hasattr(markup, "dict"):
+            return markup.dict()
+        return str(markup)
+
+    @classmethod
+    async def safe_edit_reply_markup(cls, msg: Message | None, reply_markup: InlineKeyboardMarkup | None):
+        """
+        安全编辑 reply_markup：
+        - 若新旧 markup 完全一致，则跳过，避免 Telegram 'message is not modified'
+        - 若仍遇到 'message is not modified'，吞掉该异常，保证流程不中断
+        """
+        if msg is None:
+            return None
+
+        try:
+            old_dump = cls._dump_reply_markup(getattr(msg, "reply_markup", None))
+            new_dump = cls._dump_reply_markup(reply_markup)
+            if old_dump == new_dump:
+                return msg
+            return await msg.edit_reply_markup(reply_markup=reply_markup)
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                return msg
+            raise
+
+    @classmethod
+    async def edit_caption_or_text(
+        cls,
+        msg: Message | None = None,
+        *,
+        text: str,
+        reply_markup: InlineKeyboardMarkup | None,
+        chat_id: int | None = None,
+        message_id: int | None = None,
+        photo: str | None = None,
+        state: FSMContext | None = None,
+    ):
+        """
+        统一编辑（从 lz_menu 抽离）：
+          - 若原消息有媒体：
+              * 传入 photo → 用 edit_message_media 换图 + caption
+              * 未传 photo → 尝试复用原图（仅当原媒体是 photo），否则仅改 caption
+          - 若原消息无媒体：edit_message_text
+        额外：
+          - 遇到 Telegram 'message is not modified' 时不报错（直接返回原 msg）
+          - 若传入 state，则会更新 MenuBase 的 current_message/current_message_id 等缓存
+        """
+        try:
+            if msg is None and (chat_id is None or message_id is None):
+                return None
+
+            if msg is not None and hasattr(msg, "chat"):
+                if chat_id is None:
+                    chat_id = msg.chat.id
+                if message_id is None:
+                    message_id = msg.message_id
+
+            if message_id is None:
+                print("没有 message_id，无法定位消息", flush=True)
+                return None
+
+            media_attr = None
+            if msg is not None:
+                media_attr = next(
+                    (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
+                    None,
+                )
+
+            current_message = None
+
+            if media_attr:
+                if photo:
+                    current_message = await lz_var.bot.edit_message_media(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        media=InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
+                        reply_markup=reply_markup,
+                    )
+                else:
+                    if media_attr == "photo":
+                        orig_photo_id = None
+                        try:
+                            orig_photo_id = (msg.photo[-1].file_id) if getattr(msg, "photo", None) else None
+                        except Exception:
+                            orig_photo_id = None
+
+                        if orig_photo_id:
+                            current_message = await lz_var.bot.edit_message_media(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                media=InputMediaPhoto(media=orig_photo_id, caption=text, parse_mode="HTML"),
+                                reply_markup=reply_markup,
+                            )
+                        else:
+                            current_message = await lz_var.bot.edit_message_caption(
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                caption=text,
+                                parse_mode="HTML",
+                                reply_markup=reply_markup,
+                            )
+                    else:
+                        current_message = await lz_var.bot.edit_message_caption(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            caption=text,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup,
+                        )
+            else:
+                current_message = await lz_var.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    reply_markup=reply_markup,
+                )
+
+            if state is not None and current_message is not None:
+                try:
+                    from utils.product_utils import MenuBase  # 延迟 import，避免循环依赖
+                    await MenuBase.set_menu_status(
+                        state,
+                        {
+                            "current_message": current_message,
+                            "current_chat_id": current_message.chat.id,
+                            "current_message_id": current_message.message_id,
+                        },
+                    )
+                except Exception as e:
+                    print(f"⚠️ MenuBase.set_menu_status failed: {e}", flush=True)
+
+            return current_message
+
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                return msg
+            raise
+        except Exception as e:
+            print(f"❌ 编辑消息失败(edit_caption_or_text): {e}", flush=True)
+            return msg
+
 
     @classmethod
     async def fetch_file_by_file_uid_from_x(cls, state: FSMContext, ask_file_unique_id: str | None = None, timeout_sec: float = 10.0):
@@ -257,8 +408,8 @@ class Media:
                 )
 
                 await asyncio.sleep(0.7)
-            print(f"资源同步中，请稍后再试，请看看别的资源吧", flush=True)        
-            return {'ok':False,'message':'资源同步中，请稍后再试，可以先看看别的资源吧'}
+            print(f"资源同步中，请稍后再试，请看看别的资源吧(-{len(lack_file_uid_rows)})", flush=True)        
+            return {'ok':False,'message':f'资源同步中，请稍后再试，可以先看看别的资源吧(-{len(lack_file_uid_rows)})'}
         # print(f"1896=>{productInfomation}")
         rows = productInfomation.get("rows", [])
         # print(f"rows={rows}", flush=True)
@@ -310,7 +461,7 @@ class Media:
                             # 去掉已有的 "[V]"，避免重复标记
                             base_text = btn.text.lstrip()
                             base_text_pure = base_text.replace("✅","").lstrip()
-                            if base_text_pure == "⚠️ 反馈内容":
+                            if base_text_pure == "⚠️ 我要打假":
                                 continue
                             btn_quantity = box_dict.get(int(base_text_pure),{}).get("quantity",0)
                             print(f"btn_quantity={btn_quantity}")
@@ -383,6 +534,9 @@ class Media:
 
                 # 可选：给个轻量反馈，去掉“加载中”状态
                 await callback.answer()
+
+
+
 
     @classmethod
     async def auto_self_delete(cls, message, delay_seconds: int = 5):

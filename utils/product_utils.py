@@ -243,14 +243,17 @@ async def get_product_material(content_id: int):
     from lz_db import db  # 延迟导入避免循环依赖
         # ✅ 统一在这里连一次
     # await db.connect()
-    rows = await db.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
+    rows = await db.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)    
+
     if rows:
+        
         result = await build_product_material(rows)
-        # print(f"✅ get_product_material: got rows for content_id={content_id} {result}", flush=True)
+       
         return result
     else:
+        # print(f"❌ get_product_material: no rows, try sync for content_id={content_id}", flush=True)
         await sync_album_items(content_id)
-        print(f"❌ get_product_material: no rows for content_id={content_id}", flush=True)
+        # print(f"❌ get_product_material: no rows for content_id={content_id}", flush=True)
         return await get_product_material(content_id)
         
 

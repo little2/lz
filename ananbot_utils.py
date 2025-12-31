@@ -1168,7 +1168,7 @@ class AnanBOTPool(LYBase):
         async with cls._pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute("SELECT type_code, type_cn FROM tag_type WHERE type_code NOT IN ('xiaoliu','system','serial','gallery','gallery_set') " \
-                "ORDER BY FIELD(type_code, 'age', 'face', 'act', 'nudity','par', 'fetish','att', 'feedback', 'pro','eth', 'position', 'hardcore', 'position', 'hardcore')")
+                "ORDER BY FIELD(type_code, 'age', 'face', 'act', 'nudity','par', 'fetish','att', 'feedback', 'pro','eth', 'position', 'play', 'hardcore')")
                 # return await cur.fetchall()
                 rows = await cur.fetchall()
 

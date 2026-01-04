@@ -2627,7 +2627,7 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
     GROUPS = [
         ['age','par','eth', 'face'], 
         ['act', 'nudity','fetish'],
-        ['att','feedback'],
+        ['att','feedback','play'],
         ['pro', 'position', 'hardcore']
     ]
 

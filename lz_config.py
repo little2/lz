@@ -38,6 +38,9 @@ try:
 except Exception as e:
     print(f"⚠️ 無法解析 CONFIGURATION：{e}")
 
+    configuration_json = json.loads(os.getenv('CONFIGURATION', '') or '{}')
+
+
 API_ID          = int(config.get('api_id', os.getenv('API_ID', 0)))
 API_HASH        = config.get('api_hash', os.getenv('API_HASH', ''))
 SESSION_STRING  = config.get('session_string', os.getenv('SESSION_STRING', ''))

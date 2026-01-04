@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import date,datetime
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -16,6 +16,7 @@ from group_stats_tracker import GroupStatsTracker
 
 from telethon.tl.functions.contacts import ImportContactsRequest
 from telethon.tl.types import InputPhoneContact,DocumentAttributeFilename,InputDocument
+from telethon.tl.types import PeerUser
 from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError
 
 
@@ -886,6 +887,435 @@ async def thumbnail_dispatch_loop2():
 
 
 
+async def _safe_get_user_entity(client, uid: int):
+    """
+    尝试用多种方式拿到 user entity。
+    拿不到就返回 None，不抛异常。
+    """
+    # 1) 直接用 int（依赖 cache）
+    try:
+        return await client.get_entity(uid)
+    except Exception:
+        pass
+
+    # 2) 用 PeerUser（有时比 int 更稳定）
+    try:
+        return await client.get_entity(PeerUser(uid))
+    except Exception:
+        return None
+
+
+async def ensure_user_names_via_telethon(
+    client,
+    user_ids: list[int],
+    chat_id: int | None = None,     # 可选：传入群 chat_id，用于 fallback
+    max_fallback_scan: int = 2000,   # 可选：fallback 扫描的人数上限
+):
+    """
+    只补齐缺名字的 user。抓不到 entity 不报错，直接跳过。
+    如果传入 chat_id，则可尝试从群成员列表/参与者中补（有限度）。
+    """
+    from pg_stats_db import PGStatsDB
+
+    # 找出缺名字的
+    missing = await PGStatsDB.get_users_missing_names(user_ids)
+    if not missing:
+        return
+
+    # 可选 fallback：先准备一个 uid->entity 的映射（从群参与者列表抓）
+    fallback_map = {}
+    if chat_id is not None:
+        try:
+            # 注意：大群会很慢/很重，所以加上上限
+            count = 0
+            async for u in client.iter_participants(chat_id):
+                fallback_map[int(u.id)] = u
+                count += 1
+                if count >= max_fallback_scan:
+                    break
+        except Exception as e:
+            print(f"⚠️ fallback iter_participants 失败 chat_id={chat_id}: {e}", flush=True)
+
+    # 逐个补齐
+    for uid in missing:
+        ent = await _safe_get_user_entity(client, int(uid))
+        if ent is None:
+            # fallback：如果我们扫到了群参与者
+            ent = fallback_map.get(int(uid))
+
+        if ent is None:
+            # 这里不要再报错，只记录一下即可
+            print(f"⚠️ 无法抓取 user_name uid={uid}: entity not found (no cache / not accessible)", flush=True)
+            continue
+
+        first_name = getattr(ent, "first_name", None)
+        last_name  = getattr(ent, "last_name", None)
+
+        # 写回 PG
+        await PGStatsDB.upsert_user_profile(int(uid), first_name, last_name)
+
+
+
+from datetime import date
+from typing import Optional, Any
+
+
+def _fmt_manager_line(managers: list[dict[str, Any]]) -> str:
+    if not managers:
+        return "—"
+    parts = []
+    for m in managers:
+        name = (f"{m.get('first_name','')} {m.get('last_name','')}").strip()
+        if not name:
+            name = str(m.get("manager_user_id"))
+        parts.append(f"{name} {m.get('manager_msg_count', 0)}")
+    return "、".join(parts) if parts else "—"
+
+
+async def build_board_rank_text(
+    stat_date_from: date,
+    stat_date_to: date,
+    tg_chat_id: int,
+    include_bots: bool = False,
+    top_n: Optional[int] = None,   # None = 全列
+) -> str:
+    """
+    单一榜单：
+    - 排名规则：msg_count DESC → funds DESC
+    - 区间汇总（不分天）
+    """
+
+    from pg_stats_db import PGStatsDB
+
+    rows = await PGStatsDB.get_board_thread_stats_range_sum(
+        stat_date_from=stat_date_from,
+        stat_date_to=stat_date_to,
+        tg_chat_id=tg_chat_id,
+        include_bots=include_bots,
+    )
+
+    if not rows:
+        return "（该区间内没有任何板块数据）"
+
+    # ✅ 单一排序：msg → funds
+    rows = sorted(
+        rows,
+        key=lambda r: (
+            int(r.get("msg_count", 0)),
+            int(r.get("funds", 0)),
+        ),
+        reverse=True,
+    )
+
+    if top_n is not None:
+        rows = rows[:top_n]
+
+    # ===== 文本输出 =====
+    out: list[str] = [
+        "📊 板块活跃排行榜",
+        f"🗓 {stat_date_from} ～ {stat_date_to}",
+        "",
+    ]
+
+    for idx, r in enumerate(rows, start=1):
+        board_title = r.get("board_title") or "（未命名板块）"
+        thread_id = r.get("thread_id")
+        msg_count = int(r.get("msg_count", 0))
+        funds = int(r.get("funds", 0))
+        mgr_text = _fmt_manager_line(r.get("managers") or [])
+
+        out.append(
+            f"{idx}. {board_title}\n"
+            f"   💬 {msg_count} ｜ 💎 {funds}  \n"
+            f"   🧑‍💼 版主：{mgr_text}\n"
+        )
+
+    return "\n".join(out)
+
+
+from typing import Optional, List
+
+TG_TEXT_LIMIT = 4096
+
+
+def _split_telegram_text(text: str, limit: int = TG_TEXT_LIMIT) -> List[str]:
+    """
+    优先按换行切段，避免硬切断行；若仍超长才硬切。
+    """
+    text = (text or "").strip()
+    if not text:
+        return [""]
+
+    parts: List[str] = []
+    buf: List[str] = []
+    buf_len = 0
+
+    for line in text.splitlines(True):  # keepends
+        if buf_len + len(line) <= limit:
+            buf.append(line)
+            buf_len += len(line)
+            continue
+
+        # flush buffer
+        if buf:
+            parts.append("".join(buf).rstrip())
+            buf = []
+            buf_len = 0
+
+        # if single line still too long -> hard cut
+        while len(line) > limit:
+            parts.append(line[:limit])
+            line = line[limit:]
+        if line:
+            buf.append(line)
+            buf_len = len(line)
+
+    if buf:
+        parts.append("".join(buf).rstrip())
+
+    return parts
+
+
+async def send_text_via_telethon(
+    client,
+    target_chat_id: int,
+    text: str,
+    target_thread_id: int = 0,
+    silent: bool = False,
+):
+    """
+    用 Telethon 发送文本到指定 chat_id；如果 target_thread_id>0，则尝试投递到对应 topic。
+    自动分段（Telegram 4096 限制）。
+    """
+    chunks = _split_telegram_text(text)
+
+    # 先解析 entity（避免 PeerIdInvalid）
+    entity = await client.get_input_entity(int(target_chat_id))
+
+    for i, chunk in enumerate(chunks):
+        if not chunk:
+            continue
+
+        # 仅第一段带 reply_to（把消息落到 topic），后续分段默认直接跟随同一会话发
+        reply_to = int(target_thread_id) if (i == 0 and int(target_thread_id) > 0) else None
+
+        try:
+            await client.send_message(
+                entity=entity,
+                message=chunk,
+                reply_to=reply_to,
+                silent=silent,
+            )
+        except Exception as e:
+            # topic 投递失败时降级
+            if reply_to is not None:
+                print(f"⚠️ send_message(topic) 失败，降级到普通发送: chat_id={target_chat_id} thread_id={target_thread_id} err={e}", flush=True)
+                await client.send_message(
+                    entity=entity,
+                    message=chunk,
+                    silent=silent,
+                )
+            else:
+                raise
+
+
+from datetime import date
+
+async def send_board_rank_report(
+    client,
+    stat_date_from: date,
+    stat_date_to: date,
+    source_tg_chat_id: int,      # 用来统计的群（你原来的 tg_chat_id）
+    target_chat_id: int,         # 要发送到哪里
+    target_thread_id: int = 0,   # 要发送到哪个 topic（0=不指定）
+    include_bots: bool = False,
+    top_n: Optional[int] = None,
+):
+    """
+    统计区间榜单（不分天）并发送到指定 chat/topic。
+    """
+    text = await build_board_rank_text(
+        stat_date_from=stat_date_from,
+        stat_date_to=stat_date_to,
+        tg_chat_id=source_tg_chat_id,
+        include_bots=include_bots,
+        top_n=top_n,
+    )
+
+    await send_text_via_telethon(
+        client=client,
+        target_chat_id=int(target_chat_id),
+        target_thread_id=int(target_thread_id),
+        text=text,
+    )
+
+
+
+
+
+from datetime import datetime, timedelta, date, timezone
+# 不依赖 tzdata：固定用 UTC+8（台北/上海同为 +8，且无夏令时）
+TZ_TAIPEI = timezone(timedelta(hours=8))
+def now_taipei() -> datetime:
+    return datetime.now(tz=TZ_TAIPEI)
+
+
+async def exec_send_yesterday_board_rank(client, task: dict, params: dict | None = None) -> None:
+    """
+    task_value 建议 JSON，示例：
+    {
+      "source_chat_id": -100xxx,
+      "target_chat_id": -100yyy,
+      "target_thread_id": 123,
+      "top_n": 20,
+      "include_bots": false
+    }
+    """
+    from pg_stats_db import PGStatsDB
+
+    cfg = params or {}
+    if not cfg and task.get("task_value"):
+        try:
+            cfg = json.loads(task["task_value"])
+        except Exception:
+            cfg = {}
+
+    
+
+    source_chat_id = int(cfg.get("source_chat_id"))
+    target_chat_id = int(cfg.get("target_chat_id"))
+    target_thread_id = int(cfg.get("target_thread_id", 0))
+    top_n = cfg.get("top_n", None)
+    include_bots = bool(cfg.get("include_bots", False))
+
+    # “昨日”用台北时间定义
+    now_local = now_taipei()
+
+    end_date = now_local.date() - timedelta(days=1)      # 昨日
+    start_date = end_date - timedelta(days=6)            # 含昨日共 7 天
+  
+
+
+    await send_board_rank_report(
+        client=client,
+        stat_date_from=start_date,
+        stat_date_to=end_date,
+        source_tg_chat_id=source_chat_id,
+        target_chat_id=target_chat_id,
+        target_thread_id=target_thread_id,
+        include_bots=include_bots,
+        top_n=top_n,
+    )
+
+async def run_taskrec_scheduler(client, poll_seconds: int = 10, stop_event: asyncio.Event | None = None):
+    """
+    不使用 TASK_EXECUTORS：
+    - task_rec 到期就抓
+    - 用 task_exec 动态定位函数并执行
+    - 成功后 touch task_time = now
+    - 失败则不 touch（下次继续重试；你也可以改成失败也 touch 避免刷屏）
+    """
+    from pg_stats_db import PGStatsDB
+
+    while True:
+        if stop_event and stop_event.is_set():
+            print("🛑 task_rec scheduler stopped", flush=True)
+            return
+
+        now_epoch = int(time.time())
+
+        try:
+            tasks = await PGStatsDB.fetch_due_tasks_locked(now_epoch=now_epoch, limit=20)
+
+            if not tasks:
+                await asyncio.sleep(poll_seconds)
+                continue
+
+            for t in tasks:
+                task_id = t["task_id"]
+                exec_path = (t.get("task_exec") or "").strip()
+
+                try:
+                    await _run_task_exec(client, t)
+
+                    # ✅ 执行完才 touch
+                    await PGStatsDB.touch_task_time(task_id, int(time.time()))
+                    print(f"✅ task done task_id={task_id} exec={exec_path}", flush=True)
+
+                except Exception as e:
+                    # ❌ 失败不 touch：下轮继续重试
+                    print(f"❌ task failed task_id={task_id} exec={exec_path} err={e}", flush=True)
+
+        except Exception as e:
+            print(f"❌ scheduler loop error: {e}", flush=True)
+
+        await asyncio.sleep(poll_seconds)
+
+
+
+
+import importlib
+import inspect
+import json
+import time
+import asyncio
+
+def _load_exec_callable(exec_path: str):
+    """
+    支持：
+    - "func_name"：从 ly.py globals() 取
+    - "module.func_name"：import module 后 getattr
+    """
+    exec_path = (exec_path or "").strip()
+    if not exec_path:
+        return None
+
+    if "." in exec_path:
+        module_name, func_name = exec_path.rsplit(".", 1)
+        mod = importlib.import_module(module_name)
+        return getattr(mod, func_name, None)
+
+    # 不带 module 前缀：从当前 ly.py 全局找
+    return globals().get(exec_path)
+
+
+async def _run_task_exec(client, task: dict):
+    """
+    约定：执行函数签名为
+      async def xxx(client, task, params) -> None
+    params 来自 task_value(JSON)，解析失败则 {}
+    """
+    exec_path = (task.get("task_exec") or "").strip()
+    fn = _load_exec_callable(exec_path)
+    if fn is None:
+        raise RuntimeError(f"task_exec not found: {exec_path}")
+
+    # task_value -> params（建议 JSON）
+    params = {}
+    raw_val = task.get("task_value")
+    if raw_val:
+        try:
+            params = json.loads(raw_val)
+            if not isinstance(params, dict):
+                params = {"_value": params}
+        except Exception:
+            params = {"_raw": raw_val}
+
+    argc = len(inspect.signature(fn).parameters)
+
+    if inspect.iscoroutinefunction(fn):
+        if argc >= 3:
+            await fn(client, task, params)
+        else:
+            await fn(client, task)
+    else:
+        if argc >= 3:
+            fn(client, task, params)
+        else:
+            fn(client, task)
+
+
+
 # ==================================================================
 # 启动 bot
 # ==================================================================
@@ -909,6 +1339,7 @@ async def main():
             offline_interval=90   # 每 90 秒跑一次，你可以改成 300 等
         )
 
+    
 
     print("🤖 ly bot 启动中(SESSION_STRING)...")
 
@@ -920,6 +1351,9 @@ async def main():
     asyncio.create_task(ping_keepalive_task())
 
     asyncio.create_task(thumbnail_dispatch_loop())
+
+    scheduler_task = asyncio.create_task(run_taskrec_scheduler(client, poll_seconds=10))
+
 
     # ====== 获取自身帐号资讯 ======
     me = await client.get_me()

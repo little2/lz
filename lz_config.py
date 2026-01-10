@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import json
 
-load_dotenv(dotenv_path='.lzbot_test.env')
+load_dotenv(dotenv_path='.lz.env')
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 

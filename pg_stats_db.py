@@ -546,6 +546,131 @@ class PGStatsDB:
         print(f"✅ sync_user_from_mysql: 已同步 {len(records)} 笔 user 记录到 PostgreSQL。", flush=True)
         return len(records)
 
+
+    @classmethod
+    async def sync_board_from_mysql(cls) -> int:
+        """
+        ✅ 单向同步（覆盖模式）：
+        - 从 MySQL telebot.board 全量抓取
+        - PostgreSQL public.board 先 TRUNCATE 再全量写入
+        - 最终 PG 的 board 与 MySQL 完全一致（包含删除掉 PG 多余旧数据）
+
+        注意：
+        - 需要外部先调用 MySQLPool.init_pool / PGStatsDB.init_pool / PGStatsDB.ensure_table()
+        - 假设 PG 的 board 没有被其它表做 FK 约束（你当前 schema 看起来是独立表）
+        """
+        from lz_mysql import MySQLPool
+
+        if cls.pool is None:
+            raise RuntimeError("PGStatsDB.pool 尚未初始化，请先调用 PGStatsDB.init_pool()")
+
+        # 1) MySQL 全量抓 board
+        await MySQLPool.ensure_pool()
+        conn_mysql, cur_mysql = await MySQLPool.get_conn_cursor()
+        try:
+            sql = """
+                SELECT
+                    board_id,
+                    board_key,
+                    chat_id,
+                    message_thread_id,
+                    board_title,
+                    board_description,
+                    button,
+                    icon_custom_emoji_id,
+                    file_type,
+                    file_unique_id,
+                    file_id,
+                    bot,
+                    post_message_id,
+                    funds,
+                    pre_funds,
+                    manager_id
+                FROM board
+                ORDER BY board_id ASC
+            """
+            await cur_mysql.execute(sql)
+            rows = await cur_mysql.fetchall()
+        finally:
+            await MySQLPool.release(conn_mysql, cur_mysql)
+
+        if not rows:
+            # 覆盖语义：MySQL 没资料 => PG 也应该清空
+            async with cls.pool.acquire() as conn_pg:
+                async with conn_pg.transaction():
+                    await conn_pg.execute('TRUNCATE TABLE board RESTART IDENTITY;')
+            print("✅ sync_board_from_mysql: MySQL board 为空，已清空 PostgreSQL board。", flush=True)
+            return 0
+
+        # 2) 组装写入记录
+        records = []
+        for r in rows:
+            # aiomysql dict-like row
+            records.append(
+                (
+                    int(r["board_id"]),
+                    r["board_key"],
+                    int(r.get("chat_id") or 0),
+                    int(r.get("message_thread_id") or 0),
+                    r["board_title"],
+                    r["board_description"],
+                    r.get("button"),
+                    (int(r["icon_custom_emoji_id"]) if r.get("icon_custom_emoji_id") is not None else None),
+                    r.get("file_type"),
+                    r["file_unique_id"],
+                    r["file_id"],
+                    r["bot"],
+                    (int(r["post_message_id"]) if r.get("post_message_id") is not None else None),
+                    int(r.get("funds") or 0),
+                    int(r.get("pre_funds") or 0),
+                    r.get("manager_id"),
+                )
+            )
+
+        insert_sql = """
+            INSERT INTO board (
+                board_id,
+                board_key,
+                chat_id,
+                message_thread_id,
+                board_title,
+                board_description,
+                button,
+                icon_custom_emoji_id,
+                file_type,
+                file_unique_id,
+                file_id,
+                bot,
+                post_message_id,
+                funds,
+                pre_funds,
+                manager_id
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16);
+        """
+
+        async with cls.pool.acquire() as conn_pg:
+            async with conn_pg.transaction():
+                # 覆盖：先清空再写入
+                await conn_pg.execute('TRUNCATE TABLE board RESTART IDENTITY;')
+                await conn_pg.executemany(insert_sql, records)
+
+                # 让 identity/sequence 跟上最大 board_id（保险起见）
+                await conn_pg.execute(
+                    """
+                    SELECT setval(
+                        pg_get_serial_sequence('board','board_id'),
+                        (SELECT COALESCE(MAX(board_id), 1) FROM board),
+                        TRUE
+                    );
+                    """
+                )
+
+        print(f"✅ sync_board_from_mysql: 已覆盖同步 {len(records)} 笔 board 记录到 PostgreSQL。", flush=True)
+        return len(records)
+
+
+
     # （写入原始语料，含 message_id）
     @classmethod
     async def upsert_raw_messages(cls, rows: list[dict]):

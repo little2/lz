@@ -1,8 +1,8 @@
 import asyncio
 import json
 import os
-from datetime import date,datetime
 
+from datetime import datetime, timedelta, date, timezone
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from aiohttp import web
@@ -19,6 +19,13 @@ from telethon.tl.types import InputPhoneContact,DocumentAttributeFilename,InputD
 from telethon.tl.types import PeerUser
 from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError
 
+
+from typing import Optional, List, Any
+ 
+
+import importlib
+import inspect
+import time
 
 
 
@@ -42,6 +49,8 @@ from ly_config import (
     DEBUG_HB_GROUP_ID,
     FORWARD_THUMB_USER
 )
+
+TG_TEXT_LIMIT = 4096
 
 # ======== Telethon 启动方式 ========
 client = TelegramClient(
@@ -252,15 +261,7 @@ async def replay_offline_transactions(max_batch: int = 200):
 
 
 
-# @client.on(events.NewMessage)
-# async def _debug_any_message(event):
-#     if event.chat_id != DEBUG_HB_GROUP_ID:
-#         return
-#     print(
-#         f"[DBG0] 收到任何消息 chat_id={event.chat_id}, "
-#         f"sender={event.sender_id}, text={event.raw_text!r}",
-#         flush=True
-#     )
+
 
 
 # ==================================================================
@@ -853,37 +854,6 @@ async def thumbnail_dispatch_loop():
 
 
 
-async def thumbnail_dispatch_loop2():
-    if not THUMB_BOTS:
-        print("ℹ️ THUMB_BOTS 未配置，thumbnail_dispatch_loop 不启动。", flush=True)
-        return
-
-    while True:
-        try:
-            bot_name = await pick_available_bot_from_tasks()
-            if not bot_name:
-                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
-                continue
-
-            task = await lock_one_pending_task_for_bot(bot_name)
-            if not task:
-                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
-                continue
-
-            fu = task["file_unique_id"]
-            payload = json.dumps({"cmd": "thumbnail", "file_unique_id": fu}, ensure_ascii=False)
-
-            entity = await client.get_entity(bot_name)
-            sent = await client.send_message(entity, payload)
-
-            await update_task_sent_info(fu, int(sent.chat_id), int(sent.id))
-            print(f"📤 thumbnail 派发: fu={fu} -> bot={bot_name} msg_id={sent.id}", flush=True)
-
-        except Exception as e:
-            print(f"❌ thumbnail_dispatch_loop error: {e}", flush=True)
-
-        await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
-
 
 
 
@@ -954,12 +924,6 @@ async def ensure_user_names_via_telethon(
         # 写回 PG
         await PGStatsDB.upsert_user_profile(int(uid), first_name, last_name)
 
-
-
-from datetime import date
-from typing import Optional, Any
-
-
 def _fmt_manager_line(managers: list[dict[str, Any]]) -> str:
     if not managers:
         return "—"
@@ -970,7 +934,6 @@ def _fmt_manager_line(managers: list[dict[str, Any]]) -> str:
             name = str(m.get("manager_user_id"))
         parts.append(f"{name} {m.get('manager_msg_count', 0)}")
     return "、".join(parts) if parts else "—"
-
 
 async def build_board_rank_text(
     stat_date_from: date,
@@ -1032,12 +995,6 @@ async def build_board_rank_text(
 
     return "\n".join(out)
 
-
-from typing import Optional, List
-
-TG_TEXT_LIMIT = 4096
-
-
 def _split_telegram_text(text: str, limit: int = TG_TEXT_LIMIT) -> List[str]:
     """
     优先按换行切段，避免硬切断行；若仍超长才硬切。
@@ -1074,7 +1031,6 @@ def _split_telegram_text(text: str, limit: int = TG_TEXT_LIMIT) -> List[str]:
         parts.append("".join(buf).rstrip())
 
     return parts
-
 
 async def send_text_via_telethon(
     client,
@@ -1118,9 +1074,6 @@ async def send_text_via_telethon(
             else:
                 raise
 
-
-from datetime import date
-
 async def send_board_rank_report(
     client,
     stat_date_from: date,
@@ -1151,13 +1104,9 @@ async def send_board_rank_report(
 
 
 
-
-
-from datetime import datetime, timedelta, date, timezone
-# 不依赖 tzdata：固定用 UTC+8（台北/上海同为 +8，且无夏令时）
-TZ_TAIPEI = timezone(timedelta(hours=8))
 def now_taipei() -> datetime:
-    return datetime.now(tz=TZ_TAIPEI)
+    tz = timezone(timedelta(hours=8))
+    return datetime.now(tz)
 
 
 async def exec_send_yesterday_board_rank(client, task: dict, params: dict | None = None) -> None:
@@ -1180,7 +1129,7 @@ async def exec_send_yesterday_board_rank(client, task: dict, params: dict | None
         except Exception:
             cfg = {}
 
-    
+    await PGStatsDB.sync_board_from_mysql()
 
     source_chat_id = int(cfg.get("source_chat_id"))
     target_chat_id = int(cfg.get("target_chat_id"))
@@ -1207,7 +1156,431 @@ async def exec_send_yesterday_board_rank(client, task: dict, params: dict | None
         top_n=top_n,
     )
 
-async def run_taskrec_scheduler(client, poll_seconds: int = 10, stop_event: asyncio.Event | None = None):
+
+from typing import Any
+
+def calc_board_manager_salary_weighted_from_stat(
+    board_stat: dict[str, Any],
+    base_salary: int = 150,
+    bonus_ratio: float = 0.10,
+    min_msg_count: int = 3,
+) -> dict[str, Any]:
+    """
+    按“发言数占比”分配分成的版主工资计算（仅对有效版主：manager_msg_count > min_msg_count）。
+
+    规则：
+    - 若 funds < base_salary * N：将 funds 平均分配给 N 个有效版主（整数；余数留在 funds）
+    - 若 funds >= base_salary * N：
+        1) 先扣基本工资 base_salary * N
+        2) 剩余 remain 的 10% 为 bonus_pool（整数向下取整）
+        3) bonus_pool 按各版主 msg_count 占比加权分配（最大余数法）
+        4) 每位工资 = base_salary + bonus_i
+        5) 总扣除 = base_salary * N + bonus_pool
+
+    回传：
+    {
+      "eligible_managers": [...],  # 原 manager dict（仅有效版主）
+      "funds": int,
+      "mode": "split_all" | "base_plus_weighted_bonus",
+      "base_salary": int,
+      "total_base": int,
+      "remain": int,
+      "bonus_pool": int,
+      "total_deducted": int,
+      "payouts": [
+         {"manager_user_id": int, "manager_msg_count": int, "base": int, "bonus": int, "salary": int}
+      ]
+    }
+    """
+
+    funds = int(board_stat.get("funds", 0) or 0)
+    managers = board_stat.get("managers") or []
+
+    # 1) 有效版主：msg_count > min_msg_count
+    eligible: list[dict[str, Any]] = []
+    for m in managers:
+        try:
+            cnt = int(m.get("manager_msg_count", 0) or 0)
+        except Exception:
+            cnt = 0
+        if cnt > min_msg_count:
+            eligible.append(m)
+
+    n = len(eligible)
+    if n <= 0 or funds <= 0:
+        return {
+            "eligible_managers": [],
+            "funds": funds,
+            "mode": "split_all",
+            "base_salary": base_salary,
+            "total_base": 0,
+            "remain": 0,
+            "bonus_pool": 0,
+            "total_deducted": 0,
+            "payouts": [],
+        }
+
+    total_base = n * base_salary
+
+    # 2) 版金不足：平分版金（在有效版主之间）
+    if funds < total_base:
+        per = funds // n
+        total_deducted = per * n
+        payouts = []
+        for m in eligible:
+            mid = int(m.get("manager_user_id") or 0)
+            cnt = int(m.get("manager_msg_count") or 0)
+            payouts.append({
+                "manager_user_id": mid,
+                "manager_msg_count": cnt,
+                "base": 0,          # 版金不足时不再拆 base/bonus，工资就是平分额
+                "bonus": 0,
+                "salary": per,
+            })
+        return {
+            "eligible_managers": eligible,
+            "funds": funds,
+            "mode": "split_all",
+            "base_salary": base_salary,
+            "total_base": total_base,
+            "remain": 0,
+            "bonus_pool": 0,
+            "total_deducted": total_deducted,
+            "payouts": payouts,
+        }
+
+    # 3) 版金充足：基本工资 + 加权分成
+    remain = funds - total_base
+    bonus_pool = int(remain * float(bonus_ratio))
+    # 若 bonus_pool 为 0，仍照常发 base
+    total_deducted = total_base + bonus_pool
+
+    # 3.1 分母：有效版主发言数加总
+    weights: list[int] = []
+    for m in eligible:
+        try:
+            weights.append(max(0, int(m.get("manager_msg_count", 0) or 0)))
+        except Exception:
+            weights.append(0)
+
+    weight_sum = sum(weights)
+    # 若权重总和为 0（极端情况），则把分成池平均分（避免除 0）
+    if bonus_pool <= 0:
+        bonuses = [0] * n
+    elif weight_sum <= 0:
+        per = bonus_pool // n
+        bonuses = [per] * n
+        # 把余数用最大余数法补齐（此处等价于顺序补 1）
+        for i in range(bonus_pool - per * n):
+            bonuses[i] += 1
+    else:
+        # 3.2 最大余数法：先取 floor，再按余数大小补齐
+        raw = [bonus_pool * w / weight_sum for w in weights]  # float
+        floor_parts = [int(x) for x in raw]
+        used = sum(floor_parts)
+        left = bonus_pool - used
+
+        remainders = [(raw[i] - floor_parts[i], i) for i in range(n)]
+        remainders.sort(reverse=True, key=lambda t: t[0])
+
+        bonuses = floor_parts[:]
+        for k in range(left):
+            bonuses[remainders[k % n][1]] += 1  # left <= n 通常成立，但用 %n 更稳
+
+    payouts = []
+    for i, m in enumerate(eligible):
+        mid = int(m.get("manager_user_id") or 0)
+        cnt = int(m.get("manager_msg_count") or 0)
+        b = int(bonuses[i])
+        payouts.append({
+            "manager_user_id": mid,
+            "manager_msg_count": cnt,
+            "base": base_salary,
+            "bonus": b,
+            "salary": base_salary + b,
+        })
+
+    return {
+        "eligible_managers": eligible,
+        "funds": funds,
+        "mode": "base_plus_weighted_bonus",
+        "base_salary": base_salary,
+        "total_base": total_base,
+        "remain": remain,
+        "bonus_pool": bonus_pool,
+        "total_deducted": total_deducted,
+        "payouts": payouts,
+    }
+
+
+async def exec_pay_board_manager_salary(client, task: dict, params: dict | None = None) -> None:
+    """
+    近 7 天版主工资（按板块独立发放）：
+
+    - 统计口径：PGStatsDB.get_board_thread_stats_range_sum(start_date, end_date, source_chat_id)
+    - 有效版主：manager_msg_count > 3
+    - 工资规则：基本工资 150；若版金不足则平分版金；若充足则扣基本工资后，剩余的 10% 平均分成
+    - 发放：MySQLPool.transaction_log(tx)
+    - 若 result['status'] == 'insert' 才在目标版面公告（避免重复公告）
+    """
+    from pg_stats_db import PGStatsDB
+
+    cfg = params or {}
+    if not cfg and task.get("task_value"):
+        try:
+            cfg = json.loads(task["task_value"])
+        except Exception:
+            cfg = {}
+
+    source_chat_id = int(cfg.get("source_chat_id"))
+    target_chat_id = int(cfg.get("target_chat_id"))
+    target_thread_id = int(cfg.get("target_thread_id", 0))
+    include_bots = bool(cfg.get("include_bots", False))
+
+    print(
+        f"💰 [salary] start pay_board_manager_salary source_chat_id={source_chat_id} "
+        f"target_chat_id={target_chat_id} target_thread_id={target_thread_id} include_bots={include_bots}",
+        flush=True,
+    )
+
+    # 近七天：含昨日共 7 天（台北时间）
+    now_local = now_taipei()
+    end_date = now_local.date() - timedelta(days=1)  # 昨日
+    start_date = end_date - timedelta(days=6)
+    pay_day = end_date.strftime("%Y-%m-%d")
+
+    # 可选：先同步一次 board 基础资料（避免 board_key / title 缺失）
+    try:
+        await PGStatsDB.sync_board_from_mysql()
+    except Exception as e:
+        print(f"⚠️ [salary] sync_board_from_mysql failed: {e}", flush=True)
+
+    rows = await PGStatsDB.get_board_thread_stats_range_sum(
+        stat_date_from=start_date,
+        stat_date_to=end_date,
+        tg_chat_id=source_chat_id,
+        include_bots=include_bots,
+    )
+
+    if not rows:
+        print("ℹ️ [salary] no board stats found, nothing to pay", flush=True)
+        return
+
+    await MySQLPool.ensure_pool()
+
+    for r in rows:
+        board_key = (r.get("board_key") or "").strip()
+        if not board_key:
+            board_key = f"thread_{r.get('thread_id') or ''}".strip("_")
+
+        board_title = (r.get("board_title") or "").strip() or board_key
+
+        # —— 计算该板块：每位有效版主工资、总扣除（仅计算，不写回扣款）——
+        calc = calc_board_manager_salary_weighted_from_stat(
+            board_stat=r,
+            base_salary=150,
+            bonus_ratio=0.10,
+            min_msg_count=3,
+        )
+
+        payouts = calc["payouts"]
+        if not payouts:
+            continue
+
+        # （可选）先补齐名字：针对 eligible_managers
+        missing_ids = []
+        for m in calc["eligible_managers"]:
+            name = (f"{m.get('first_name','')} {m.get('last_name','')}").strip()
+            if not name:
+                missing_ids.append(int(m.get("manager_user_id") or 0))
+        missing_ids = [x for x in missing_ids if x]
+        if missing_ids:
+            await ensure_user_names_via_telethon(client=client, user_ids=missing_ids, chat_id=source_chat_id)
+
+        # 发薪（每位不同）
+        for p in payouts:
+            manager_id = p["manager_user_id"]
+            salary = p["salary"]          # ✅ 这里是 150 + 按占比分到的 bonus
+            bonus = p["bonus"]            # ✅ 可用于公告
+            manager_cnt = p["manager_msg_count"]
+
+            tx = {
+                "sender_id": 0,
+                "receiver_id": manager_id,
+                "transaction_type": "salary",
+                "transaction_description": f"{pay_day}_{board_key}_{manager_id}",
+                "sender_fee": 0,
+                "receiver_fee": salary,   # ✅ 替换原本 +10
+            }
+
+            # result = await MySQLPool.transaction_log(tx)
+            result = {"status":"insert"}  # TODO: 删除测试代码
+            if result.get("status") == "insert":
+                # 公告示例（你可按风格再精简）
+                salary_detail = (
+                    f"基本 150 + 分成 {bonus}"
+                    if calc["mode"] == "base_plus_weighted_bonus"
+                    else "版金不足，平分版金"
+                )
+                # 取回原 manager dict 用 _fmt_manager_line 展示名字
+                m = next((mm for mm in calc["eligible_managers"] if int(mm.get("manager_user_id") or 0) == manager_id), None)
+                manager_line = _fmt_manager_line([m] if m else [{"manager_user_id": manager_id, "manager_msg_count": manager_cnt}])
+
+                notice = (
+                    "💰 版主工资已发放\n"
+                    f"🗓 {pay_day}\n"
+                    f"🏷 {board_title} ({board_key})\n"
+                    f"👤 {manager_line}\n"
+                    f"💎 +{salary}（{salary_detail}）\n"
+                    f"💬 近7天发言 {manager_cnt}\n"
+                    f"🏦 本板版金 {calc['funds']}｜分成池 {calc['bonus_pool']}｜本板扣款 {calc['total_deducted']}"
+                )
+                
+
+
+                try:
+                    await send_text_via_telethon(
+                        client=client,
+                        target_chat_id=target_chat_id,
+                        target_thread_id=target_thread_id,
+                        text=notice,
+                    )
+                except Exception as e:
+                    print(
+                        f"⚠️ [salary] send notice failed chat_id={target_chat_id} thread_id={target_thread_id} err={e}",
+                        flush=True,
+                    )
+
+
+async def exec_pay_board_manager_salary2(client, task: dict, params: dict | None = None) -> None:
+    """
+    近 7 天版主工资（按板块独立发放）：
+    - 统计口径：PGStatsDB.get_board_thread_stats_range_sum(start_date, end_date, source_chat_id)
+    - 条件：manager_msg_count > 3
+    - 发放：MySQLPool.transaction_log(tx)
+    - 若 result['status'] == 'insert' 才在目标版面公告（避免重复公告）
+
+    task_value 建议 JSON，示例：
+    {
+      "source_chat_id": -100xxx,
+      "target_chat_id": -100yyy,
+      "target_thread_id": 123,
+      "include_bots": false
+    }
+    """
+    from pg_stats_db import PGStatsDB
+
+    cfg = params or {}
+    if not cfg and task.get("task_value"):
+        try:
+            cfg = json.loads(task["task_value"])
+        except Exception:
+            cfg = {}
+
+    source_chat_id = int(cfg.get("source_chat_id"))
+    target_chat_id = int(cfg.get("target_chat_id"))
+    target_thread_id = int(cfg.get("target_thread_id", 0))
+    include_bots = bool(cfg.get("include_bots", False))
+    print(f"💰 [salary] start pay_board_manager_salary source_chat_id={source_chat_id} target_chat_id={target_chat_id} target_thread_id={target_thread_id} include_bots={include_bots}", flush=True)
+
+    # “近七天”用台北时间定义：含昨日共 7 天
+    now_local = now_taipei()
+    end_date = now_local.date() - timedelta(days=1)   # 昨日
+    start_date = end_date - timedelta(days=6)
+    pay_day = end_date.strftime("%Y-%m-%d")
+
+    await PGStatsDB.sync_board_from_mysql()
+
+    rows = await PGStatsDB.get_board_thread_stats_range_sum(
+        stat_date_from=start_date,
+        stat_date_to=end_date,
+        tg_chat_id=source_chat_id,
+        include_bots=include_bots,
+    )
+
+   
+
+    if not rows:
+        print("ℹ️ [salary] no board stats found, nothing to pay", flush=True)
+        return
+
+    # 确保 MySQL pool 可用
+    await MySQLPool.ensure_pool()
+
+    for r in rows:
+        print(f"{r}", flush=True)
+        board_key = (r.get("board_key") or "").strip()
+        if not board_key:
+            # fallback：没有 board_key 就用 thread_id
+            board_key = f"thread_{r.get('thread_id') or ''}".strip("_")
+            board_title = r.get("board_title") or board_key
+
+        managers = r.get("managers") or []
+        missing_ids: set[int] = set()
+
+        for m in managers:
+            try:
+                manager_id = int(m.get("manager_user_id") or 0)
+                manager_cnt = int(m.get("manager_msg_count") or 0)
+                manager_title = m.get("first_name","") + " " + m.get("last_name","")
+                if not manager_title.strip():
+                    missing_ids.add(manager_id)
+            except Exception:
+                continue
+
+            if not manager_id:
+                continue
+            # if manager_cnt <= 3:
+            #     # print(f"ℹ️ [salary] {manager_title} skip manager_id={manager_id} board_key={board_key} cnt={manager_cnt} <=3", flush=True)
+            #     continue
+
+            tx = {
+                "sender_id": 0,
+                "receiver_id": manager_id,
+                "transaction_type": "salary",
+                "transaction_description": f"{pay_day}_{board_key}",
+                "sender_fee": 0,
+                "receiver_fee": 10,
+            }
+
+            try:
+                # result = await MySQLPool.transaction_log(tx)
+                result = {"status": "insert2"}
+            except Exception as e:
+                print(f"❌ [salary] {manager_title} transaction_log failed manager_id={manager_id} board_key={board_key} err={e}", flush=True)
+                continue
+
+
+
+            # 只在“首次插入”时公告，避免重复刷屏
+            if result.get("status") == "insert":
+                notice = (
+                    "💰 版主工资已发放 (由版金扣除)\n"
+                    f"🗓 {pay_day}\n"
+                    f"🏷 {board_title}\n"
+                    f"👤 {manager_title} ({manager_id})\n"
+                    f"💎 +10\n"
+                    f"💬 近7天发言 {manager_cnt}"
+                )
+                try:
+                    await send_text_via_telethon(
+                        client=client,
+                        target_chat_id=target_chat_id,
+                        target_thread_id=target_thread_id,
+                        text=notice,
+                    )
+                except Exception as e:
+                    print(f"⚠️ [salary] send notice failed chat_id={target_chat_id} thread_id={target_thread_id} err={e}", flush=True)
+       
+        if missing_ids:
+           
+            await ensure_user_names_via_telethon(
+                client=client,
+                user_ids=list(missing_ids),
+                chat_id=source_chat_id,
+            )
+
+async def run_taskrec_scheduler(client, poll_seconds: int = 180, stop_event: asyncio.Event | None = None):
     """
     不使用 TASK_EXECUTORS：
     - task_rec 到期就抓
@@ -1228,10 +1601,12 @@ async def run_taskrec_scheduler(client, poll_seconds: int = 10, stop_event: asyn
             tasks = await PGStatsDB.fetch_due_tasks_locked(now_epoch=now_epoch, limit=20)
 
             if not tasks:
+                print("ℹ️ task_rec: no due tasks", flush=True)
                 await asyncio.sleep(poll_seconds)
                 continue
 
             for t in tasks:
+                print(f"🔍 task_rec: found due task_id={t.get('task_id')} exec={t.get('task_exec')}", flush=True)
                 task_id = t["task_id"]
                 exec_path = (t.get("task_exec") or "").strip()
 
@@ -1251,15 +1626,6 @@ async def run_taskrec_scheduler(client, poll_seconds: int = 10, stop_event: asyn
 
         await asyncio.sleep(poll_seconds)
 
-
-
-
-import importlib
-import inspect
-import json
-import time
-import asyncio
-
 def _load_exec_callable(exec_path: str):
     """
     支持：
@@ -1277,7 +1643,6 @@ def _load_exec_callable(exec_path: str):
 
     # 不带 module 前缀：从当前 ly.py 全局找
     return globals().get(exec_path)
-
 
 async def _run_task_exec(client, task: dict):
     """
@@ -1316,6 +1681,27 @@ async def _run_task_exec(client, task: dict):
 
 
 
+'''
+為run_taskrec_scheduler新增一個任務,執行一個新的function, 該function ,先從get_board_thread_stats_range_sum取得近七天的板塊以及發言數大於3則的管理員
+（    source_chat_id = int(cfg.get("source_chat_id"))
+）
+
+，遍循並執行
+tx = {
+    "sender_id": 0,
+    "receiver_id": [管理員id],
+    "transaction_type": 'salary',
+    "transaction_description": [年月日]_[board_key],
+    "sender_fee": 0,
+    "receiver_fee": 10,
+}
+
+result = await MySQLPool.transaction_log(tx)
+若 result['status'] == 'insert' ,則在以下版面張貼訊息
+target_chat_id = int(cfg.get("target_chat_id"))
+target_thread_id = int(cfg.get("target_thread_id", 0))
+'''
+
 # ==================================================================
 # 启动 bot
 # ==================================================================
@@ -1346,13 +1732,17 @@ async def main():
     await client.start()
     await client.catch_up()
 
+    asyncio.create_task(run_taskrec_scheduler(client, poll_seconds=180))
+
+    
+
 
     # ✅ 启动 keep-alive 背景任务（每 4 分钟并发访问一轮）
     asyncio.create_task(ping_keepalive_task())
 
     asyncio.create_task(thumbnail_dispatch_loop())
 
-    scheduler_task = asyncio.create_task(run_taskrec_scheduler(client, poll_seconds=10))
+    
 
 
     # ====== 获取自身帐号资讯 ======

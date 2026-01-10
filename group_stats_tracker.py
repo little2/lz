@@ -9,6 +9,7 @@ from telethon.tl.types import MessageEntityUrl, MessageEntityTextUrl
 
 from pg_stats_db import PGStatsDB
 import redis.asyncio as redis_async
+from lz_config import VALKEY_URL
 
 class GroupStatsTracker:
     """
@@ -42,6 +43,9 @@ class GroupStatsTracker:
         cls.client = client
         cls.flush_interval = flush_interval
         cls.flush_batch_size = flush_batch_size
+
+
+        redis_async.from_url(VALKEY_URL, decode_responses=True)
 
         @client.on(events.NewMessage)
         async def _handler(event):

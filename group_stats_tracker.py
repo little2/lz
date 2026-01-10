@@ -8,7 +8,7 @@ from telethon import events
 from telethon.tl.types import MessageEntityUrl, MessageEntityTextUrl
 
 from pg_stats_db import PGStatsDB
-
+import redis.asyncio as redis_async
 
 class GroupStatsTracker:
     """
@@ -69,6 +69,7 @@ class GroupStatsTracker:
             cls._offline_replay_task = asyncio.create_task(
                 cls._periodic_offline_replay(offline_replay_coro, offline_interval)
             )
+
 
 
     # @classmethod

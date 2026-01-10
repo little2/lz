@@ -1367,6 +1367,7 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
         return
 
     await MySQLPool.ensure_pool()
+    
 
     for r in rows:
         board_key = (r.get("board_key") or "").strip()
@@ -1380,7 +1381,7 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
             board_stat=r,
             base_salary=150,
             bonus_ratio=0.10,
-            min_msg_count=3,
+            min_msg_count=0,
         )
 
         payouts = calc["payouts"]
@@ -1404,6 +1405,8 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
             bonus = p["bonus"]            # ✅ 可用于公告
             manager_cnt = p["manager_msg_count"]
 
+            
+
             tx = {
                 "sender_id": 0,
                 "receiver_id": manager_id,
@@ -1413,9 +1416,16 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                 "receiver_fee": salary,   # ✅ 替换原本 +10
             }
 
-            # result = await MySQLPool.transaction_log(tx)
-            result = {"status":"insert"}  # TODO: 删除测试代码
-            if result.get("status") == "insert":
+            result = await MySQLPool.transaction_log(tx)
+            print(f"💰result={result}", flush=True)
+
+            # result = {"status":"insert"}  # TODO: 删除测试代码
+            if result.get("status") == "insert":    
+
+                
+
+                await MySQLPool.update_board_funds(board_id=r.get("board_id"), pay_funds=-salary)
+
                 # 公告示例（你可按风格再精简）
                 salary_detail = (
                     f"基本 150 + 分成 {bonus}"
@@ -1436,6 +1446,14 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                     f"🏦 本板版金 {calc['funds']}｜分成池 {calc['bonus_pool']}｜本板扣款 {calc['total_deducted']}"
                 )
                 
+                await MySQLPool.set_media_auto_send({
+                    "chat_id": manager_id,
+                    "type": "text",
+                    "text": notice,
+                    "bot": "xiaolongdd02bot",
+                    "create_timestamp": int(time.time()),
+                    "plan_send_timestamp": int(time.time()),  # 一小时后
+                })
 
 
                 try:

@@ -189,7 +189,7 @@ class MySQLPool:
                 return {'ok': '', 'status': 'reward_self', 'transaction_data': transaction_data}
 
             # 更新 sender point
-            if transaction_data.get('sender_id', '') != '':
+            if transaction_data.get('sender_id', '') != '' and transaction_data.get('sender_fee', 0) != 0:
 
                 timer.lap("user_info_row")
                 try:
@@ -403,6 +403,28 @@ class MySQLPool:
             
         except Exception as e:
             print(f"⚠️ 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)   
+
+    @classmethod
+    async def update_board_funds(
+        cls,
+        board_id : int,
+        pay_funds:  int
+    ):
+        await cls.ensure_pool()   # ✅ 新增
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            # pay_funds 一定是负数
+            if pay_funds > 0:
+                pay_funds = -pay_funds
+            await cursor.execute(f"""
+                UPDATE board SET funds = (funds + %s) 
+                WHERE board_id = %s 
+            """, (pay_funds, board_id))
+           
+        except Exception as e:
+            print(f"⚠️ 427 数据库执行出错: {e}")
         finally:
             await cls.release(conn, cursor)   
 
@@ -694,6 +716,27 @@ class MySQLPool:
         finally:
             await cls.release(conn, cur)
 
+    @classmethod
+    async def get_cache_by_key(
+        cls, cache_key
+    ) -> List[Dict[str, Any]]:
+        
+        cached = cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+        
+
+    @classmethod
+    async def set_cache_by_key(
+        cls, cache_key, cache_value
+    ) -> List[Dict[str, Any]]:
+      
+        cls.cache.set(cache_key, cache_value, ttl=300)
+        print(f"🔹 MemoryCache set for {cache_key}, {cache_value} items")
+           
+
 
     @classmethod
     async def list_user_favorite_collections(
@@ -737,8 +780,6 @@ class MySQLPool:
             return result
         finally:
             await cls.release(conn, cur)
-
-
 
     @classmethod
     async def get_collection_detail_with_cover(cls, collection_id: int, bot_name: str = "luzaitestbot") -> dict | None:
@@ -1524,9 +1565,6 @@ class MySQLPool:
                 lines.append(w)
 
         return "\n".join(lines) + "\n"
-
-
-    # TAG
     
     @classmethod
     async def get_all_tags_grouped(cls) -> dict:
@@ -1581,6 +1619,94 @@ class MySQLPool:
 
     
     
+    
+
+    @classmethod
+    async def set_media_auto_send(cls, insert_data: dict):
+        """
+        media_auto_send UPSERT
+        PK: media_auto_send_id
+        UNIQUE KEY (chat_id, file_id)
+        """
+
+        if not isinstance(insert_data, dict):
+            return {"ok": "", "status": "bad_insert_data"}
+
+        # 1) 归一化字段别名（可按你习惯增补）
+        data = dict(insert_data)
+
+        # 常见别名容错：create_time/created_time -> create_timestamp
+        if "create_timestamp" not in data:
+            if "create_time" in data and data.get("create_time") is not None:
+                data["create_timestamp"] = data.pop("create_time")
+            elif "created_time" in data and data.get("created_time") is not None:
+                data["create_timestamp"] = data.pop("created_time")
+
+        # 2) 过滤 None
+        data = {k: v for k, v in data.items() if v is not None}
+
+        # 3) 必填字段校验 + 空串校验
+        chat_id = str(data.get("chat_id", "")).strip()
+        if not chat_id :
+            return {"ok": "", "status": "missing_required_field", "required": ["chat_id"]}
+
+        data["chat_id"] = chat_id
+
+
+        table = "media_auto_send"
+
+        columns = list(data.keys())
+        values = list(data.values())
+
+        col_sql = ", ".join(f"`{c}`" for c in columns)
+        val_sql = ", ".join(["%s"] * len(values))
+
+        # 4) 不参与 UPDATE 的字段（按你表结构定制）
+        skip_update_cols = {
+            "media_auto_send_id",
+            "chat_id",
+            "create_timestamp",
+        }
+
+        update_cols = [c for c in columns if c not in skip_update_cols]
+
+        if update_cols:
+            update_sql = ", ".join(f"`{c}` = VALUES(`{c}`)" for c in update_cols)
+            sql = f"""
+                INSERT INTO `{table}` ({col_sql})
+                VALUES ({val_sql})
+                ON DUPLICATE KEY UPDATE
+                {update_sql}
+            """
+        else:
+            sql = f"""
+                INSERT IGNORE INTO `{table}` ({col_sql})
+                VALUES ({val_sql})
+            """
+
+        conn = cur = None
+        try:
+            conn, cur = await cls.get_conn_cursor()
+            await cur.execute(sql, values)
+            # 你当前 pool 是 autocommit=True；这里 commit 可留可不留，为保持一致我留着
+            await conn.commit()
+
+            return {
+                "ok": "1",
+                "status": "upserted",
+                "media_auto_send_id": cur.lastrowid,
+                "affected": cur.rowcount,
+            }
+        except Exception as e:
+            try:
+                if conn:
+                    await conn.rollback()
+            except Exception:
+                pass
+            return {"ok": "", "status": "error", "error": str(e)}
+        finally:
+            if conn and cur:
+                await cls.release(conn, cur)
 
 
 

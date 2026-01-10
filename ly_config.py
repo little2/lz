@@ -89,3 +89,4 @@ THUMB_PREFIX = "|_thumbnail_|"
 DEBUG_HB_GROUP_ID = -1002675021976  # 换成实际群 ID
 FORWARD_THUMB_USER =  os.getenv("FORWARD_THUMB_USER", "")
 
+VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))

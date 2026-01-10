@@ -1,31 +1,74 @@
-# lz_memory_cache.py
-
 import time
+from collections import OrderedDict
+from typing import Any, Optional
+
 
 class MemoryCache:
-    def __init__(self):
-        self.store = {}
+    """
+    L1 内存缓存（TTL + LRU + size limit）
+    """
 
-    def set(self, key, value, ttl=1200):
-        expire_time = time.time() + ttl
-        self.store[key] = (value, expire_time)
+    def __init__(
+        self,
+        max_items: int = 2000,
+        max_value_bytes: int = 256 * 1024,
+    ):
+        self.max_items = max_items
+        self.max_value_bytes = max_value_bytes
+        self._store = OrderedDict()
 
-    def get(self, key):
-        item = self.store.get(key)
+    def _now(self) -> float:
+        return time.time()
+
+    def _estimate_size(self, value: Any) -> int:
+        # 轻量估算，避免 deepcopy / pickle
+        try:
+            if isinstance(value, str):
+                return len(value.encode("utf-8"))
+            if isinstance(value, (bytes, bytearray)):
+                return len(value)
+            if isinstance(value, (list, tuple, set, dict)):
+                return len(str(value).encode("utf-8"))
+        except Exception:
+            pass
+        return 128  # 保守兜底
+
+    def get(self, key: str):
+        item = self._store.get(key)
         if not item:
             return None
-        value, expire_time = item
-        if time.time() > expire_time:
-            del self.store[key]
+
+        value, expire_at = item
+        if expire_at and expire_at < self._now():
+            self._store.pop(key, None)
             return None
+
+        # LRU 命中 → 移到末尾
+        self._store.move_to_end(key)
         return value
 
-    def clear(self):
-        self.store.clear()
+    def set(self, key: str, value: Any, ttl: Optional[int] = None):
+        # 大对象不进 L1
+        if self._estimate_size(value) > self.max_value_bytes:
+            return
 
-    def delete(self, key):
-        if key in self.store:
-            del self.store[key]
-            print(f"🔹 MemoryCache deleted key: {key}")
-        else:
-            print(f"🔹 MemoryCache delete skipped, key not found: {key}")
+        expire_at = self._now() + ttl if ttl else None
+        self._store[key] = (value, expire_at)
+        self._store.move_to_end(key)
+
+        # 超量 → LRU 淘汰
+        while len(self._store) > self.max_items:
+            self._store.popitem(last=False)
+
+    def delete(self, key: str):
+        self._store.pop(key, None)
+
+    def clear(self):
+        self._store.clear()
+
+    def stats(self) -> dict:
+        return {
+            "items": len(self._store),
+            "max_items": self.max_items,
+            "max_value_bytes": self.max_value_bytes,
+        }

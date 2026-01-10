@@ -1,8 +1,9 @@
 import aiomysql
 import time
-from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT
+from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT, VALKEY_URL
 from typing import Optional, Dict, Any, List, Tuple
 from lz_memory_cache import MemoryCache
+from lz_cache import TwoLevelCache
 import lz_var
 import asyncio
 from utils.prof import SegTimer
@@ -55,7 +56,7 @@ class MySQLPool:
         # 幂等：多处并发调用只建一次连接池
         if cls._pool is not None:
             if not cls._cache_ready:
-                cls.cache = MemoryCache()
+                cls.cache = TwoLevelCache(valkey_client=VALKEY_URL, namespace='lz:')
                 cls._cache_ready = True
             return cls._pool
 
@@ -76,7 +77,7 @@ class MySQLPool:
                 )
                 print("✅ MySQL 连接池初始化完成")
             if not cls._cache_ready:
-                cls.cache = MemoryCache()
+                cls.cache = TwoLevelCache(valkey_client=VALKEY_URL, namespace='lz:')
                 cls._cache_ready = True
         return cls._pool
 
@@ -625,13 +626,36 @@ class MySQLPool:
     #         del cls.cache[k]
     #     pass
 
+        
     @classmethod
     async def delete_cache(cls, prefix: str):
+        """
+        删除 cache 中以 prefix 开头的 key。
+        - MemoryCache: 无 keys() 接口，因此从内部 _store 取 key
+        - TwoLevelCache: 仅清 L1（L2 依业务需要可扩展批量删；目前保持轻量，不阻塞）
+        """
         if not cls.cache:
             return
-        keys_to_delete = [k for k in cls.cache.keys() if k.startswith(prefix)]
+
+        # 统一拿到 L1 的 store（兼容 MemoryCache / TwoLevelCache）
+        l1 = getattr(cls.cache, "l1", None)
+        if l1 is None:
+            l1 = cls.cache  # 可能直接是 MemoryCache
+
+        store = getattr(l1, "_store", None)
+        if not store:
+            return
+
+        keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(prefix)]
         for k in keys_to_delete:
-            del cls.cache[k]
+            try:
+                # TwoLevelCache / MemoryCache 都支持 delete(key)
+                if hasattr(cls.cache, "delete"):
+                    cls.cache.delete(k)
+                else:
+                    store.pop(k, None)
+            except Exception:
+                pass
 
     @classmethod
     async def list_user_collections(

@@ -2525,7 +2525,7 @@ async def handle_search_tag_command(message: Message, state: FSMContext, command
     confirm_val = await _valkey.get(key)
     print(f"[valkey] get: {key}={confirm_val}", flush=True)
 
-    if confirm_val == yymmdd:
+    if confirm_val != yymmdd:
         TAG_FILTER_QUOTES = [
             "新出的标签筛选，直接赢麻了",
             "标签筛选刚上线，yyds实锤",

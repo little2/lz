@@ -2648,7 +2648,7 @@ async def handle_search_tag_command(message: Message, state: FSMContext, command
             ]
         )
 
-        await _valkey.set(key, yymmdd, ex=86400)  # 有效期 1 天
+        
         await message.answer(
             text="⚠️ 小提示：你正在使用 /search_tag，已进入标签筛选界面\n\n"
            

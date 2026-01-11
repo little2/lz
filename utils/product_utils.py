@@ -151,7 +151,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             [
                 InlineKeyboardButton(
                     text="🏷️ 标签筛选",
-                    url=f"https://t.me/{lz_var.bot_username}?start=search_tag"
+                    url=f"https://t.me/{bot_username}?start=search_tag"
                 )
             ],          
         ])

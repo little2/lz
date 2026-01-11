@@ -82,7 +82,7 @@ async def add_contact():
     # 构造一个要导入的联系人
     contact = InputPhoneContact(
         client_id=0, 
-        phone="+14699234886", 
+        phone="+447447471403", 
         first_name="Man", 
         last_name=""
     )

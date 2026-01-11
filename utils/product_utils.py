@@ -137,16 +137,24 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         content = await Tplate.pure_text_tpl(tpl_data)
 
 
-        kb = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text="👀 看看先",
-                url=f"https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
-            ),
-            InlineKeyboardButton(
-                text="🐥 上传鲁馆",
-                url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
-            )
-        ]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👀 看看先",
+                    url=f"https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
+                ),
+                InlineKeyboardButton(
+                    text="🐥 上传鲁馆",
+                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏷️ 标签筛选",
+                    url=f"https://t.me/{lz_var.bot_username}?start=search_tag"
+                )
+            ],          
+        ])
 
 
 

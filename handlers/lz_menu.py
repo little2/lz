@@ -42,12 +42,12 @@ from typing import Coroutine
 import asyncio
 import os
 from lz_db import db
-from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME
+from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
 import lz_var
 import traceback
 import random
 from lz_main import load_or_create_skins
-
+import redis.asyncio as redis_async
 
 
 from utils.media_utils import Media
@@ -77,6 +77,8 @@ from handlers.handle_jieba_export import export_lexicon_files
 router = Router()
 
 _background_tasks: dict[str, asyncio.Task] = {}
+
+_valkey = redis_async.from_url(VALKEY_URL, decode_responses=True)
 
 class LZFSM(StatesGroup):
     waiting_for_title = State()
@@ -1469,7 +1471,9 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
     if len(args) > 1:
         param = args[1].strip()
         parts = param.split("_")
-        if parts[0] == "rci":    #remove_collect_item
+        if args[1] == "search_tag":
+            await handle_search_tag_command(message, state)
+        elif parts[0] == "rci":    #remove_collect_item
             date = await state.get_data()
             clt_id = date.get("collection_id")
             handle_message = date.get("message")
@@ -2511,7 +2515,158 @@ async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
 
 
 @router.message(Command("search_tag"))
-async def handle_search_tag(message: Message, state: FSMContext, command: Command = Command("search_tag")):
+async def handle_search_tag_command(message: Message, state: FSMContext, command: Command = Command("search_tag")):
+    user_id = message.from_user.id
+    action = "search_tag"
+    key = f"{action}:{user_id}"
+    msg_time_local = message.date + timedelta(hours=8)
+    yymmdd = msg_time_local.strftime("%y%m%d")
+
+    confirm_val = await _valkey.get(key)
+    print(f"[valkey] get: {key}={confirm_val}", flush=True)
+
+    if confirm_val == yymmdd:
+        TAG_FILTER_QUOTES = [
+            "新出的标签筛选，直接赢麻了",
+            "标签筛选刚上线，yyds实锤",
+            "谁懂啊！新功能标签筛选太神了",
+            "刚发现标签筛选，搜东西开挂了",
+            "标签筛选是新出的吧？怎么这么爽",
+            "新功能标签筛选，撸管人救命稻草",
+            "偷偷更新了标签筛选？这也太顶了",
+            "标签筛选刚出就上头，回不去了",
+            "新出的标签筛选，找东西不用猜",
+            "标签筛选新功能，懒人直接封神",
+            "刚上线的标签筛选，精准到哭",
+            "新功能标签筛选，比AI还懂我",
+            "标签筛选是新出的外挂吧？",
+            "最近超火的标签筛选，真香警告",
+            "新出标签筛选，搜不到算我输",
+            "标签筛选刚推就用上，爽翻",
+            "刚试了新出的标签筛选，绝了",
+            "标签筛选新上线，关键词退退退",
+            "新出的标签筛选，撸管党狂喜",
+            "标签筛选是新功能？怎么没人早说",
+            "刚更新就有标签筛选，爱了爱了",
+            "新功能标签筛选，专治找不到",
+            "标签筛选新出的？这也太会了吧",
+            "新上线标签筛选，直接拿捏需求",
+            "刚挖到新功能：标签筛选YYDS",
+            "标签筛选新出没多久，但已离不开了",
+            "新功能标签筛选，省流天花板",
+            "标签筛选刚上线，我就焊在手上了",
+            "新出的标签筛选，CPU不烧了",
+            "标签筛选是最近的新功能吧？神了",
+            "刚用新功能标签筛选，秒出结果",
+            "新出标签筛选，搜东西像开了天眼",
+            "标签筛选新功能，真的会谢（太好用）",
+            "新上线的标签筛选，建议锁死",
+            "标签筛选新功能，让我告别试词",
+            "刚上的标签筛选，精准得离谱",
+            "新功能标签筛选，当代搜索基本操作",
+            "标签筛选新出的？怎么像为我定制的",
+            "刚发现这新功能：标签筛选太顶了",
+            "标签筛选新上线，找啥都丝滑",
+            "标签筛选是新功能？怎么像早就该有",
+            "新功能标签筛选，一用就上瘾",
+            "刚推的标签筛选，直接改变搜索习惯",
+            "新出标签筛选，再也不用猜关键词",
+            "刚出的标签筛选，已经成我刚需了",
+            "新出的标签筛选，直接赢麻了",
+            "标签筛选刚上线，yyds实锤",
+            "谁懂啊！新功能标签筛选太神了",
+            "刚发现标签筛选，搜东西开挂了",
+            "标签筛选是新出的吧？怎么这么爽",
+            "偷偷更新了标签筛选？这也太顶了",
+            "标签筛选刚出就上头，回不去了",
+            "新出的标签筛选，找东西不用猜",
+            "标签筛选新功能，懒人直接封神",
+            "新功能标签筛选，比AI还懂我",
+            "标签筛选是新出的外挂吧？",
+            "最近超火的标签筛选，真香警告",
+            "新出标签筛选，搜不到算我输",
+            "标签筛选刚推就用上，爽翻",
+            "新功能标签筛选，效率拉满",
+            "刚试了新出的标签筛选，绝了",
+            "标签筛选新上线，关键词退退退",
+            "标签筛选是新功能？怎么没人早说",
+            "刚更新就有标签筛选，爱了爱了",
+            "标签筛选新出的？这也太会了吧",
+            "新上线标签筛选，直接拿捏需求",
+            "刚挖到新功能：标签筛选YYDS",
+            "标签筛选新出没多久，但已离不开了",
+            "新功能标签筛选，省流天花板",
+            "新出的标签筛选，直接起飞",
+            "标签筛选新功能，体验原地起飞",
+            "想找点对味的？标签筛选带你飞",
+            "标签筛选刚推，我就冲了，起飞！",   
+            "深夜用标签筛选，快乐原地起飞",
+            "标签筛选一勾，爽感瞬间起飞",
+            "这新功能绝了，标签筛选起飞中",
+            "标签筛选新出，快到灵魂出窍",
+            "不用翻半天，标签筛选直接冲",
+            "新出标签筛选，精准到起飞",    
+            "标签筛选新上线，体验直接拉满",
+            "想找点刺激的？标签筛选冲就完事",
+            "标签筛选一用，快乐值爆表起飞",
+            "新功能标签筛选，省时又上头",
+            "标签筛选刚出，我已经飞了",
+            "深夜专属：标签筛选一键起飞",    
+            "标签筛选一勾，今晚稳了，起飞！",
+            "新标签筛选，快得离谱还上头",
+            "标签筛选新功能，私密体验起飞",
+            "想找点心动的？标签筛选冲了",
+            "标签筛选刚上线，爽感原地爆炸",
+            "新出标签筛选，三秒进入状态",
+            "标签筛选一用，效率爽感双起飞",           
+            "标签筛选=你的快乐加速器",
+            "新功能标签筛选，体验直接升天",
+            "标签筛选一开，精准到心巴起飞",
+            "刚上的标签筛选，爽到循环使用",
+            "标签筛选新上线，快准还不尴尬",
+            "新标签筛选，懂你没说出口的爽",
+            "想找点特别的？标签筛选带你冲",
+            "标签筛选刚出，快乐值已拉满",
+            "新出的标签筛选，快得刚刚好起飞",
+            "新功能标签筛选，爽感无缝衔接"            
+        ]
+
+
+        option_buttons = []
+        option_buttons.append(
+            [
+            InlineKeyboardButton(
+                text=f"🏷️ 标签筛选",
+                url=f"https://t.me/{lz_var.bot_username}?start=search_tag"
+            )]
+        )
+        option_buttons.append(
+            [InlineKeyboardButton(
+                text=f"📩 教务处小助手",
+                url=f"https://t.me/{lz_var.helper_bot_name}?start=nothing"
+            )
+            ]
+        )
+
+        await _valkey.set(key, yymmdd, ex=86400)  # 有效期 1 天
+        await message.answer(
+            text="⚠️ 小提示：你正在使用 /search_tag，已进入标签筛选界面\n\n"
+           
+            "• 这个功能目前还在 内测中，需要先手动开启才能使用\n"
+            "• 启用后，大约 60 秒内即可生效，有效期为 1 天\n"
+            "• 因为还在持续优化，个别内容可能会有点不太准\n"
+            "• 使用过程中如果遇到任何问题，欢迎随时找下面的 学务处小助手机器人 跟我们说一声\n\n"
+            "感谢你的理解与支持 ❤️\n\n"
+            "🔓 怎么开启？\n\n"
+            "在任意群组里 公开发送 下面这行文字即可（复制粘贴就行）：\n"
+            f"「<code>{random.choice(TAG_FILTER_QUOTES)}</code>」\n\n"
+            ,
+
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
+        )
+        return
+
     keyboard = await get_filter_tag_keyboard(callback_query=message,  state=state)
 
     product_message = await lz_var.bot.send_photo(

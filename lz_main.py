@@ -256,6 +256,8 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
             print(f"📨 已请求 {fu}，并已接收返回",flush=True)
         except Exception as e:
             print(f"⚠️ 向 x-man 请求失败：{e}",flush=True)
+            await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
+
 
     # --- 写入文件（即便有缺） ---
     with open(config_path, "w", encoding="utf-8") as f:

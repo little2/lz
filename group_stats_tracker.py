@@ -1,4 +1,5 @@
 # group_stats_tracker.py
+from email.mime import text
 import re
 import asyncio
 from collections import defaultdict
@@ -35,6 +36,8 @@ class GroupStatsTracker:
     _raw_buffer = []
     _raw_max_len = 5000  # 单条截断，避免极端长文本
 
+    _valkey = None
+
     # ------------------------------
     # 初始化 / 绑定 Telethon
     # ------------------------------
@@ -45,7 +48,9 @@ class GroupStatsTracker:
         cls.flush_batch_size = flush_batch_size
 
 
-        redis_async.from_url(VALKEY_URL, decode_responses=True)
+        cls._valkey = redis_async.from_url(VALKEY_URL, decode_responses=True)
+
+       
 
         @client.on(events.NewMessage)
         async def _handler(event):
@@ -160,6 +165,30 @@ class GroupStatsTracker:
 
 
         text = (msg.message or "").strip()
+
+        KV_TRIGGERS  = {
+            "search_tag": [
+                "標籤篩選",
+                "標簽篩選",
+                "标签筛选",
+            ],
+        }
+
+        for action, keywords in KV_TRIGGERS.items():
+            if any(k in text for k in keywords):
+                yymmdd = msg_time_local.strftime("%y%m%d")
+                key = f"{action}:{user_id}"
+                if cls._valkey:
+                    try:
+                        await cls._valkey.set(key, yymmdd)
+                        # confirm_val = await cls._valkey.get(key)
+                        # print(f"[valkey] set ok: {key}={confirm_val}", flush=True)
+                    except Exception as e:
+                        print(f"[valkey] set/get failed: {key} err={e}", flush=True)
+                else:
+                    print("[valkey] client not ready, skip set/get", flush=True)
+
+
         is_cmd = text.startswith("/")  # 过滤指令
         if (msg_type == "text") and (not from_bot) and (not is_cmd) and len(text) >= 3:
             if len(text) > cls._raw_max_len:

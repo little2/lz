@@ -22,6 +22,10 @@ from utils.prof import SegTimer
 from aiogram.types import (
     Message,
     BufferedInputFile,
+    BotCommand,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeDefault,
     InlineKeyboardMarkup, 
     InlineKeyboardButton, 
     InputMediaPhoto, 
@@ -508,27 +512,78 @@ async def handle_update_thumb(content_id, file_id,state):
 
 # == 主菜单 ==
 def main_menu_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
+    keyboard = [
         [
             InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
-            InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
+            InlineKeyboardButton(text="🏆 排行", callback_data="ranking"),
         ],
-        [
+    ]
+
+    # 仅在 dev 环境显示「资源橱窗」
+    if ENVIRONMENT == "dev":
+        keyboard.append([
             InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
-            InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
-        ],
-        # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
-        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
-       
+            InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            text="📤 上传资源",
+            url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
+        )
     ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            text="🐲 小龙阳",
+            url=f"https://t.me/xiaolongyang002bot?start=map"
+        )
+    ])
+
+
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+    
+
+
+
+
+    # return InlineKeyboardMarkup(inline_keyboard=[
+    #     [
+    #         InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
+    #         InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
+    #     ],
+    #     [
+    #         InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
+    #         InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
+    #     ],
+    #     # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
+    #     [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
+       
+    # ])
 
 # == 搜索菜单 ==
 def search_menu_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔑 关键字搜索", callback_data="search_keyword")],
+    keyboard = []
+
+    # 仅在 dev 环境显示「关键字搜索」
+    if ENVIRONMENT == "dev":
+        keyboard.append(
+            [InlineKeyboardButton(text="🔑 关键字搜索", callback_data="search_keyword")]
+        )
+
+    keyboard.extend([
         [InlineKeyboardButton(text="🏷️ 标签筛选", callback_data="search_tag")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 # == 排行菜单 ==
 def ranking_menu_keyboard():
@@ -755,12 +810,22 @@ async def handle_cc_back(callback: CallbackQuery,state: FSMContext):
 
 # == 历史菜单 ==
 def history_menu_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
+    keyboard = [
         [InlineKeyboardButton(text="📜 我的上传", callback_data="history_update:0")],
         [InlineKeyboardButton(text="💎 我的兑换", callback_data="history_redeem:0")],
-        [InlineKeyboardButton(text="❤️ 我的收藏资源橱窗", callback_data="clt_my")],
-        [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
-    ])
+    ]
+
+    # 仅在 dev 环境显示「我的收藏资源橱窗」
+    if ENVIRONMENT == "dev":
+        keyboard.append(
+            [InlineKeyboardButton(text="❤️ 我的收藏资源橱窗", callback_data="clt_my")]
+        )
+
+    keyboard.append(
+        [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")]
+    )
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 
@@ -768,7 +833,7 @@ def history_menu_keyboard():
 @router.callback_query(F.data.regexp(r"^(history_update|history_redeem):\d+$"))
 # @router.callback_query(F.data.in_(["history_update", "history_redeem"]))
 async def handle_history_update(callback: CallbackQuery, state: FSMContext):
-    print(f"handle_history_update: {callback.data}", flush=True)
+    # print(f"handle_history_update: {callback.data}", flush=True)
     func, page_num = callback.data.split(":")
     page_num = int(page_num) or 0
     user_id = callback.from_user.id
@@ -1244,16 +1309,16 @@ def build_pagination_keyboard(keyword_id: int, page: int, has_next: bool, has_pr
         keyboard.append(page_buttons)
 
 
-    if ENVIRONMENT == "dev":
-        # 第二行：自定义按钮（随意扩展）
-        if callback_function in {"ul_pid", "fd_pid"}:
-            page_buttons: list[InlineKeyboardButton] = []
-            page_buttons.append(InlineKeyboardButton(text="🔙 返回我的历史", callback_data=f"my_history"))
-            keyboard.append(page_buttons)
-        elif callback_function in {"pageid"}:
-            page_buttons: list[InlineKeyboardButton] = []
-            page_buttons.append(InlineKeyboardButton(text="🔙 返回搜寻", callback_data=f"search"))
-            keyboard.append(page_buttons)
+    
+    # 第二行：自定义按钮（随意扩展）
+    if callback_function in {"ul_pid", "fd_pid"}:
+        page_buttons: list[InlineKeyboardButton] = []
+        page_buttons.append(InlineKeyboardButton(text="🔙 返回我的历史", callback_data=f"my_history"))
+        keyboard.append(page_buttons)
+    elif callback_function in {"pageid"}:
+        page_buttons: list[InlineKeyboardButton] = []
+        page_buttons.append(InlineKeyboardButton(text="🔙 返回搜寻", callback_data=f"search"))
+        keyboard.append(page_buttons)
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -1401,6 +1466,29 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     #     "return_message_id": menu_message.message_id,
     # })
 
+
+@router.message(Command("setcommand"))
+async def handle_set_comment_command(message: Message, state: FSMContext):
+
+    await lz_var.bot.delete_my_commands(scope=BotCommandScopeAllGroupChats())
+    await lz_var.bot.delete_my_commands(scope=BotCommandScopeAllPrivateChats())
+    await lz_var.bot.delete_my_commands(scope=BotCommandScopeDefault())
+    await lz_var.bot.set_my_commands(
+        commands=[
+            BotCommand(command="start", description="首页菜单"),
+            # BotCommand(command="s", description="使用搜索"),
+            BotCommand(command="search_tag", description="标签筛选"),
+            # BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
+            # BotCommand(command="sub", description="订阅通知"),
+            # BotCommand(command="me", description="查看积分"),
+            BotCommand(command="rank", description="排行"),
+            # BotCommand(command="all", description="所有文件"),
+            # BotCommand(command="like", description="收藏文件"),
+            # BotCommand(command="migrate_code", description="获取迁移码")
+        ],
+        scope=BotCommandScopeAllPrivateChats()
+    )
+    print("✅ 已设置命令列表", flush=True)
    
 async def handle_search_component(message: Message, state: FSMContext, keyword:str):  
     keyword_id = await db.get_search_keyword_id(keyword)
@@ -1706,19 +1794,13 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         else:
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")
     else:
-        if ENVIRONMENT != "dev":
-            current_message = await message.answer_photo(
+
+        current_message = await message.answer_photo(
                 photo=lz_var.skins['home']['file_id'],
                 caption="👋 欢迎使用 LZ 机器人！请选择操作：",
                 parse_mode="HTML",
-               )   
-        else:
-             current_message = await message.answer_photo(
-                    photo=lz_var.skins['home']['file_id'],
-                    caption="👋 欢迎使用 LZ 机器人！请选择操作：",
-                    parse_mode="HTML",
-                    reply_markup=main_menu_keyboard()
-            )              
+                reply_markup=main_menu_keyboard()
+        )              
         # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         await MenuBase.set_menu_status(state, {
             "current_chat_id": current_message.chat.id,
@@ -2420,6 +2502,22 @@ async def handle_ranking(callback: CallbackQuery,state: FSMContext):
         state= state
     )  
 
+@router.message(Command("rank"))
+async def handle_ranking_command(message: Message, state: FSMContext, command: Command = Command("rank")):
+    product_message = await lz_var.bot.send_photo(
+        chat_id=message.chat.id,
+        photo=lz_var.skins['ranking']['file_id'],
+        caption="排行榜", 
+        parse_mode="HTML",
+        reply_markup=ranking_menu_keyboard()
+    )
+
+    await MenuBase.set_menu_status(state, {
+        "current_message": product_message,
+        "current_chat_id": product_message.chat.id,
+        "current_message_id": product_message.message_id
+    })
+
 
 @router.callback_query(F.data == "collection")
 async def handle_collection(callback: CallbackQuery):
@@ -2509,10 +2607,6 @@ async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
         text="🏷️ 请选择标签进行筛选...", 
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
     )
-
-
-
-
 
 @router.message(Command("search_tag"))
 async def handle_search_tag_command(message: Message, state: FSMContext, command: Command = Command("search_tag")):
@@ -2655,7 +2749,7 @@ async def handle_search_tag_command(message: Message, state: FSMContext, command
             "• 这个功能目前还在 内测中，需要先手动开启才能使用\n"
             "• 启用后，大约 60 秒内即可生效，有效期为 1 天\n"
             "• 因为还在持续优化，个别内容可能会有点不太准\n"
-            "• 使用过程中如果遇到任何问题，欢迎随时找下面的 学务处小助手机器人 跟我们说一声\n\n"
+            "• 使用过程中如果遇到任何问题，欢迎随时找下面的 教务处小助手机器人 跟我们说一声\n\n"
             "感谢你的理解与支持 ❤️\n\n"
             "🔓 怎么开启？\n\n"
             "在任意群组里 公开发送 下面这行文字即可（复制粘贴就行）：\n"

@@ -1,16 +1,52 @@
 # topic_worker.py
+
+
+
 import os
 import asyncio
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from collections import defaultdict
 
+
+print("=== Topic Worker Importing Modules ===", flush=True)
+
+
 from bertopic import BERTopic
+
+print("=== Topic Worker Importing Modules 2 ===", flush=True)
+
 from sentence_transformers import SentenceTransformer
 
-from pke import TopicRank, TextRank
+from pke_zh import TopicRank, TextRank
 from dotenv import load_dotenv
 
 from pg_stats_db import PGStatsDB
+
+print("=== Topic Worker Importing Modules ===", flush=True)
+
+
+# ======== 载入配置 ========
+from ly_config import (
+    API_ID,
+    API_HASH,
+    SESSION_STRING,
+    COMMAND_RECEIVERS,
+    ALLOWED_PRIVATE_IDS,
+    ALLOWED_GROUP_IDS,
+    PG_DSN,
+    PG_MIN_SIZE,
+    PG_MAX_SIZE,
+    STAT_FLUSH_INTERVAL,
+    STAT_FLUSH_BATCH_SIZE,
+    KEY_USER_ID,
+    THUMB_DISPATCH_INTERVAL,
+    THUMB_BOTS,
+    THUMB_PREFIX,
+    DEBUG_HB_GROUP_ID,
+    FORWARD_THUMB_USER
+)
+
+TG_TEXT_LIMIT = 4096
 
 
 # ========== 配置 ==========
@@ -22,7 +58,7 @@ KEYWORDS_PER_TOPIC = 12     # pke_zh 输出关键词数
 
 
 # ========== pke_zh 关键词抽取 ==========
-def extract_keywords(texts: list[str], topn: int = KEYWORDS_PER_TOPIC) -> list[str]:
+def extract_keywords2(texts: list[str], topn: int = KEYWORDS_PER_TOPIC) -> list[str]:
     """
     对一个 topic 下的文本集合抽取中文关键词短语
     优先 TopicRank，不稳定时可改用 TextRank
@@ -38,7 +74,9 @@ def extract_keywords(texts: list[str], topn: int = KEYWORDS_PER_TOPIC) -> list[s
             language="zh",
             normalization=None,
         )
-        extractor.candidate_selection(pos={"NOUN", "PROPN", "ADJ"})
+        # 中文 POS 在不同环境可能不稳定；如果你发现经常为空，可注释掉这行
+        # extractor.candidate_selection(pos={"NOUN", "PROPN", "ADJ"})
+        
         extractor.candidate_weighting()
         kws = extractor.get_n_best(n=topn)
         return [k for k, _ in kws]
@@ -53,6 +91,41 @@ def extract_keywords(texts: list[str], topn: int = KEYWORDS_PER_TOPIC) -> list[s
         extractor.candidate_weighting()
         kws = extractor.get_n_best(n=topn)
         return [k for k, _ in kws]
+
+
+def extract_keywords(texts: list[str], topn: int = KEYWORDS_PER_TOPIC, debug: bool = False) -> list[str]:
+    doc = "\n".join(t for t in texts if t and t.strip())
+    if not doc.strip():
+        return []
+
+    try:
+        extractor = TopicRank()
+        extractor.load_document(input=doc, language="zh", normalization=None)
+        # 先别做 POS 过滤，避免候选被过滤光
+        # extractor.candidate_selection(pos={"NOUN", "PROPN", "ADJ"})
+        extractor.candidate_weighting()
+        kws = extractor.get_n_best(n=topn)
+        out = [k for k, _ in kws]
+        if debug and not out:
+            print(f"[kw] TopicRank empty; doc_len={len(doc)} texts={len(texts)}", flush=True)
+        return out
+    except Exception as e:
+        if debug:
+            print("[kw] TopicRank exception:", repr(e), flush=True)
+
+    try:
+        extractor = TextRank()
+        extractor.load_document(input=doc, language="zh", normalization=None)
+        extractor.candidate_weighting()
+        kws = extractor.get_n_best(n=topn)
+        out = [k for k, _ in kws]
+        if debug and not out:
+            print(f"[kw] TextRank empty; doc_len={len(doc)} texts={len(texts)}", flush=True)
+        return out
+    except Exception as e:
+        if debug:
+            print("[kw] TextRank exception:", repr(e), flush=True)
+        return []
 
 
 # ========== 核心处理函数 ==========
@@ -103,8 +176,12 @@ async def process_hour(chat_id: int, stat_date: date, hour: int):
         topic_mids = [message_ids[i] for i in indices]
 
         # pke_zh 精炼关键词
-        keywords = extract_keywords(topic_texts)
-
+        
+        keywords = extract_keywords(topic_texts, debug=True)
+        if not keywords:
+            print(f"  - topic {tid}: keywords EMPTY; msg_count={len(indices)} sample={topic_texts[0][:50]!r}", flush=True)
+        else:
+            print(f"  - topic {tid}: keywords={len(keywords)} top3={keywords[:3]}", flush=True)
         # 代表 message_id（按出现顺序取前 N 条）
         rep_mids = topic_mids[:REP_MSG_PER_TOPIC]
 
@@ -141,11 +218,11 @@ async def process_hour(chat_id: int, stat_date: date, hour: int):
 async def main():
     load_dotenv()
 
-    await PGStatsDB.init_pool(
-        dsn=os.getenv("PG_DSN"),
-        min_size=int(os.getenv("PG_POOL_MIN", 1)),
-        max_size=int(os.getenv("PG_POOL_MAX", 5)),
-    )
+    print("▶ Connecting to PGStatsDB...", flush=True)
+
+    await PGStatsDB.init_pool(PG_DSN, PG_MIN_SIZE, PG_MAX_SIZE)
+    print("▶ Connected to PGStatsDB", flush=True)
+
     await PGStatsDB.ensure_table()
 
     # ---- 参数读取 ----
@@ -161,10 +238,16 @@ async def main():
         stat_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         hour = int(hour_str)
     else:
-        now = datetime.utcnow() + timedelta(hours=8)
+
+
+        tz8 = timezone(timedelta(hours=8))
+        now = datetime.now(timezone.utc).astimezone(tz8)
         prev = now - timedelta(hours=1)
         stat_date = prev.date()
         hour = prev.hour
+
+    chat_id = -1002977834325
+    hour = 17
 
     if chat_id:
         chat_ids = [int(chat_id)]
@@ -190,5 +273,8 @@ async def main():
     await PGStatsDB.close_pool()
 
 
+print(  "=== Topic Worker Loaded ===", flush=True)
+
 if __name__ == "__main__":
+    print("=== Topic Worker Started ===", flush=True)
     asyncio.run(main())

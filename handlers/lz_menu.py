@@ -1644,7 +1644,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     # date = await state.get_data()
                     # clti_message = date.get("menu_message")
                     state_data = await MenuBase.get_menu_status(state)
-                    current_message = state_data.get("current_message") if state_data else None
+                    # current_message = state_data.get("current_message") if state_data else None
+                    current_message = None
                 except Exception as e:
                     # tb = traceback.format_exc()
                     notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")

@@ -334,7 +334,7 @@ class AnanBOTPool(LYBase):
                             if v is None: return "NULL"
                             elif isinstance(v, (int, float)): return str(v)
                             elif isinstance(v, datetime): return f"'{v.strftime('%Y-%m-%d %H:%M:%S')}'"
-                            else: return f"'{str(v).replace("'", "''")}'"
+                            else: return "'" + str(v).replace("'", "''") + "'"
                         formatted_chunks = [
                             "(" + ",".join(fmt(r.get(k)) for k in keys) + ")" for r in chunk
                         ]

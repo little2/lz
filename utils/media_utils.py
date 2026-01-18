@@ -390,7 +390,7 @@ class Media:
         return file_id, file_unique_id, file_size, width, height
 
     @classmethod
-    async def send_media_group(cls, callback, productInfomation, box_id:int=1, content_id:int|None=0, source_id:str|None=None):
+    async def send_media_group(cls, callback, productInfomation, box_id:int=1, content_id:int|None=0, source_id:str|None=None, protect_content:bool=False):
         from_user_id = callback.from_user.id
         quantity = 0
         material_status = productInfomation.get("material_status", {})
@@ -422,7 +422,7 @@ class Media:
                 # print(f"{rows}---{box_id}", flush=True)
 
                 # 先只在有值时注入 reply_to_message_id
-                send_media_group_kwargs = dict(chat_id=from_user_id, media=rows[(int(box_id)-1)])
+                send_media_group_kwargs = dict(chat_id=from_user_id, media=rows[(int(box_id)-1)], protect_content=protect_content)
                 try:
                    
 

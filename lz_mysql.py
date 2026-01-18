@@ -6,6 +6,7 @@ from lz_memory_cache import MemoryCache
 from lz_cache import TwoLevelCache
 import lz_var
 import asyncio
+from utils.lybase_utils import LYBase
 from utils.prof import SegTimer
 from functools import wraps 
 from collections import defaultdict
@@ -44,8 +45,8 @@ from collections import defaultdict
 #                 # for 循环继续，进入第二轮
 #     return wrapper
 
-
-class MySQLPool:
+class MySQLPool(LYBase):
+# class MySQLPool:
     _pool = None
     _lock = asyncio.Lock()
     _cache_ready = False
@@ -133,7 +134,7 @@ class MySQLPool:
 
     #需要和 lyase_utils.py 整合
     @classmethod
-    async def transaction_log(cls, transaction_data):
+    async def transaction_log_bk(cls, transaction_data):
         timer = SegTimer("transaction_log", content_id="unknown")
 
         # timer.lap("get_conn_cursor")
@@ -1708,6 +1709,75 @@ class MySQLPool:
             if conn and cur:
                 await cls.release(conn, cur)
 
+
+    ## User ###
+    @classmethod
+    async def get_user_point_credit(cls, user_id: int) -> dict:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                "SELECT point, credit FROM user WHERE user_id=%s LIMIT 1",
+                (int(user_id),)
+            )
+            row = await cur.fetchone()
+            return row or {"point": 0, "credit": 0}
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_contribute_today_count(cls, user_id: int, stat_date: str) -> int:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT count
+                FROM contribute_today
+                WHERE user_id=%s AND stat_date=%s
+                LIMIT 1
+                """,
+                (int(user_id), stat_date)
+            )
+            row = await cur.fetchone()
+            return int((row or {}).get("count") or 0)
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def get_talking_task_count(cls, user_id: int, stat_date: str) -> int:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT count
+                FROM talking_task
+                WHERE user_id=%s AND stat_date=%s
+                LIMIT 1
+                """,
+                (int(user_id), stat_date)
+            )
+            row = await cur.fetchone()
+            return int((row or {}).get("count") or 0)
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def is_chatgroup_member(cls, user_id: int, chat_id: int) -> bool:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT id
+                FROM chatgroup_member
+                WHERE user_id=%s AND chat_id=%s
+                LIMIT 1
+                """,
+                (int(user_id), int(chat_id))
+            )
+            row = await cur.fetchone()
+            return bool(row)
+        finally:
+            await cls.release(conn, cur)
 
 
     #** End of lz_mysql.py **#

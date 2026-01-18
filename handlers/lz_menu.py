@@ -3,11 +3,12 @@ import functools
 import traceback
 import sys
 import re
+import json
 from opencc import OpenCC
 from typing import Any, Callable, Awaitable, Optional
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, CopyTextButton
+
 from aiogram.filters import Command
 from aiogram.enums import ContentType
 from aiogram.utils.text_decorations import markdown_decoration
@@ -19,6 +20,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from utils.prof import SegTimer
+
 from aiogram.types import (
     Message,
     BufferedInputFile,
@@ -26,6 +28,8 @@ from aiogram.types import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
     BotCommandScopeDefault,
+    CopyTextButton,
+    CallbackQuery,
     InlineKeyboardMarkup, 
     InlineKeyboardButton, 
     InputMediaPhoto, 
@@ -34,11 +38,8 @@ from aiogram.types import (
     InputMediaAnimation
 )
 
-from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora,sync_product
 from aiogram.enums import ParseMode
-from utils.unit_converter import UnitConverter
-from utils.aes_crypto import AESCrypto
-from utils.media_utils import Media
+
 import textwrap
 from datetime import datetime, timezone, timedelta
 from typing import Coroutine
@@ -48,31 +49,32 @@ import os
 from lz_db import db
 from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
 import lz_var
-import traceback
 import random
 from lz_main import load_or_create_skins
 import redis.asyncio as redis_async
 
 
-from utils.media_utils import Media
-from utils.tpl import Tplate
 
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
 # from ananbot_utils import AnanBOTPool 
 
-
+from utils.unit_converter import UnitConverter
+from utils.aes_crypto import AESCrypto
+from utils.media_utils import Media
+from utils.tpl import Tplate
 from utils.string_utils import LZString
+from utils.product_utils import build_product_material,sync_sora,sync_product
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
+from utils.action_gate import ActionGate
 
-import functools
-import traceback
-import sys
 
 
 from pathlib import Path
 
 from handlers.handle_jieba_export import export_lexicon_files
+
+
 
 
 
@@ -89,6 +91,9 @@ class LZFSM(StatesGroup):
     waiting_for_description = State()
     """资源管理：直接下架原因输入"""
     waiting_unpublish_reason = State()
+
+class RedeemFSM(StatesGroup):
+    waiting_for_condition_answer = State()
 
 
 async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: int) -> Optional[int]:
@@ -176,7 +181,7 @@ def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
         try:
             # 到这里才真正创建 coroutine，避免“未 await”警告
             coro = coro_factory()
-            await asyncio.wait_for(coro, timeout=45)
+            await asyncio.wait_for(coro, timeout=60)
         except Exception:
             print(f"🔥 background task failed for key={key}", flush=True)
 
@@ -2074,8 +2079,10 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
 
     # 权限校验（owner 或 ADMIN）
     owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
-    if owner_user_id is None:
+    if owner_user_id is None or not owner_user_id:
         return
+
+
 
     # 记录返回所需信息（可选：用于返回上一页时重建）
     data = await state.get_data()
@@ -2143,7 +2150,7 @@ async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext)
         return
 
     owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
-    if owner_user_id is None:
+    if owner_user_id is None or not owner_user_id:
         return
 
     try:
@@ -2182,7 +2189,7 @@ async def handle_sora_op_unpublish_prompt(callback: CallbackQuery, state: FSMCon
         return
 
     owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
-    if owner_user_id is None:
+    if owner_user_id is None or not owner_user_id:
         return
 
     # 发一条“输入原因”的提示消息（你要求：有取消按钮、取消则删除该消息）
@@ -2594,22 +2601,7 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
         state= state
     )
 
-   
-
-@router.callback_query(F.data == "search_tag")
-async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
-   
-    keyboard = await get_filter_tag_keyboard(callback_query=callback,  state=state)
-
-    await _edit_caption_or_text(
-        photo=lz_var.skins['search_tag']['file_id'],
-        msg=callback.message,
-        text="🏷️ 请选择标签进行筛选...", 
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
-    )
-
-@router.message(Command("search_tag"))
-async def handle_search_tag_command(message: Message, state: FSMContext, command: Command = Command("search_tag")):
+async def check_valid_key(message) -> bool:
     user_id = message.from_user.id
     action = "search_tag"
     key = f"{action}:{user_id}"
@@ -2759,6 +2751,32 @@ async def handle_search_tag_command(message: Message, state: FSMContext, command
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
         )
+        return False
+    return True
+
+
+@router.callback_query(F.data == "search_tag")
+async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
+   
+    if not await check_valid_key(callback.message):
+        return
+
+
+
+    keyboard = await get_filter_tag_keyboard(callback_query=callback,  state=state)
+
+    await _edit_caption_or_text(
+        photo=lz_var.skins['search_tag']['file_id'],
+        msg=callback.message,
+        text="🏷️ 请选择标签进行筛选...", 
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+    )
+
+@router.message(Command("search_tag"))
+async def handle_search_tag_command(message: Message, state: FSMContext, command: Command = Command("search_tag")):
+
+     
+    if not await check_valid_key(message):
         return
 
     keyboard = await get_filter_tag_keyboard(callback_query=message,  state=state)
@@ -3908,14 +3926,36 @@ async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     await callback.answer("已开启亮点模式，点选介绍文字中的时间轴，可以直接跳转视频中到对应时间。", show_alert=True)
 
 
+TZ_UTC8 = timezone(timedelta(hours=8))
+
+def _today_ymd() -> str:
+    return datetime.now(TZ_UTC8).strftime("%Y-%m-%d")
+
+
+
+
+
+
+
+
+
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
     content_id = callback.data.split(":")[1]
-    redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None
+    redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None #小懒觉会员
+    extra_enc = callback.data.split(":")[3] if len(callback.data.split(":")) > 3 else None #额外条件
+
+    # 先取用户 id：后面所有门槛判断都会用到
+    from_user_id = callback.from_user.id
+
+    # 默认值：避免 purchase_condition 缺失时 UnboundLocalError
+    condition: dict = {}
+    is_protect_content = False
 
     timer = SegTimer("handle_redeem", content_id=f"{content_id}")
     print(f"开始交易记录")
+
 
     timer.lap("2634 load_sora_content_by_id")
     result = await load_sora_content_by_id(int(content_id), state)
@@ -3933,24 +3973,111 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     reply_text = ''
     answer_text = ''
     
-
-
-
-
-
-
+    
     if ret_content.startswith("⚠️"):
-
-        timer.lap("⚠️")
-        await callback.answer(ret_content, parse_mode="HTML")
+        await callback.answer(f"⚠️ 当前无法兑换。{ret_content}", show_alert=True)
+        # await lz_var.bot.send_message(chat_id=from_user_id, text=ret_content, parse_mode="HTML")
         return
 
-    if purchase_condition is not None:
-        timer.lap("purchase_condition")
-        await callback.answer(f"⚠️ 该资源请到专属的机器人兑换", show_alert=True)
-        return
+    if purchase_condition:
+        # 1) parse json
+        try:
+            if isinstance(purchase_condition, (dict, list)):
+                # 有些链路可能已经是 dict（防御性处理）
+                condition = purchase_condition if isinstance(purchase_condition, dict) else {}
+            else:
+                condition = json.loads(str(purchase_condition))
+                if not isinstance(condition, dict):
+                    condition = {}
+        except Exception:
+            condition = {}
 
+        # 2) protect 标记（后面发货要用）
+        is_protect_content = str(condition.get("protect", "")).strip() == "1"
+        print(f"购买条件解析结果: {condition}, is_protect_content={is_protect_content}", flush=True)
 
+    # 3) message_count 门槛（contribute_today）
+    required_msg_count = int(condition.get("message_count") or 0)
+    if required_msg_count > 0:
+        today = _today_ymd()
+        ui_count = await MySQLPool.get_contribute_today_count(from_user_id, today)
+        if ui_count < required_msg_count:
+            text = (
+                f"你<u>今天</u>的<u>-发言数</u>需要超过 {required_msg_count} 点后，才可以兑换\n"
+                f"目前你有 <b>{ui_count}</b> 活跃值 ( 今天内 )\n\n"
+                "🎈 温馨小提醒:\n"
+                "・发言可得活跃值，但一分钟只计一次\n"
+                "・学院群所有版块都适用\n\n"
+                "・兑换后会扣除本日活跃值\n\n"
+                "‼️轻松聊天没问题，但若被判定为『恶意刷句数』，将会被取消资格或拉黑。\n"
+                "🧠 什么是恶意刷句数？例如：\n"
+                "・把一句话故意拆成多句发\n"
+                "・狂刷 emoji、数字、标点\n"
+                "・贴小说、歌词、复制文当发言\n"
+                "・「现在要限制发言数了吗」「我要讲第几句」这类空气话\n\n"
+                "✅ 系统允许自然聊天，但我们重视的是交流，而不是骗系统积分\n"
+            )
+            await lz_var.bot.send_message(chat_id=from_user_id, text=text, parse_mode=ParseMode.HTML)
+            await callback.answer()
+            return       
+
+    # 4) stone 门槛（必须是某群成员）
+    stone_chat_id = condition.get("stone")
+    if stone_chat_id not in (None, "", 0, "0"):
+        try:
+            stone_chat_id_int = int(stone_chat_id)
+        except Exception:
+            stone_chat_id_int = 0
+
+        if stone_chat_id_int:
+            ok = await MySQLPool.is_chatgroup_member(from_user_id, stone_chat_id_int)
+            if not ok:
+                await lz_var.bot.send_message(chat_id=from_user_id, text="你需要参加且通过本期石汤头后，才可以兑换。")
+                await callback.answer()
+                return
+
+    # 5) talking_task 门槛（咒语开局 + 累计发言数）
+    required_task = int(condition.get("talking_task") or 0)
+    if required_task > 0:
+        word_pool = [
+            "现在AI圈要看东西，基本都是在龙阳小馆。",
+            "不夸张，混AI的十个有九个在龙阳小馆。",
+            "有些作品一看就知道，是在龙阳小馆出来的。",
+            "我现在刷AI，第一反应就是在龙阳小馆翻。",
+            "讲真，在龙阳小馆看到的东西都比较稳。",
+        ]
+        spell_word = random.choice(word_pool)
+
+        today = _today_ymd()
+        task_count = await MySQLPool.get_talking_task_count(from_user_id, today)
+
+        if task_count < required_task:
+            # 用 CopyTextButton 提升“点一下复制咒语”的可用性
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="点击复制咒语", copy_text=CopyTextButton(text=spell_word))],
+            ])
+
+            text = (
+                "🕵️‍♂️ 神秘资源任务 · 今日限定开启！\n\n"
+                "这东西不容易拿，要靠智慧 + 嘴皮子 + 一点仪式感。\n\n"
+                "🎯 任务启动条件如下：\n\n"
+                "1️⃣ 先在群里任何角落大声宣布一句（点击下方按钮复制）：\n"
+                f"「<code>{spell_word}</code>」\n"
+                "这句话是通关咒语，不讲不算，讲了才开局！(重复讲会重置喔!)\n\n"
+                "2️⃣ 从你说完这句起，接下来只要今天正常聊天，累计满 "
+                f"{required_task} 发言，宝藏就向你敞开大门！\n\n"
+                "💡 记住：\n"
+                "一分钟内只能获得一次发言数，别刷屏，靠耐力。\n"
+                "咒语之后的发言才会被记入，别走错顺序啦！\n"
+                "重复讲咒语会重置发言数喔！一次只能做一个任务！\n\n"
+                "📦 等你说满了，再来申请，神秘资源就会飞向你。\n\n"
+                f"目前你有 <b>{task_count}</b> 次神秘任务的发言数 ( 今天内，每天午夜会重置 )"
+            )
+            await lz_var.bot.send_message(chat_id=from_user_id, text=text, parse_mode=ParseMode.HTML, reply_markup=kb)
+            await callback.answer()
+            return
+
+    
     if not file_id and (file_type != 'a' and file_type !='album') :
         timer.lap("没有找到匹配记录")
         print("❌ 没有找到匹配记录 source_id")
@@ -3962,8 +4089,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         # )
         return
     
-    # 若有,则回覆消息
-    from_user_id = callback.from_user.id
+
 
     # ===== 小懒觉会员判断（SQL 已移至 lz_db.py）=====
     def _fmt_ts(ts: int | None) -> str:
@@ -3978,7 +4104,6 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
     timer.lap("2687 get_latest_membership_expire")
     expire_ts = await db.get_latest_membership_expire(from_user_id)
-   
     now_utc = int(datetime.now(timezone.utc).timestamp())
 
     # 统一在会员判断之后再计算费用
@@ -3986,13 +4111,89 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     receiver_fee = int(int(fee) * (0.6))
     receiver_id = owner_user_id or 0
 
-    if not expire_ts:
-        # 未开通/找不到记录 → 用原价，提示并给两个按钮，直接返回
-        human_ts = _fmt_ts(None)
-        text = (
-            f"你目前不是小懒觉会员，或是会员已过期。将以原价 {fee} 兑换此资源\r\n\r\n"
-            f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+    if int(expire_ts) >= now_utc:
+        timer.lap("2753 是小懒觉会员")
+        discount_amount = int(fee * lz_var.xlj_discount_rate)
+        xlj_final_price = fee - discount_amount
+        sender_fee = xlj_final_price * (-1)
+    
+    
+
+    # 6) credit / author 这些“购买前门槛”建议也在交易前挡住（对齐你 PHP 逻辑）
+    #    （只有当资源有价格/会扣分时才做）
+    user_info = await MySQLPool.get_user_point_credit(from_user_id)
+    try:
+        user_point = int(user_info.get('point') or 0)
+    except (TypeError, ValueError):
+        user_point = 0
+
+    user_credit = int(user_info.get("credit") or 0)
+
+    required_credit = int(condition.get("credit") or 0) if condition else 0
+    if required_credit > 0 and user_credit < required_credit:
+        await lz_var.bot.send_message(
+            chat_id=from_user_id,
+            text=f"此资源门槛为 {required_credit} 分信用积分，你目前仅有 {user_credit} 分。还差一点点积累，暂时无法兑换。"
         )
+        await callback.answer()
+        return
+
+    author_gate = condition.get("author") if condition else ""
+    author_gate = str(author_gate).strip()
+    print(f"author_gate={author_gate} {condition}", flush=True)
+    if author_gate == "1":
+        await lz_var.bot.send_message(
+            chat_id=from_user_id,
+            text="作者设定为需经过他的同意才能兑换，目前已通知作者，请耐心等待回应。\n\n如果作者同意兑换，你将会收到通知。"
+        )
+        await callback.answer()
+        return
+
+
+
+    if( user_point + sender_fee < 0) and (int(owner_user_id or 0) != int(from_user_id)):
+        await callback.answer("⚠️ 你的积分余额不足，无法兑换此资源，请先赚取或充值积分。", show_alert=True)
+        return
+
+
+    # 7) 额外问答门槛（在真正扣分/发货前拦截）
+    #    - condition.question 存在：要求用户回答
+    #    - 回答 == condition.answer：继续兑换
+    #    - 回答错误：不扣分、不发货
+    if condition and str(condition.get("question") or "").strip():
+        question = str(condition.get("question") or "").strip()
+        answer = str(condition.get("answer") or "").strip()
+        # extra_type = 
+        print(f"extra_enc={extra_enc}, verify={ActionGate.verify_extra(extra_enc, callback.from_user.id, content_id)}", flush=True)
+        if not extra_enc or not ActionGate.verify_extra(extra_enc, callback.from_user.id, content_id):
+            await state.set_state(RedeemFSM.waiting_for_condition_answer)
+            await state.update_data({
+                "redeem_condition": {"question": question, "answer": answer},
+                "redeem_context": {"content_id": content_id, "redeem_type": redeem_type},
+            })
+
+            await lz_var.bot.send_message(
+                chat_id=from_user_id,
+                text=f"<blockquote>❓ 兑换验证</blockquote>\n\n{question}\n\n<i>请直接回复答案：</i>",
+                parse_mode="HTML"
+            )
+            await callback.answer()
+            return
+    
+    if not expire_ts or  int(expire_ts) < now_utc:
+        # 未开通/找不到记录 → 用原价，提示并给两个按钮，直接返回
+        human_ts = _fmt_ts(expire_ts)
+        if not expire_ts:
+            text = (
+                f"你目前不是小懒觉会员，或是会员已过期。将以原价 {fee} 兑换此资源\r\n\r\n"
+                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+            )
+        else:
+            text = (
+                "你的小懒觉会员过期或未更新会员限期(会有时间差)。\r\n\r\n"
+                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+            )
+
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="更新小懒觉会员期", callback_data="xlj:update")],
             [InlineKeyboardButton(
@@ -4008,56 +4209,17 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             lambda: Media.auto_self_delete(notify_msg, 7)
         )
 
-       
-        
         if( redeem_type == 'xlj'):
             await callback.answer()
             return
-
-    elif int(expire_ts) < now_utc:
-        # 已开通但过期 → 用原价，提示并给两个按钮，直接返回
-        human_ts = _fmt_ts(expire_ts)
-        text = (
-            "你的小懒觉会员过期或未更新会员限期(会有时间差)。\r\n\r\n"
-            f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
-        )
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="更新小懒觉会员期", callback_data="xlj:update")],
-            [InlineKeyboardButton(
-                text="兑换小懒觉会员 ( 💎 800 )",
-                url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
-            )],
-        ])
-        notify_msg = await callback.message.reply(text, reply_markup=kb)
-        timer.lap("小懒觉会员逾期")
-
-        spawn_once(
-            f"notify_msg:{notify_msg.message_id}",
-            lambda: Media.auto_self_delete(notify_msg, 7)
-        )
-
-        if( redeem_type == 'xlj'):
-            await callback.answer()
-            return
-
-
     elif int(expire_ts) >= now_utc:
         timer.lap("2753 是小懒觉会员")
-        discount_amount = int(fee * lz_var.xlj_discount_rate)
-        xlj_final_price = fee - discount_amount
-        sender_fee = xlj_final_price * (-1)
         
         try:
             reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"
-            # await callback.answer(
-            #     f"你是小懒觉会员，在活动期间，享有最最最超值优惠价，每个资源只要 {fee} 积分。\r\n\r\n"
-            #     f"目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}",
-            #     show_alert=True
-            # )
         except Exception:
             pass
-    # 会员有效 → 本次兑换价改为 10，弹轻提示后继续扣分发货
-    
+
 
 
     timer.lap("2771 开始交易记录")
@@ -4071,7 +4233,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     })
     timer.lap("2780 结束")
 
-    
+
 
 
 
@@ -4083,11 +4245,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         await callback.answer("⚠️ 交易服务暂不可用，请稍后再试。", show_alert=True)
         return
 
-    user_info = result.get('user_info') or {}
-    try:
-        user_point = int(user_info.get('point') or 0)
-    except (TypeError, ValueError):
-        user_point = 0
+
 
 
 
@@ -4198,7 +4356,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
         try:
-            send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb)
+            send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb, protect_content=is_protect_content)
             if callback.message.message_id is not None:
                 send_content_kwargs["reply_to_message_id"] = callback.message.message_id
 
@@ -4211,7 +4369,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                      await callback.answer(f"资源同步中，请稍等一下再试，请先看看别的资源吧 {content_id}", show_alert=True)
                      return   
 
-                result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id)
+                result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id, protect_content=is_protect_content)
                 
                 if result and not result.get('ok'):
                     await callback.answer(result.get('message'), show_alert=True)
@@ -4269,6 +4427,67 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         # await callback.message.reply(reply_text, parse_mode="HTML")
         return
 
+
+@router.message(RedeemFSM.waiting_for_condition_answer)
+async def handle_redeem_condition_answer(message: Message, state: FSMContext):
+    """
+    处理兑换问答门槛。
+    """
+    data = await state.get_data()
+    cond = data.get("redeem_condition") or {}
+    ctx = data.get("redeem_context") or {}
+    # ✅ 验证通过：给一个“继续兑换”按钮，让用户重新点一次
+    content_id = ctx.get("content_id")
+    redeem_type = ctx.get("redeem_type")
+    user_id = message.from_user.id
+    
+
+    expected = str(cond.get("answer") or "").strip()
+    got = (message.text or "").strip()
+
+    # 先退出等待态，避免重复触发
+    await state.clear()
+
+    if not expected:
+        await message.answer("⚠️ 兑换验证配置异常（缺少答案），请稍后再试。")
+        return
+
+    if got != expected:
+        await message.answer("❌ 回答不正确，本次兑换已取消（未扣分）。")
+        return
+
+
+
+    try:
+        if not content_id:
+            await message.answer("⚠️ 系统忙碌（缺少兑换上下文），请回到资源页重新点击兑换。")
+            return
+        
+        # callback_data 设计：加一个 gate 参数，避免再次弹出问题
+        # 形式：sora_redeem:{content_id}:{redeem_type}:gate:{token}
+        parts = [f"sora_redeem:{int(content_id)}"]
+        if redeem_type:
+            parts.append(str(redeem_type))
+        else:
+            parts.append("none")
+        # gate 标记
+        
+        extra_str = ActionGate.make_extra(user_id, content_id)
+        parts.append(f"{extra_str}")
+        
+        cb = ":".join(parts)
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"验证通过，继续兑换", callback_data=cb)],
+        ])
+
+        await message.answer("✅ 回答正确。请点击下方按钮继续兑换：", reply_markup=kb)
+
+        
+    except Exception as e:
+        print(f"❌ continue redeem after condition failed: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        await message.answer("⚠️ 系统忙碌，请稍后再试。")
 
 async def _build_mediagroup_box(page,source_id,content_id,material_status):
    

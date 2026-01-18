@@ -682,7 +682,8 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
         # 按钮列表构建
         buttons = [
             [
-                InlineKeyboardButton(text="📝 内容", callback_data=f"set_content:{content_id}"),
+                # set_content , overwrite =1 让审核员可以覆盖内容
+                InlineKeyboardButton(text="📝 内容", callback_data=f"set_content:{content_id}:1"),
                 InlineKeyboardButton(text="📷 预览", callback_data=f"set_preview:{content_id}")
             ]
         ]
@@ -2991,7 +2992,7 @@ async def clear_content_input_timeout(state: FSMContext, content_id: str, chat_i
 
 @dp.message(F.chat.type == "private", ProductPreviewFSM.waiting_for_content_input, F.text)
 async def receive_content_input(message: Message, state: FSMContext):
-    timer = SegTimer("receive_content_input", content_id="unknown")
+   
     try:
         content_text = message.text.strip()
         data = await state.get_data()
@@ -3000,6 +3001,9 @@ async def receive_content_input(message: Message, state: FSMContext):
         message_id = data["message_id"]
         overwrite = int(data.get("overwrite", 0))
         user_id = message.from_user.id
+
+
+        timer = SegTimer("receive_content_input", content_id=content_id)
         timer.ctx["content_id"] = content_id
 
         timer.lap("state.get_data")
@@ -4497,7 +4501,7 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
                 "sender_id": owner_user_id,
                 "sender_fee": -2 * receiver_fee,
                 "receiver_id": sender_id,
-                "receiver_fee": -2 * sender_fee,
+                "receiver_fee": int(-1.5 * sender_fee),
                 "transaction_type": "refund",
                 "transaction_description": str(report_id)
             })

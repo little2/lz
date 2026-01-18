@@ -22,3 +22,4 @@ jieba_userdict.txt
 search_stopwords.txt
 search_synonyms.txt
 .todo
+u2net.onnx

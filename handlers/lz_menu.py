@@ -2125,6 +2125,10 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
     ])
 
     rows_kb.append([
+        InlineKeyboardButton(text="💪 强制更新", callback_data=f"force_update:{content_id}")
+    ])
+
+    rows_kb.append([
         InlineKeyboardButton(text="🔙 返回", callback_data=f"sora_op:back:{content_id}")
     ])
 
@@ -2207,6 +2211,19 @@ async def handle_sora_op_unpublish_prompt(callback: CallbackQuery, state: FSMCon
     await state.set_state(LZFSM.waiting_unpublish_reason)
     await callback.answer()
 
+
+@router.callback_query(F.data == "force_update")
+async def handle_sora_op_force_update(callback: CallbackQuery, state: FSMContext):
+    try:
+        _, content_id_str = callback.data.split(":", 1)
+        content_id = int(content_id_str)
+    except Exception:
+        await callback.answer("参数错误", show_alert=True)
+        return
+
+    # 不强制权限也行（但管理页回上一页通常仍在 owner/admin 手里）
+    await sync_sora(int(content_id))
+    await callback.answer("更新同步中，请在 1 分钟后再试", show_alert=False)
 
 @router.callback_query(F.data == "sora_op:cancel_unpublish")
 async def handle_sora_op_cancel_unpublish(callback: CallbackQuery, state: FSMContext):
@@ -4102,20 +4119,29 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             return str(ts)
     
 
+
     timer.lap("2687 get_latest_membership_expire")
-    expire_ts = await db.get_latest_membership_expire(from_user_id)
+    expire_ts_raw = await db.get_latest_membership_expire(from_user_id)
     now_utc = int(datetime.now(timezone.utc).timestamp())
+
+    try:
+        expire_ts_int = int(expire_ts_raw or 0)
+    except (TypeError, ValueError):
+        expire_ts_int = 0
 
     # 统一在会员判断之后再计算费用
     sender_fee = int(fee) * (-1)
     receiver_fee = int(int(fee) * (0.6))
     receiver_id = owner_user_id or 0
 
-    if int(expire_ts) >= now_utc:
+    if expire_ts_int >= now_utc:
         timer.lap("2753 是小懒觉会员")
         discount_amount = int(fee * lz_var.xlj_discount_rate)
         xlj_final_price = fee - discount_amount
         sender_fee = xlj_final_price * (-1)
+
+
+    
     
     
 
@@ -4180,10 +4206,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             return
     
-    if not expire_ts or  int(expire_ts) < now_utc:
+    if not expire_ts_int or  expire_ts_int < now_utc:
         # 未开通/找不到记录 → 用原价，提示并给两个按钮，直接返回
-        human_ts = _fmt_ts(expire_ts)
-        if not expire_ts:
+        human_ts = _fmt_ts(expire_ts_int)
+        if not expire_ts_int:
             text = (
                 f"你目前不是小懒觉会员，或是会员已过期。将以原价 {fee} 兑换此资源\r\n\r\n"
                 f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
@@ -4212,7 +4238,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         if( redeem_type == 'xlj'):
             await callback.answer()
             return
-    elif int(expire_ts) >= now_utc:
+    elif int(expire_ts_int) >= now_utc:
         timer.lap("2753 是小懒觉会员")
         
         try:

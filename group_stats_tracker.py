@@ -168,9 +168,8 @@ class GroupStatsTracker:
 
         KV_TRIGGERS  = {
             "search_tag": [
-                "標籤篩選",
-                "標簽篩選",
                 "标签筛选",
+                "龙阳学院",
             ],
         }
 

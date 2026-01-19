@@ -2763,7 +2763,7 @@ async def check_valid_key(message) -> bool:
             "感谢你的理解与支持 ❤️\n\n"
             "🔓 怎么开启？\n\n"
             "在任意群组里 公开发送 下面这行文字即可（复制粘贴就行）：\n"
-            f"「<code>{random.choice(TAG_FILTER_QUOTES)}</code>」\n\n"
+            f"<code>{random.choice(TAG_FILTER_QUOTES)}</code> 👈 (点字可复制)\n\n"
             ,
 
             parse_mode="HTML",

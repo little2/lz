@@ -801,6 +801,12 @@ async def thumbnail_dispatch_loop():
 
     while True:
         try:
+
+            # ly.py 的 thumbnail_dispatch_loop() while True: try: 里面，最前面加
+            timeout_n = await PGStatsDB.mark_working_tasks_failed(older_than_seconds=3600)
+            if timeout_n:
+                print(f"⏱️ thumbnail_task timeout sweep: {timeout_n} rows -> failed", flush=True)
+
             bot_name = await pick_available_bot_from_tasks()
             if not bot_name:
                 await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
@@ -835,22 +841,41 @@ async def thumbnail_dispatch_loop():
 
             entity = await client.get_entity(bot_name)
 
+
+
+
+
             # ===== 关键：把“原媒体”直接发给 bot =====
-            sent = await client.send_file(
-                entity,
-                file=input_doc,
-                caption=caption
-            )
 
-            # 记录派发消息，用于 bot 回图 reply_to_msg_id 精确定位任务
+            # ly.py 的 thumbnail_dispatch_loop() 里，拿到 task 后（fu/task_id 等），send_file 改为：
+
+            task_id = int(task["id"])
+            fu = task["file_unique_id"]
+
+            try:
+                sent = await client.send_file(
+                    entity,
+                    file=input_doc,
+                    caption=caption
+                )
+            except Exception as send_err:
+                # 1) 标记 failed
+                await PGStatsDB.mark_task_failed_by_id(task_id)
+                print(f"❌ thumbnail send_file failed -> mark failed: task_id={task_id} fu={fu} err={send_err}", flush=True)
+                await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+                continue
+
+            # send 成功才记录派发消息
             await update_task_sent_info(fu, int(sent.chat_id), int(sent.id))
-
             print(f"📤 thumbnail 派发媒体: fu={fu} -> bot={bot_name} msg_id={sent.id}", flush=True)
+
 
         except Exception as e:
             print(f"❌ thumbnail_dispatch_loop error: {e}", flush=True)
 
         await asyncio.sleep(THUMB_DISPATCH_INTERVAL)
+
+
 
 
 

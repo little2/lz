@@ -923,7 +923,7 @@ class PGStatsDB:
             SELECT id
             FROM thumbnail_task
             WHERE status='pending'
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
         )
@@ -1467,5 +1467,38 @@ class PGStatsDB:
         async with cls.pool.acquire() as conn:
             await conn.execute(sql, int(task_id), int(now_epoch))
 
+
+
+    @classmethod
+    async def mark_working_tasks_failed(cls, older_than_seconds: int = 3600) -> int:
+        """
+        将 status=working 且 updated_at 早于 now()-older_than_seconds 的任务置为 failed
+        回传本次更新的行数。
+        """
+        sql = """
+        UPDATE thumbnail_task
+        SET status='failed',
+            updated_at=NOW()
+        WHERE status='working'
+        AND updated_at < (NOW() - ($1::int * INTERVAL '1 second'));
+        """
+        async with cls.pool.acquire() as conn:
+            res = await conn.execute(sql, int(older_than_seconds))
+        # asyncpg 返回 "UPDATE <n>"
+        try:
+            return int(res.split()[-1])
+        except Exception:
+            return 0
+
+    @classmethod
+    async def mark_task_failed_by_id(cls, task_id: int) -> None:
+        sql = """
+        UPDATE thumbnail_task
+        SET status='failed',
+            updated_at=NOW()
+        WHERE id=$1 AND status='working';
+        """
+        async with cls.pool.acquire() as conn:
+            await conn.execute(sql, int(task_id))
 
 ''''''

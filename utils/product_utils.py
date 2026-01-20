@@ -417,7 +417,7 @@ async def sync_product(user_id: int):
 
 async def sync_cover_change(content_id: int, thumb_file_unique_id: str, thumb_file_id: str, bot_username: str):
     """
-    同时更新 MySQL 禾 PostgreSQL 的 product 封面图片。
+    同时更新 MySQL 和 PostgreSQL 的 product 封面图片。
     """
     # 确保两端连接池已就绪（幂等）
     await asyncio.gather(

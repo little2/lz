@@ -1214,7 +1214,7 @@ class AnanBOTPool(LYBase):
                 """, (file_unique_id,))
                 row = await cur.fetchone()
                 content_id = row[0] if row else ""
-                cls.cache.set(cache_key, content_id, ttl=30000)
+                cls.cache.set(cache_key, content_id, ttl=300)
                 return content_id
 
 

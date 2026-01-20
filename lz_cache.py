@@ -14,7 +14,7 @@ class TwoLevelCache:
 
     def __init__(self, valkey_client, l1: Optional[MemoryCache] = None, namespace: str = "lz"):
       
-        self.l1 = l1 or MemoryCache(max_items=2000)
+        self.l1 = l1 or MemoryCache(max_items=200)
         self.ns = namespace
 
         # 关键修正：允许传入 URL(str) 或 redis client

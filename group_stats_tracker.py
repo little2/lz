@@ -1,5 +1,5 @@
 # group_stats_tracker.py
-from email.mime import text
+
 import re
 import asyncio
 from collections import defaultdict
@@ -179,7 +179,8 @@ class GroupStatsTracker:
                 key = f"{action}:{user_id}"
                 if cls._valkey:
                     try:
-                        await cls._valkey.set(key, yymmdd)
+                        await cls._valkey.set(key, yymmdd, ex=86400)
+                        print(f"[valkey] set ok: {key}={yymmdd}", flush=True)
                         # confirm_val = await cls._valkey.get(key)
                         # print(f"[valkey] set ok: {key}={confirm_val}", flush=True)
                     except Exception as e:

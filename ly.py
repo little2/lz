@@ -1644,7 +1644,7 @@ async def run_taskrec_scheduler(client, poll_seconds: int = 180, stop_event: asy
             tasks = await PGStatsDB.fetch_due_tasks_locked(now_epoch=now_epoch, limit=20)
 
             if not tasks:
-                print("ℹ️ task_rec: no due tasks", flush=True)
+                # print("ℹ️ task_rec: no due tasks", flush=True)
                 await asyncio.sleep(poll_seconds)
                 continue
 

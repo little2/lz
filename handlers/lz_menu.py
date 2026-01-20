@@ -595,6 +595,8 @@ def ranking_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔥 近期火热资源排行板", callback_data="ranking_resource")],
         [InlineKeyboardButton(text="👑 近期火热上传者排行板", callback_data="ranking_uploader")],
+        [InlineKeyboardButton(text="🐲 龙阳小馆新品上架", callback_data="ranking_xg")],
+        [InlineKeyboardButton(text="🏪 每日积分情报局", callback_data="ranking_earn")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -3095,6 +3097,34 @@ async def handle_ranking_uploader(callback: CallbackQuery,state: FSMContext):
     await callback.answer()
 
 
+
+@router.callback_query(F.data == "ranking_xg")
+async def handle_ranking_xg(callback: CallbackQuery,state: FSMContext):
+    FILE_PATH = getattr(lz_var, "RANKING_UPLOADER_HTML_PATH", "ranking_xg.html")
+    html_text = await get_html_content(FILE_PATH, "get_xg")
+    
+    await _edit_caption_or_text(
+        photo=lz_var.skins['ranking_resource']['file_id'],
+        msg=callback.message,
+        text=html_text, 
+        reply_markup=ranking_menu_keyboard(),
+        state= state
+    )    
+    await callback.answer()
+
+@router.callback_query(F.data == "ranking_earn")
+async def handle_ranking_earn(callback: CallbackQuery,state: FSMContext):
+    FILE_PATH = getattr(lz_var, "RANKING_UPLOADER_HTML_PATH", "ranking_earn.html")
+    html_text = await get_html_content(FILE_PATH, "daily_point_announcement")
+    
+    await _edit_caption_or_text(
+        photo=lz_var.skins['ranking_resource']['file_id'],
+        msg=callback.message,
+        text=html_text, 
+        reply_markup=ranking_menu_keyboard(),
+        state= state
+    )    
+    await callback.answer()
 
 
 # ====== 通用：分页列表键盘（mine / fav）======

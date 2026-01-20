@@ -289,7 +289,7 @@ async def main():
 
     # ===== 启动后台统计器 =====
     # print("🤖 ly bot 启动中(SESSION_STRING)...")
-    # await GroupStatsTracker.start_background_tasks()
+    await GroupStatsTracker.start_background_tasks()
 
 
 

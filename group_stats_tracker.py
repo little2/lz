@@ -107,6 +107,7 @@ class GroupStatsTracker:
     # ------------------------------
     @classmethod
     async def on_new_message(cls, event):
+        
         msg = event.message
         if not msg:
             return
@@ -172,9 +173,10 @@ class GroupStatsTracker:
                 "龙阳学院",
             ],
         }
-
+        # print(f"[valkey] check triggers user_id={user_id} text={text}", flush=True)
         for action, keywords in KV_TRIGGERS.items():
             if any(k in text for k in keywords):
+                print(f"[valkey] trigger action={action} user_id={user_id}", flush=True)
                 yymmdd = msg_time_local.strftime("%y%m%d")
                 key = f"{action}:{user_id}"
                 if cls._valkey:

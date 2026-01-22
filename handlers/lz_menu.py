@@ -64,7 +64,7 @@ from utils.aes_crypto import AESCrypto
 from utils.media_utils import Media
 from utils.tpl import Tplate
 from utils.string_utils import LZString
-from utils.product_utils import build_product_material,sync_sora,sync_product
+from utils.product_utils import build_product_material,sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
 from utils.action_gate import ActionGate
 
@@ -74,7 +74,7 @@ from pathlib import Path
 
 from handlers.handle_jieba_export import export_lexicon_files
 
-
+import time
 
 
 
@@ -941,6 +941,16 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
     return "\n".join(lines)  # ✅ 强制变成纯文字
 
 
+_PAGINATION_HIT = {}
+
+def is_too_fast(key: str, window: float = 1.0) -> bool:
+    now = time.time()
+    last = _PAGINATION_HIT.get(key, 0)
+    if now - last < window:
+        return True
+    _PAGINATION_HIT[key] = now
+    return False
+
 @router.callback_query(
     F.data.regexp(r"^(ul_pid|fd_pid|pageid)\|")
 )
@@ -948,6 +958,13 @@ async def handle_pagination(callback: CallbackQuery, state: FSMContext):
     callback_function, keyword_id_str, page_str = callback.data.split("|")
     keyword_id = int(keyword_id_str) 
     page = int(page_str)
+
+
+    # （可选）极短防抖，避免狂点
+    key = f"pg:{callback.from_user.id}:{callback.message.chat.id}:{callback.message.message_id}"
+    if is_too_fast(key, 1.0):
+        return
+
 
     print(f"Pagination: {callback_function}, {keyword_id}, {page}", flush=True)
 
@@ -1243,8 +1260,8 @@ async def _build_pagination(
             return {"ok": False, "message": "⚠️ 同步正在进行中，或是您目前还没有任何兑换纪录"}
     elif callback_function in {"ul_pid"}:
         spawn_once(
-            f"sync_product:{keyword_id}",
-            lambda: sync_product(keyword_id)
+            f"sync_product_by_user:{keyword_id}",
+            lambda: sync_product_by_user(keyword_id)
         )
 
         result = await PGPool.search_history_upload(keyword_id)
@@ -1732,6 +1749,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 try:
                     if content_id > 0:
+                        db.cache.delete(f"sora_content_id:{content_id}")
                         await sync_sora(content_id)
                 except Exception as e2:
                     print(f"❌ 解密失败D：{e2}", flush=True)
@@ -2107,6 +2125,8 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
         "<b>🛑 直接下架:</b>\n"
         "资源将立即下架，所有用户将无法存取。\n"
         "若日后需要重新上架，需先将状态改为「退回编辑」，并完成编辑与审核流程。\n"
+        "\n"
+        f"🆔 <code>{content_id}</code>\n"
     )
 
     rows_kb: list[list[InlineKeyboardButton]] = []
@@ -2162,8 +2182,9 @@ async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext)
 
     try:
         await _mysql_set_product_review_status_by_content_id(content_id, 1, operator_user_id=callback.from_user.id, reason="退回编辑")
-        await sync_sora(content_id)
         db.cache.delete(f"sora_content_id:{content_id}")
+        await sync_sora(content_id)
+        
         
     except Exception as e:
         print(f"❌ sora_op return_edit failed: {e}", flush=True)
@@ -2225,6 +2246,7 @@ async def handle_sora_op_force_update(callback: CallbackQuery, state: FSMContext
         return
 
     # 不强制权限也行（但管理页回上一页通常仍在 owner/admin 手里）
+    db.cache.delete(f"sora_content_id:{content_id}")
     await sync_sora(int(content_id))
     await callback.answer("更新同步中，请在 1 分钟后再试", show_alert=False)
 
@@ -2288,8 +2310,9 @@ async def handle_sora_op_unpublish_reason(message: Message, state: FSMContext):
         print(f"🛑 用户 {uid} 为 content_id={content_id} 直接下架，原因：{reason}", flush=True)
 
         await _mysql_set_product_review_status_by_content_id(content_id, 20, operator_user_id=uid, reason=reason)
-        await sync_sora(content_id)
         db.cache.delete(f"sora_content_id:{content_id}")
+        await sync_sora(content_id)
+       
         
     except Exception as e:
         print(f"❌ sora_op unpublish failed: {e}", flush=True)
@@ -5026,6 +5049,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:
+        db.cache.delete(f"sora_content_id:{content_id}")
         await sync_sora(content_id)
         warn = f"⚠️ 正在同步中，请稍后再试一次 ( ID : {content_id} )"
         empty_file_info = [None, None, None, None]

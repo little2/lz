@@ -58,9 +58,10 @@ class TwoLevelCache:
         except Exception:
             return
 
-    def set(self, key: str, value: Any, ttl: int = 1200):
+    def set(self, key: str, value: Any, ttl: int = 1200, only_l2: bool = False):
         # 1) 先写 L1（立即生效）
-        self.l1.set(key, value, ttl=ttl)
+        if not only_l2:
+            self.l1.set(key, value, ttl=ttl)
 
         # 2) 写 L2：后台执行
         try:

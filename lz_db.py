@@ -399,7 +399,7 @@ class DB:
 
         result = [dict(r) for r in rows]
         # print(f"{result}")
-        self.cache.set(cache_key, result, ttl=CACHE_TTL)
+        self.cache.set(cache_key, result, ttl=CACHE_TTL, only_l2=True)
         return result
 
 

@@ -357,7 +357,7 @@ async def sync_sora(content_id: int):
         album_sync_summary = None
     
 
-async def sync_product(user_id: int):
+async def sync_product_by_user(user_id: int):
     """
     单向同步：以 MySQL 为源，将某个用户的 product 记录同步到 PostgreSQL。
 
@@ -390,7 +390,7 @@ async def sync_product(user_id: int):
     )
     count_mysql = len(mysql_rows)
     print(
-        f"[sync_product] MySQL rows = {count_mysql} for user_id={user_id}",
+        f"[sync_product_by_user] MySQL rows = {count_mysql} for user_id={user_id}",
         flush=True,
     )
 
@@ -400,7 +400,7 @@ async def sync_product(user_id: int):
             "mysql_count": 0,
             "pg_upserted": 0,
         }
-        print(f"[sync_product] Done (no data): {summary}", flush=True)
+        print(f"[sync_product_by_user] Done (no data): {summary}", flush=True)
         return summary
 
     # 2) 批量 upsert 到 PostgreSQL
@@ -411,7 +411,7 @@ async def sync_product(user_id: int):
         "mysql_count": count_mysql,
         "pg_upserted": pg_upserted,
     }
-    print(f"[sync_product] Done: {summary}", flush=True)
+    print(f"[sync_product_by_user] Done: {summary}", flush=True)
     return summary
 
 

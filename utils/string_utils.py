@@ -323,3 +323,37 @@ class LZString:
         if not text:
             return ""
         return text[:max_length] + "..." if len(text) > max_length else text
+
+    @staticmethod
+    def contains_multi_volume_archive(text: str) -> bool:
+        """
+        判断任意文本中是否包含 zip / rar / 7z 的分卷压缩文件名
+        """
+
+       
+
+        MULTI_VOLUME_RE = re.compile(
+            r"""
+            (?<!\S)                    # 左边是行首或空白
+            (
+                \S+                    # 文件名主体（允许中文、括号、符号）
+                (
+                    \.z\d{2}           # z01 / z04
+                    |\.zip\.\d{2,}     # zip.001
+                    |\.part\d+\.rar    # part1.rar
+                    |\.r\d{2}          # r00
+                    |\.7z\.\d{2,}      # 7z.011
+                )
+            )
+            (?!\S)                     # 右边是空白或行尾
+            """,
+            re.IGNORECASE | re.VERBOSE
+        )
+
+
+        if not text:
+            return False
+        return bool(MULTI_VOLUME_RE.search(text))
+
+
+    ''''''

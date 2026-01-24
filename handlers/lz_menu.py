@@ -3508,8 +3508,9 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
     if mode == 'edit':
         nav_row.append(InlineKeyboardButton(text="🔧 编辑资源橱窗", callback_data=f"clt:edit:{cid}:0:k"))
     else:
-        fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
-        nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
+        if ENVIRONMENT == "dev":
+            fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
+            nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
     
     if nav_row:
         kb_rows.append(nav_row)  
@@ -3519,9 +3520,11 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
 
 
     if ops == 'handle_clt_my':
-        kb_rows.append([InlineKeyboardButton(text="🔙 返回我的资源橱窗", callback_data="clt_my")])
+        if ENVIRONMENT == "dev":
+            kb_rows.append([InlineKeyboardButton(text="🔙 返回我的资源橱窗", callback_data="clt_my")])
     elif ops == 'handle_clt_fav':
-        kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的资源橱窗", callback_data="clt_favorite")])
+        if ENVIRONMENT == "dev":
+            kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的资源橱窗", callback_data="clt_favorite")])
     else:
         kb_rows.append([InlineKeyboardButton(text="🔙 返回", callback_data="clt_my")])
 
@@ -5005,7 +5008,13 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         # print(f"1847:🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
         # ✅ 返回三个值
 
-      
+        if (file_type == "document" or file_type == "d") and LZString.contains_multi_volume_archive(content):
+            print("这是分卷压缩文件")
+            ret_content = f"<b>⚠️ 这是个分卷压缩文件，全部收齐才能解压 ⚠️ </b>\n\n{ret_content}"
+        else:
+         
+            print(f"content=>{content}|||",flush=True)
+
         '''
     
         审核状态

@@ -3689,7 +3689,7 @@ async def _get_clti_list(cid,page,user_id,mode):
             icon = "📄"
         elif f.get('file_type') == 'p':
             icon = "🖼"
-        elif r['file_type'] == 'a':
+        elif f.get('file_type') == 'a':
             icon = "📂"
         else:
             icon = "🔹"

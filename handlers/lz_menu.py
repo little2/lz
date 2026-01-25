@@ -76,7 +76,8 @@ from handlers.handle_jieba_export import export_lexicon_files
 
 import time
 
-
+from html import escape as html_escape
+from urllib.parse import quote as url_quote
 
 
 
@@ -908,7 +909,9 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
     
     for r in results:
         # print(r)
-        content = _short(r["content"]) or r["id"]
+        content_raw = _short(r.get("content")) or str(r.get("id", ""))
+        content = html_escape(str(content_raw))  # ✅ escape 文本
+
         # 根据 r['file_type'] 进行不同的处理
         if r['file_type'] == 'v':
             icon = "🎬"
@@ -924,7 +927,7 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
 
         aes = AESCrypto(AES_KEY)
         encoded = aes.aes_encode(r['id'])
-
+       
         lines.append(
             f"{icon}<a href='https://t.me/{lz_var.bot_username}?start={stag}_{search_key_id}_{encoded}'>{content}</a>"
             # f"<b>Type:</b> {r['file_type']}\n"
@@ -1527,23 +1530,23 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
             print(f"❌ 删除提示消息失败: {e}", flush=True)
         return
 
-    date = await MenuBase.get_menu_status(state)
+    # date = await MenuBase.get_menu_status(state)
 
 
     # print(f"handle_message={handle_message}",flush=True)
 
-    if date and date.get("current_message"):
-        try:
-            await _edit_caption_or_text(
-                photo=lz_var.skins['search_keyword']['file_id'],
-                msg=date.get("current_message"),
-                text=list_info.get("text"),
-                reply_markup=list_info.get("reply_markup"),
-                state= state
-            )
-            return
-        except Exception as e:
-            print(f"❌ 编辑消息失败c: {e}", flush=True)
+    # if date and date.get("current_message"):
+    #     try:
+    #         await _edit_caption_or_text(
+    #             photo=lz_var.skins['search_keyword']['file_id'],
+    #             msg=date.get("current_message"),
+    #             text=list_info.get("text"),
+    #             reply_markup=list_info.get("reply_markup"),
+    #             state= state
+    #         )
+    #         return
+    #     except Exception as e:
+    #         print(f"❌ 编辑消息失败c: {e}", flush=True)
             
     menu_message = await message.answer_photo(
         photo=lz_var.skins['search_keyword']['file_id'],
@@ -1768,7 +1771,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                                 current_message =  await _edit_caption_or_text(
                                     photo=product_info['cover_file_id'],
                                     msg =current_message,
-                                    text=product_info['caption'],
+                                    text= html_escape(product_info['caption']),
                                     reply_markup=product_info['reply_markup'],
                                     state= state
                                 )
@@ -3959,6 +3962,34 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
 
 
 
+@router.callback_query(F.data.startswith("copymenu:"))
+async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
+    content_id = callback.data.split(":")[1]
+
+    state_data = await MenuBase.get_menu_status(state)
+     
+    current_message = state_data.get("current_message")
+
+    # print(f"handle_keyframe_redeem: current_message={current_message}")
+    if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+        menu_message = await callback.message.answer_photo(
+            photo=current_message.photo[-1].file_id,
+            caption=current_message.caption,
+            parse_mode="HTML",
+            reply_markup=current_message.reply_markup,
+        )
+        
+        
+        # r=await lz_var.bot.forward_message(
+        #         chat_id=current_message.chat.id,
+        #         message_id=current_message.message_id,
+        #         from_chat_id=current_message.chat.id,
+        #         disable_notification=True,
+        #     )
+        # print(f"copy_message result: {r}", flush=True)
+
+    await callback.answer()
+
 @router.callback_query(F.data.startswith("keyframe:"))
 async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     content_id = callback.data.split(":")[1]
@@ -3980,12 +4011,7 @@ async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     encoded = aes.aes_encode(content_id)
 
     shared_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
-    # # rows_kb.append([
-    # #     InlineKeyboardButton(
-    # #         text="⚠️ 我要打假",
-    # #         url=f"https://t.me/{lz_var.UPLOADER_BOT_NAME}?start=s_{source_id}"
-    # #     )
-    # # ])
+
 
     rows_kb.append([
         InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
@@ -4412,12 +4438,16 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
            
             rows_kb: list[list[InlineKeyboardButton]] = []
 
-            rows_kb.append([
-                InlineKeyboardButton(
-                    text="⚠️ 我要打假",
-                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
-                )
-            ])
+            rows_kb.append(
+                [
+                    InlineKeyboardButton(
+                        text="⚠️ 我要打假",
+                        url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+                    )
+                ]
+            )
+
+
 
             if file_type == "video" or file_type == "v":
                 #只有视频有亮点模式
@@ -4432,6 +4462,15 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                         )
                     ])
 
+
+            rows_kb.append(
+                [
+                    InlineKeyboardButton(
+                        text="⬇️ 菜单置底",
+                        callback_data=f"copymenu:{content_id}"
+                    )
+                ]
+            )
 
             feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
 
@@ -4473,6 +4512,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
           
             return  
 
+        await MenuBase.set_menu_status(state, {
+            "current_message": callback.message,
+            "current_chat_id": callback.message.chat.id,
+            "current_message_id": callback.message.message_id
+        })
+
 
         timer.lap(f"结束全部流程 {reply_text}")
         await callback.answer(reply_text, show_alert=True)
@@ -4490,12 +4535,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         #     "chat": {"id":callback.message.chat.id},
         #     "message_id": new_message.message_id
         # }
-        # await MenuBase.set_menu_status(state, {
-        #     "menu_message": NewMessage,
-        #     "current_message": new_message,
-        #     "current_chat_id": callback.message.chat.id,
-        #     "current_message_id": new_message.message_id
-        # })
+
 
         # await lz_var.bot.delete_message(
         #     chat_id=callback.message.chat.id,
@@ -4606,12 +4646,20 @@ async def _build_mediagroup_box(page,source_id,content_id,material_status):
             rows_kb.append(current_row)
 
         # 追加反馈按钮（单独一行）
-        rows_kb.append([
-            InlineKeyboardButton(
-                text="⚠️ 我要打假",
-                url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
-            )
-        ])
+        rows_kb.append(
+            [
+                InlineKeyboardButton(
+                    text="⚠️ 我要打假",
+                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚠️ 跳回列表",
+                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+                )
+            ]
+        )
 
         feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
 

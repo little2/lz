@@ -82,26 +82,7 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
 
     print(f"✅ [02 X-MEDIA] fetch_thumb_file_unique_id={fetch_thumb_file_unique_id} fetch_file_unique_id={fetch_file_unique_id}, ")
 
-    if fetch_thumb_file_unique_id == file_unique_id:
-        print(f"✅ [03 X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)
-        try:
-            # 判断 menu_message 是否有 message_id 和 chat.id
-            if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
-                await lz_var.bot.edit_message_media(
-                        chat_id=current_message.chat.id,
-                        message_id=current_message.message_id,
-                        media=InputMediaPhoto(
-                            media=file_id,   # 新图的 file_id
-                            caption=current_message.caption,   # 保留原 caption
-                            parse_mode="HTML",               # 如果原本有 HTML 格式
-                        ),
-                    reply_markup=current_message.reply_markup  # 保留原按钮
-                )
-                print(f"✅ [04 X-MEDIA] 成功更新菜单消息的缩略图", flush=True)
-            else:
-                print(f"❌ [04 X-MEDIA] menu_message 无法更新缩略图，缺少 message_id 或 chat 信息 {current_message}", flush=True)
-        except Exception as e:
-            print(f"❌ [05 X-MEDIA] 更新菜单消息缩略图失败: {e}", flush=True)
+
     
     if fetch_file_unique_id == file_unique_id:
         print(f"✅ [06 X-MEDIA] 发现匹配的 file_unique_id，准备继续处理", flush=True)
@@ -147,16 +128,42 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
                         cloned_btn = btn.model_copy(update={"text": new_text})
                         new_row.append(cloned_btn)
                     new_inline_keyboard.append(new_row)
+                    print("ℹ️ [10 X-MEDIA] 更换兑换按钮", flush=True)
+                
 
                 new_kb = InlineKeyboardMarkup(inline_keyboard=new_inline_keyboard)
 
-                await Media.safe_edit_reply_markup(current_message, new_kb)
+                product_message = await Media.safe_edit_reply_markup(current_message, new_kb)
        
+                print(f"✅ [11 X-MEDIA] 成功替换菜单消息按钮", flush=True)
+
+    if fetch_thumb_file_unique_id == file_unique_id:
+        print(f"✅ [03 X-MEDIA] 发现匹配的 file_unique_id，准备更新缩略图", flush=True)
+        try:
+            # 判断 menu_message 是否有 message_id 和 chat.id
+            if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+                await lz_var.bot.edit_message_media(
+                        chat_id=current_message.chat.id,
+                        message_id=current_message.message_id,
+                        media=InputMediaPhoto(
+                            media=file_id,   # 新图的 file_id
+                            caption=current_message.caption,   # 保留原 caption
+                            parse_mode="HTML",               # 如果原本有 HTML 格式
+                        ),
+                    reply_markup=current_message.reply_markup  # 保留原按钮
+                )
+                print(f"✅ [04 X-MEDIA] 成功更新菜单消息的缩略图", flush=True)
+            else:
+                print(f"❌ [04 X-MEDIA] menu_message 无法更新缩略图，缺少 message_id 或 chat 信息 {current_message}", flush=True)
+        except Exception as e:
+            print(f"❌ [05 X-MEDIA] 更新菜单消息缩略图失败: {e}", flush=True)
+               
        
 
 
 
     user_id = str(message.from_user.id) if message.from_user else None
+    
     
 
     await db.upsert_file_extension(

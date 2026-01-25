@@ -1020,6 +1020,28 @@ class MySQLPool(LYBase):
             await cls.release(conn, cur)
 
     @classmethod
+    async def get_clt_by_content_id(cls, content_id: int) -> list[dict]:
+        """
+        查询某个资源橱窗的所有文件
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # id, source_id, file_type, content
+            sql = """
+            SELECT *
+            FROM user_collection_file 
+            WHERE content_id = %s 
+            """
+            await cur.execute(sql, (content_id,))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ get_clt_by_content_id 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
     async def create_default_collection(cls, user_id: int, title: str = "未命名资源橱窗") -> int | None:
         """
         创建默认资源橱窗并返回新建ID；失败返回 None。

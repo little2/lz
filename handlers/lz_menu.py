@@ -909,8 +909,8 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
     
     for r in results:
         # print(r)
-        content_raw = _short(r.get("content")) or str(r.get("id", ""))
-        content = html_escape(str(content_raw))  # ✅ escape 文本
+        content = _short(r.get("content")) or str(r.get("id", ""))
+        
 
         # 根据 r['file_type'] 进行不同的处理
         if r['file_type'] == 'v':
@@ -1771,7 +1771,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                                 current_message =  await _edit_caption_or_text(
                                     photo=product_info['cover_file_id'],
                                     msg =current_message,
-                                    text= html_escape(product_info['caption']),
+                                    text= product_info['caption'],
                                     reply_markup=product_info['reply_markup'],
                                     state= state
                                 )
@@ -2047,7 +2047,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     if ENVIRONMENT == "dev":
         bottom_row.append(
-            InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0")
+            InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:productinfo")
         ) 
 
     reply_markup.inline_keyboard.append(bottom_row)
@@ -2417,7 +2417,7 @@ async def _submit_to_lg():
         print(f"❌ _submit_to_lg 执行失败: {e}", flush=True)
 
 
-async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: int) -> InlineKeyboardMarkup:
+async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: int, fuc_from: str = "") -> InlineKeyboardMarkup:
     # 复用你现成的 _load_collections_rows()
     rows, has_next = await _load_collections_rows(user_id=user_id, page=page, mode="mine")
     kb_rows: list[list[InlineKeyboardButton]] = []
@@ -2428,38 +2428,55 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
         kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="clt_my")])
         return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
+    clt_rows = await MySQLPool.get_clt_by_content_id(content_id)
+
+    # 提取已包含该 content 的 collection_id 集合
+    collect_ids = {row["collection_id"] for row in clt_rows} if clt_rows else set()
+
+
     # 本页 6 条资源橱窗选择按钮
     for r in rows:
+        
         cid = r.get("id")
+        checked = "✅" if cid in collect_ids else ""
         title = (r.get("title") or "未命名资源橱窗")[:30]
         kb_rows.append([
             InlineKeyboardButton(
-                text=f"🪟 {title}  #ID{cid}",
-                callback_data=f"choose_collection:{cid}:{content_id}:{page}"
+                text=f"🪟 {title}  #ID{cid} {checked}",
+                callback_data=f"choose_collection:{cid}:{content_id}:{page}:{fuc_from}"
             )
         ])
 
     # 翻页
     nav: list[InlineKeyboardButton] = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅️ 上一页", callback_data=f"add_to_collection:{content_id}:{page-1}"))
+        nav.append(InlineKeyboardButton(text="⬅️ 上一页", callback_data=f"add_to_collection:{content_id}:{page-1}:{fuc_from}"))
     if has_next:
-        nav.append(InlineKeyboardButton(text="下一页 ➡️", callback_data=f"add_to_collection:{content_id}:{page+1}"))
+        nav.append(InlineKeyboardButton(text="下一页 ➡️", callback_data=f"add_to_collection:{content_id}:{page+1}:{fuc_from}"))
     if nav:
         kb_rows.append(nav)
 
     # 返回
-    kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="clt_my")])
+    if(fuc_from == "productinfo"):
+        
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回资源介绍", callback_data=f"return_after_clt:{content_id}:productinfo")])
+    elif(fuc_from == "product"):
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回资源", callback_data=f"return_after_clt:{content_id}:product")])
+    else:
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="clt_my")])
 
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
-
-@router.callback_query(F.data.regexp(r"^add_to_collection:(\d+):(\d+)$"))
+@router.callback_query(F.data.regexp(r"^add_to_collection:\d+:\d+(?::([A-Za-z]+))?$"))
 async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
-    _, content_id_str, page_str = callback.data.split(":")
-    content_id = int(content_id_str)
-    page = int(page_str)
+
+    parts = callback.data.split(":")
+    # 例：clt:my:{cid}:{page}:{mode}
+    content_id = int(parts[1])
+    page = int(parts[2]) if len(parts) > 2 else 0
+    fuc_from = parts[3] if len(parts) > 3 else ""
+    print(f"{callback.from_user.id} 点击加入资源橱窗 content_id={content_id}，page={page}, fuc_from={fuc_from}", flush=True)
     user_id = callback.from_user.id
 
     # 统计用户资源橱窗数量 & 取第一个资源橱窗ID
@@ -2475,9 +2492,7 @@ async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
         ok = await MySQLPool.add_content_to_user_collection(collection_id=new_id, content_id=content_id)
         tip = "✅ 已为你创建资源橱窗并加入" if ok else "资源橱窗已创建，但加入失败"
         await callback.answer(tip, show_alert=False)
-        # 也可以顺手把按钮切到“我的资源橱窗”：
-        # kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=0)
-        # await _edit_caption_or_text(callback.message, text="你的资源橱窗：", reply_markup=kb)
+      
         return
 
     if count == 1 and first_id:
@@ -2488,7 +2503,7 @@ async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
         return
 
     # 多个资源橱窗 → 弹出分页选择
-    kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=page)
+    kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=page, fuc_from = fuc_from)
     await _edit_caption_or_text(
         callback.message,
         text=f"请选择要加入的资源橱窗（第 {page+1} 页）：",
@@ -2499,15 +2514,19 @@ async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
 
 
 # 选择某个资源橱窗 → 写入 user_collection_file（去重）
-@router.callback_query(F.data.regexp(r"^choose_collection:(\d+):(\d+):(\d+)$"))
+@router.callback_query(F.data.regexp(r"^choose_collection:(\d+):(\d+):(\d+):([A-Za-z]+)$"))
 async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
-    _, cid_str, content_id_str, page_str = callback.data.split(":")
-    collection_id = int(cid_str)
-    content_id = int(content_id_str)
-    page = int(page_str)
+    parts = callback.data.split(":")
+    # 例：clt:my:{cid}:{page}:{mode}
+    collection_id = int(parts[1])
+    content_id = int(parts[2])
+    page = int(parts[3]) if len(parts) > 3 else 0
+    fuc_from = parts[4] if len(parts) > 4 else ""
+
     user_id = callback.from_user.id
-    data = await state.get_data()
-    search_key_index = data.get('search_key_index')
+
+    
+
 
     ok = await MySQLPool.add_content_to_user_collection(collection_id=collection_id, content_id=content_id)
     if ok:
@@ -2515,17 +2534,46 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
     else:
         tip = "⚠️ 已在该资源橱窗里或加入失败"
 
-    viewer_user_id = int(callback.from_user.id)
-    product_info = await _build_product_info(content_id=content_id, search_key_index=search_key_index, state=state, message=callback.message, viewer_user_id=viewer_user_id)
-    # 保持在选择页，方便继续加入其他资源橱窗
-    # kb = await build_add_to_collection_keyboard(user_id=user_id, content_id=content_id, page=page)
-    try:
-        await callback.message.edit_reply_markup(reply_markup=product_info['reply_markup'])
-    except Exception as e:
-        print(f"❌ 刷新加入资源橱窗页失败: {e}", flush=True)
+    
+    await build_after_choose_collection_button(callback, state, content_id, fuc_from)
+    
 
     await callback.answer(tip, show_alert=False)
 
+@router.callback_query(F.data.regexp(r"^return_after_clt:(\d+):([A-Za-z]+)$"))
+async def handle_return_after_clt(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    # 例：clt:my:{cid}:{page}:{mode}
+    content_id = int(parts[1])
+    fuc_from = parts[2] if len(parts) > 2 else ""
+    await build_after_choose_collection_button(callback, state, content_id, fuc_from)
+
+
+async def build_after_choose_collection_button(callback: CallbackQuery, state: FSMContext, content_id: int, fuc_from: str):
+
+    if fuc_from == "productinfo":
+        data = await state.get_data()
+        search_key_index = data.get('search_key_index') or -1
+        viewer_user_id = int(callback.from_user.id)
+        product_info = await _build_product_info(content_id=content_id, search_key_index=search_key_index, state=state, message=callback.message, viewer_user_id=viewer_user_id)
+
+        reply_markup=product_info['reply_markup']
+       
+    elif fuc_from == "product":
+        
+        record = await db.search_sora_content_by_id(content_id)
+        source_id = record.get("source_id")
+        file_type = record.get("file_type")
+        ret_content = record.get("content") 
+        reply_markup = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
+        
+
+
+
+    try:
+        await callback.message.edit_reply_markup(reply_markup=reply_markup)
+    except Exception as e:
+        print(f"❌ 刷新加入资源橱窗页失败: {e}", flush=True)
 
 # == 主菜单选项响应 ==
 @router.callback_query(F.data == "search")
@@ -3971,7 +4019,7 @@ async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     current_message = state_data.get("current_message")
 
     # print(f"handle_keyframe_redeem: current_message={current_message}")
-    if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+    if current_message and hasattr(current_message, 'photo') and current_message.photo and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
         menu_message = await callback.message.answer_photo(
             photo=current_message.photo[-1].file_id,
             caption=current_message.caption,
@@ -4435,44 +4483,48 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         feedback_kb = None
         if UPLOADER_BOT_NAME and source_id:
 
-           
-            rows_kb: list[list[InlineKeyboardButton]] = []
+            feedback_kb = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
+            # rows_kb: list[list[InlineKeyboardButton]] = []
 
-            rows_kb.append(
-                [
-                    InlineKeyboardButton(
-                        text="⚠️ 我要打假",
-                        url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
-                    )
-                ]
-            )
+            # bottom_row = []
+            # bottom_row.append(
+            #     InlineKeyboardButton(
+            #         text="⚠️ 我要打假",
+            #         url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+            #     )
+            # )
+
+            # if ENVIRONMENT == "dev":
+            #     bottom_row.append(
+            #         InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:product")
+            #     ) 
+
+            # rows_kb.append(bottom_row)           
+
+            # if file_type == "video" or file_type == "v":
+            #     #只有视频有亮点模式
+            #     pattern = r"\b\d{2}:\d{2}\b"
+            #     matches = re.findall(pattern, ret_content)
+            #     print(f"{matches} {len(matches)}", flush=True)
+            #     if len(matches) >= 3:
+            #         rows_kb.append([
+            #             InlineKeyboardButton(
+            #                 text="⚡️ 亮点模式",
+            #                 callback_data=f"keyframe:{content_id}"
+            #             )
+            #         ])
 
 
+            # rows_kb.append(
+            #     [
+            #         InlineKeyboardButton(
+            #             text="⬇️ 菜单置底",
+            #             callback_data=f"copymenu:{content_id}"
+            #         )
+            #     ]
+            # )
 
-            if file_type == "video" or file_type == "v":
-                #只有视频有亮点模式
-                pattern = r"\b\d{2}:\d{2}\b"
-                matches = re.findall(pattern, ret_content)
-                print(f"{matches} {len(matches)}", flush=True)
-                if len(matches) >= 3:
-                    rows_kb.append([
-                        InlineKeyboardButton(
-                            text="⚡️ 亮点模式",
-                            callback_data=f"keyframe:{content_id}"
-                        )
-                    ])
-
-
-            rows_kb.append(
-                [
-                    InlineKeyboardButton(
-                        text="⬇️ 菜单置底",
-                        callback_data=f"copymenu:{content_id}"
-                    )
-                ]
-            )
-
-            feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+            # feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
 
        
 
@@ -4549,6 +4601,50 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         await callback.answer(reply_text, show_alert=True)
         # await callback.message.reply(reply_text, parse_mode="HTML")
         return
+
+async def build_after_redeem_buttons(content_id,source_id,file_type,ret_content):
+    rows_kb: list[list[InlineKeyboardButton]] = []
+
+    bottom_row = []
+    bottom_row.append(
+        InlineKeyboardButton(
+            text="⚠️ 我要打假",
+            url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+        )
+    )
+
+    if ENVIRONMENT == "dev":
+        bottom_row.append(
+            InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:product")
+        ) 
+
+    rows_kb.append(bottom_row)           
+
+    if file_type == "video" or file_type == "v":
+        #只有视频有亮点模式
+        pattern = r"\b\d{2}:\d{2}\b"
+        matches = re.findall(pattern, ret_content)
+        print(f"{matches} {len(matches)}", flush=True)
+        if len(matches) >= 3:
+            rows_kb.append([
+                InlineKeyboardButton(
+                    text="⚡️ 亮点模式",
+                    callback_data=f"keyframe:{content_id}"
+                )
+            ])
+
+
+    rows_kb.append(
+        [
+            InlineKeyboardButton(
+                text="⬇️ 菜单置底",
+                callback_data=f"copymenu:{content_id}"
+            )
+        ]
+    )
+
+    feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
+    return feedback_kb
 
 
 @router.message(RedeemFSM.waiting_for_condition_answer)
@@ -4847,7 +4943,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     # print(f"content_id = {content_id}, search_key_index={search_key_index}, search_from={search_from}")
     record = await db.search_sora_content_by_id(content_id)
 
-    print(f"\n\n\n🔍 载入 ID: {content_id}, Record: {record}", flush=True)
+    # print(f"\n\n\n🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
        
          # 取出字段，并做基本安全处理
@@ -4866,6 +4962,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         source_id = record.get('source_id', '')
         file_type = record.get('file_type', '')
         content = record.get('content', '')
+        content = html_escape(content)
         file_id = record.get('file_id', '')
         thumb_file_unique_id = record.get('thumb_file_unique_id', '')
         thumb_file_id = record.get('thumb_file_id', '')

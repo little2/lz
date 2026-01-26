@@ -1567,8 +1567,8 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
             photo=lz_var.skins['search_keyword']['file_id'],
             caption=list_info.get("text"),
             parse_mode="HTML",
-            reply_markup=list_info.get("reply_markup"),
-            disable_web_page_preview=True
+            reply_markup=list_info.get("reply_markup")
+           
         )
 
         await MenuBase.set_menu_status(state, {

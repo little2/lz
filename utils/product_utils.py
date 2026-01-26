@@ -184,10 +184,10 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
 
     try:
-        if content and tpl_data.get("guild_chat_id") != -1002675021976:
+        if content and tpl_data.get("guild_chat_id") != -1001943193056:
             
             retGuild = await _bot.send_message(
-                chat_id=-1002675021976,
+                chat_id=-1001943193056,
                 message_thread_id=17,
                 text=content,
                 parse_mode="HTML",

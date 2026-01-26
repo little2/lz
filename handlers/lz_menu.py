@@ -1421,9 +1421,9 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
         print(f"❌ 删除 /s 消息失败: {e}", flush=True)
     pass
 
-    if ENVIRONMENT != "dev":
-        print("🔍 搜索指令已禁用（仅限开发环境）", flush=True)
-        return
+    # if ENVIRONMENT != "dev":
+    #     print("🔍 搜索指令已禁用（仅限开发环境）", flush=True)
+    #     return
 
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
@@ -1567,6 +1567,7 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
             caption=list_info.get("text"),
             parse_mode="HTML",
             reply_markup=list_info.get("reply_markup"),
+            disable_web_page_preview=True
         )
 
         await MenuBase.set_menu_status(state, {

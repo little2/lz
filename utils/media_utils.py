@@ -106,7 +106,8 @@ class Media:
                         chat_id=chat_id,
                         message_id=message_id,
                         media=InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
-                        reply_markup=reply_markup,
+                        reply_markup=reply_markup
+                        
                     )
                 else:
                     if media_attr == "photo":
@@ -121,7 +122,8 @@ class Media:
                                 chat_id=chat_id,
                                 message_id=message_id,
                                 media=InputMediaPhoto(media=orig_photo_id, caption=text, parse_mode="HTML"),
-                                reply_markup=reply_markup,
+                                reply_markup=reply_markup
+                               
                             )
                         else:
                             current_message = await lz_var.bot.edit_message_caption(
@@ -129,7 +131,8 @@ class Media:
                                 message_id=message_id,
                                 caption=text,
                                 parse_mode="HTML",
-                                reply_markup=reply_markup,
+                                reply_markup=reply_markup
+                               
                             )
                     else:
                         current_message = await lz_var.bot.edit_message_caption(
@@ -137,14 +140,16 @@ class Media:
                             message_id=message_id,
                             caption=text,
                             parse_mode="HTML",
-                            reply_markup=reply_markup,
+                            reply_markup=reply_markup
+                           
                         )
             else:
                 current_message = await lz_var.bot.edit_message_text(
                     chat_id=chat_id,
                     message_id=message_id,
                     text=text,
-                    reply_markup=reply_markup,
+                    reply_markup=reply_markup
+                    
                 )
 
             if state is not None and current_message is not None:

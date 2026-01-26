@@ -1560,6 +1560,7 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
             text=list_info.get("text"),
             parse_mode="HTML",
             reply_markup=list_info.get("reply_markup"),
+            disable_web_page_preview=True
         )
     else:
         menu_message = await message.answer_photo(

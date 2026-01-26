@@ -118,9 +118,86 @@ def create_user_client():
         print("【Telethon】使用 USER_SESSION 登录。", flush=True)
         return TelegramClient(USER_SESSION, API_ID, API_HASH)
 
-async def handle_user_private_media(event):
+
+
+
+
+async def handle_user_private_media(event: events.NewMessage.Event):
+    try:
+        msg = event.message  # ✅ 先取 msg
+    except Exception as e:
+        print(f"❌ 读取消息失败：{e}", flush=True)
+        return
+
+    # 安全打印：text 可能为 None
+    text = msg.raw_text or ""
+    print(f"【Telethon】NewMessage private={msg.is_private} text={text!r}", flush=True)
+
+    # 1) 群消息：只在有 text 时才做关键字匹配
+    if not msg.is_private:
+
+        return
+
+    # 2) 私聊媒体识别
+    file_type = ""
+    media = None
+    if msg.document:
+        media = msg.document
+        file_type = "document"
+    elif msg.video:
+        media = msg.video
+        file_type = "video"
+    elif msg.photo:
+        media = msg.photo
+        file_type = "photo"
+
+    print(f"【Telethon】私聊收到：type={file_type} text={text!r}", flush=True)
+
+    # 2.1 私聊媒体：转发
+    if media:
+        if not getattr(lz_var, "bot_username", None):
+            print("⚠️ bot_username 未就绪，跳过转发", flush=True)
+            return
+        await lz_var.user_client.send_file(lz_var.bot_username, media)
+        try:
+            await event.delete()
+        except Exception as e:
+            print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
+        return
+
+    # 2.2 私聊文本：kick bot（可选）
+    if text:
+        match = re.search(r"\|_kick_\|\s*(.*?)\s*(bot)", text, re.IGNORECASE)
+        if match:
+            botname = match.group(1) + match.group(2)
+            await lz_var.user_client.send_message(botname, "/start")
+            try:
+                await event.delete()
+            except Exception as e:
+                print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
+
+
+async def handle_user_private_media2(event):
+
+    msg = event.message
+    print(f"【Telethon】收到私聊消息 {msg.text} ", flush=True)
+
+
     msg = event.message
     if not msg.is_private:
+        # 如果 msg.text 包含 "|_kick_|", "鲁仔帮我" 指令，就处理
+        action = match_keyword(msg.text, KICK_KEYWORDS)
+        if action == "luzai":
+            clean_text = strip_keywords(
+                msg.text,
+                KICK_KEYWORDS[action]
+            )
+
+            print(
+                f"【Telethon】收到群消息，触发 luzai 指令，剩余内容：{clean_text}",
+                flush=True
+            )
+
         return
 
     file_type = ""

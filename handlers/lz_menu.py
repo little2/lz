@@ -578,10 +578,10 @@ def search_menu_keyboard():
     keyboard = []
 
     # 仅在 dev 环境显示「关键字搜索」
-    if ENVIRONMENT == "dev":
-        keyboard.append(
-            [InlineKeyboardButton(text="🔑 关键字搜索", callback_data="search_keyword")]
-        )
+   
+    keyboard.append(
+        [InlineKeyboardButton(text="🔑 关键字搜索", callback_data="search_keyword")]
+    )
 
     keyboard.extend([
         [InlineKeyboardButton(text="🏷️ 标签筛选", callback_data="search_tag")],
@@ -980,9 +980,12 @@ async def handle_pagination(callback: CallbackQuery, state: FSMContext):
     else:
         photo = lz_var.skins['home']['file_id']
 
-    
+    if callback.message.chat.type == "private":
+        search_type = "normal"
+    else:
+        search_type = "group"
 
-    pg_result = await _build_pagination(callback_function, keyword_id, page, state=state)
+    pg_result = await _build_pagination(callback_function, keyword_id, page, state=state, search_type=search_type)
     # print(f"pg_result: {pg_result}", flush=True)
     if not pg_result.get("ok"):
         await callback.answer(pg_result.get("message"), show_alert=True)
@@ -1238,6 +1241,7 @@ async def _build_pagination(
     keyword_id: int | None = -1,
     page: int | None = 0,
     state: FSMContext | None = None,
+    search_type: str = "normal"
 ):
     keyword = ""
     if callback_function in {"pageid"}:
@@ -1311,14 +1315,14 @@ async def _build_pagination(
     
     text = await render_results(sliced, keyword_id, page, total=len(result), per_page=RESULTS_PER_PAGE, callback_function=callback_function)
 
-    reply_markup=build_pagination_keyboard(keyword_id, page, has_next, has_prev, callback_function)
+    reply_markup=build_pagination_keyboard(keyword_id, page, has_next, has_prev, callback_function, search_type)
 
     return {"ok": True, "text": text, "reply_markup": reply_markup}
 
 
 
 def build_pagination_keyboard(keyword_id: int, page: int, has_next: bool, has_prev: bool,
-                              callback_function: str | None = "pageid") -> InlineKeyboardMarkup:
+                              callback_function: str | None = "pageid", search_type: str = "normal") -> InlineKeyboardMarkup:
     """
     分页键盘（两行）
     第一行：上一页 / 下一页
@@ -1342,7 +1346,7 @@ def build_pagination_keyboard(keyword_id: int, page: int, has_next: bool, has_pr
         page_buttons: list[InlineKeyboardButton] = []
         page_buttons.append(InlineKeyboardButton(text="🔙 返回我的历史", callback_data=f"my_history"))
         keyboard.append(page_buttons)
-    elif callback_function in {"pageid"}:
+    elif callback_function in {"pageid"} and search_type == "normal":
         page_buttons: list[InlineKeyboardButton] = []
         page_buttons.append(InlineKeyboardButton(text="🔙 返回搜寻", callback_data=f"search"))
         keyboard.append(page_buttons)
@@ -1519,7 +1523,11 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
    
 async def handle_search_component(message: Message, state: FSMContext, keyword:str):  
     keyword_id = await db.get_search_keyword_id(keyword)
-    list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id, state=state)
+    if message.chat.type != "private":
+        search_type = "group"
+    else:
+        search_type = "normal"
+    list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id, state=state, search_type=search_type)
     if not list_info.get("ok"):
         msg = await message.answer(list_info.get("message"))
         # ⏳ 延迟 5 秒后自动删除
@@ -1547,22 +1555,28 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
     #         return
     #     except Exception as e:
     #         print(f"❌ 编辑消息失败c: {e}", flush=True)
-            
-    menu_message = await message.answer_photo(
-        photo=lz_var.skins['search_keyword']['file_id'],
-        caption=list_info.get("text"),
-        parse_mode="HTML",
-        reply_markup=list_info.get("reply_markup"),
-    )
+    if message.chat.type != "private":
+        await message.answer(
+            text=list_info.get("text"),
+            parse_mode="HTML",
+            reply_markup=list_info.get("reply_markup"),
+        )
+    else:
+        menu_message = await message.answer_photo(
+            photo=lz_var.skins['search_keyword']['file_id'],
+            caption=list_info.get("text"),
+            parse_mode="HTML",
+            reply_markup=list_info.get("reply_markup"),
+        )
 
-    await MenuBase.set_menu_status(state, {
-        "current_chat_id": menu_message.chat.id,
-        "current_message_id": menu_message.message_id,
-        "current_message": menu_message,
-        "return_function": "search_list",
-        "return_chat_id": menu_message.chat.id,
-        "return_message_id": menu_message.message_id,
-    })
+        await MenuBase.set_menu_status(state, {
+            "current_chat_id": menu_message.chat.id,
+            "current_message_id": menu_message.message_id,
+            "current_message": menu_message,
+            "return_function": "search_list",
+            "return_chat_id": menu_message.chat.id,
+            "return_message_id": menu_message.message_id,
+        })
 
 # == 启动指令 ==
 @debug
@@ -3079,6 +3093,10 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
 
     keyword = " ".join(tag2cn.get(t, t) for t in selected_tags)
     
+
+    await db.insert_search_log(callback_query.message.from_user.id, keyword)
+    result = await db.upsert_search_keyword_stat(keyword)
+
     await handle_search_component(callback_query.message, state, keyword)
 
 async def get_html_content(file_path: str, title: str) -> str:
@@ -5218,4 +5236,43 @@ async def handle_jieba_export(message: Message | None = None):
 
 
 
-   
+KICK_KEYWORDS = {
+    "luzai": [
+        "鲁仔帮我找",
+        "鲁仔帮我搜",
+        "魯仔幫我找",
+        "魯仔幫我搜",
+    ],
+    # 未来可继续加
+    # "ban": ["|_ban_|", "封他"],
+    # "warn": ["警告一下"],
+}
+
+def match_keyword(text: str, keyword_map: dict) -> str | None:
+    for action, keywords in keyword_map.items():
+        if any(k in text for k in keywords):
+            return action
+    return None
+
+def strip_keywords(text: str, keywords: list[str]) -> str:
+    """
+    从 text 中移除 keywords 里的所有关键字，并做基础清洗
+    """
+    result = text
+    for k in keywords:
+        # 使用 re.escape，避免 |_kick_| 这类符号被当成正则
+        result = re.sub(re.escape(k), "", result)
+    # 清理多余空白
+    return result.strip()
+
+
+
+@router.message(F.text)
+async def handle_private_text(message: Message, state: FSMContext):
+    text = message.text
+    if text:
+        action = match_keyword(text, KICK_KEYWORDS)
+        if action == "luzai":
+            keyword = strip_keywords(text, KICK_KEYWORDS[action])
+            print(f"【Telethon】群触发 luzai，剩余内容：{keyword}", flush=True)  
+            await handle_search_component(message, state, keyword)

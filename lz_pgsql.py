@@ -1022,3 +1022,37 @@ class PGPool:
 
         return len(payload)
 
+
+    @classmethod
+    async def get_file_id_by_file_unique_id(cls, unique_ids: list[str]) -> list[str]:
+        """
+        根据多个 file_unique_id 取得对应的 file_id（按输入顺序对齐）
+
+        说明：
+        - 这是从 lz_db.py 移植到 PGPool 的实现
+        - PostgreSQL only（file_extension 表）
+        - 使用 PGPool 统一 cache / pool / acquire / release 规范
+        """
+
+        await cls.ensure_pool()
+
+        if not unique_ids:
+            return []
+
+        # ---------- sanitize：去空、去重、保序 ----------
+        conn = await cls.acquire()
+        try:
+            rows = await conn.fetch(
+                '''
+                SELECT file_id
+                FROM file_extension
+                WHERE file_unique_id = ANY($1::text[])
+                AND bot = $2
+                ''',
+                unique_ids, lz_var.bot_username
+            )
+            # print(f"Fetched {len(rows)} rows for unique_ids: {unique_ids} {rows}")
+            return [r['file_id'] for r in rows if r['file_id']]
+        finally:
+            await cls.release(conn)
+        

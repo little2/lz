@@ -50,7 +50,7 @@ from lz_db import db
 from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
 import lz_var
 import random
-from lz_main import load_or_create_skins
+# from lz_main import load_or_create_skins
 import redis.asyncio as redis_async
 
 
@@ -215,6 +215,7 @@ async def _edit_caption_or_text(
     message_id: int | None = None,
     photo: str | None = None,
     state: FSMContext | None = None,
+    mode : str = "edit"
 ):
     """
     统一编辑：
@@ -234,6 +235,7 @@ async def _edit_caption_or_text(
         message_id=message_id,
         photo=photo,
         state=state,
+        mode=mode
     )
     
     # try:
@@ -516,62 +518,62 @@ async def handle_update_thumb(content_id, file_id,state):
         print(f"...⚠️ 失败 for content_id: {content_id}，错误：{e}", flush=True)
 
 
-# == 主菜单 ==
-def main_menu_keyboard():
-    keyboard = [
-        [
-            InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
-            InlineKeyboardButton(text="🏆 排行", callback_data="ranking"),
-        ],
-    ]
+# # == 主菜单 ==
+# def main_menu_keyboard():
+#     keyboard = [
+#         [
+#             InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
+#             InlineKeyboardButton(text="🏆 排行", callback_data="ranking"),
+#         ],
+#     ]
 
-    # 仅在 dev 环境显示「资源橱窗」
-    if ENVIRONMENT == "dev":
-        keyboard.append([
-            InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
-            InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
-        ])
-    else:
-        keyboard.append([
-            InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
-        ])
+#     # 仅在 dev 环境显示「资源橱窗」
+#     if ENVIRONMENT == "dev":
+#         keyboard.append([
+#             InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
+#             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
+#         ])
+#     else:
+#         keyboard.append([
+#             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
+#         ])
 
-    keyboard.append([
-        InlineKeyboardButton(
-            text="📤 上传资源",
-            url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
-        )
-    ])
+#     keyboard.append([
+#         InlineKeyboardButton(
+#             text="📤 上传资源",
+#             url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
+#         )
+#     ])
 
-    keyboard.append([
-        InlineKeyboardButton(
-            text="🐲 小龙阳",
-            url=f"https://t.me/xiaolongyang002bot?start=map"
-        )
-    ])
+#     keyboard.append([
+#         InlineKeyboardButton(
+#             text="🐲 小龙阳",
+#             url=f"https://t.me/xiaolongyang002bot?start=map"
+#         )
+#     ])
 
 
 
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+#     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     
 
 
 
 
-    # return InlineKeyboardMarkup(inline_keyboard=[
-    #     [
-    #         InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
-    #         InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
-    #     ],
-    #     [
-    #         InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
-    #         InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
-    #     ],
-    #     # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
-    #     [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
+#     # return InlineKeyboardMarkup(inline_keyboard=[
+#     #     [
+#     #         InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
+#     #         InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
+#     #     ],
+#     #     [
+#     #         InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
+#     #         InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
+#     #     ],
+#     #     # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
+#     #     [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
        
-    # ])
+#     # ])
 
 # == 搜索菜单 ==
 def search_menu_keyboard():
@@ -1411,7 +1413,8 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
 
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
-    lz_var.skins = await load_or_create_skins(if_del=True)
+    # lz_var.skins = await load_or_create_skins(if_del=True)
+    lz_var.skins = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
     await message.answer("🔄 皮肤配置已重新加载。")
 
 
@@ -1839,16 +1842,30 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             await _submit_to_lg()
         elif parts[0] == "upload":
             await message.answer(f"📦 请直接上传图片/视频/文件", parse_mode="HTML")
+        elif parts[0] == "search":
+            await do_handle_search(message,state, mode="photo")
+        elif parts[0] == "rank":
+            await do_handle_ranking(message,state, mode="photo")
+        elif parts[0] == "collection":
+            await do_handle_collection(message, state=state, mode="photo")
+           
+        elif parts[0] == "history":
+            await do_handle_my_history(message,state, mode="photo")    
+           
+            
+        
         else:
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")
     else:
 
-        current_message = await message.answer_photo(
-                photo=lz_var.skins['home']['file_id'],
-                caption="👋 欢迎使用 LZ 机器人！请选择操作：",
-                parse_mode="HTML",
-                reply_markup=main_menu_keyboard()
-        )              
+        # current_message = await message.answer_photo(
+        #         photo=lz_var.skins['home']['file_id'],
+        #         caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+        #         parse_mode="HTML",
+        #         reply_markup=main_menu_keyboard()
+        # )    
+
+        current_message = await MySQLPool.show_main_menu(message)          
         # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         await MenuBase.set_menu_status(state, {
             "current_chat_id": current_message.chat.id,
@@ -2414,7 +2431,8 @@ async def handle_post(message: Message, state: FSMContext, command: Command = Co
         
 
     else:
-        await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+        await MySQLPool.show_main_menu(message)
+        # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=MySQLPool.main_menu_keyboard())
         pass
 
 
@@ -2597,13 +2615,25 @@ async def build_after_choose_collection_button(callback: CallbackQuery, state: F
 # == 主菜单选项响应 ==
 @router.callback_query(F.data == "search")
 async def handle_search(callback: CallbackQuery,state: FSMContext):
+    await do_handle_search(callback.message,state, mode="edit")
+    # await _edit_caption_or_text(
+    #     photo=lz_var.skins['search']['file_id'],
+    #     msg=callback.message,
+    #     text="👋 请选择操作：", 
+    #     reply_markup=search_menu_keyboard(),
+    #     state= state
+    # )
+
+async def do_handle_search(message: Message,state: FSMContext, mode: str = "edit"):
     await _edit_caption_or_text(
         photo=lz_var.skins['search']['file_id'],
-        msg=callback.message,
+        msg=message,
         text="👋 请选择操作：", 
         reply_markup=search_menu_keyboard(),
-        state= state
+        state= state,
+        mode = mode
     )
+
 
 def back_search_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -2613,68 +2643,71 @@ def back_search_menu_keyboard():
     
 @router.callback_query(F.data == "ranking")
 async def handle_ranking(callback: CallbackQuery,state: FSMContext):
+    await do_handle_ranking(callback.message,state, mode="edit")
+    # await _edit_caption_or_text(
+    #     photo=lz_var.skins['ranking']['file_id'],
+    #     msg=callback.message,
+    #     text="排行榜", 
+    #     reply_markup=ranking_menu_keyboard(),
+    #     state= state
+    # )  
 
+async def do_handle_ranking(message: Message,state: FSMContext, mode: str = "edit"):
     await _edit_caption_or_text(
         photo=lz_var.skins['ranking']['file_id'],
-        msg=callback.message,
+        msg=message,
         text="排行榜", 
         reply_markup=ranking_menu_keyboard(),
-        state= state
+        state= state,
+        mode= mode
     )  
 
 @router.message(Command("rank"))
-async def handle_ranking_command(message: Message, state: FSMContext, command: Command = Command("rank")):
-    product_message = await lz_var.bot.send_photo(
-        chat_id=message.chat.id,
-        photo=lz_var.skins['ranking']['file_id'],
-        caption="排行榜", 
-        parse_mode="HTML",
-        reply_markup=ranking_menu_keyboard()
-    )
+async def handle_ranking_command(message: Message, state: FSMContext):
+    await do_handle_ranking(message,state, mode="photo")
 
-    await MenuBase.set_menu_status(state, {
-        "current_message": product_message,
-        "current_chat_id": product_message.chat.id,
-        "current_message_id": product_message.message_id
-    })
 
 
 @router.callback_query(F.data == "collection")
-async def handle_collection(callback: CallbackQuery):
+async def handle_collection(callback: CallbackQuery, state: FSMContext):
+    await do_handle_collection(callback.message, state=state, mode="edit")
 
+    # await lz_var.bot.edit_message_media(
+    #     chat_id=callback.message.chat.id,
+    #     message_id=callback.message.message_id,
+    #     media=InputMediaPhoto(
+    #         media=lz_var.skins['clt_menu']['file_id'],
+    #         caption="👋 资源橱窗菜单！请选择操作：",
+    #         parse_mode="HTML"
+    #     ),
+    #     reply_markup=collection_menu_keyboard()
+    # )
 
-    await lz_var.bot.edit_message_media(
-        chat_id=callback.message.chat.id,
-        message_id=callback.message.message_id,
-        media=InputMediaPhoto(
-            media=lz_var.skins['clt_menu']['file_id'],
-            caption="👋 资源橱窗菜单！请选择操作：",
-            parse_mode="HTML"
-        ),
-        reply_markup=collection_menu_keyboard()
-    )
+async def do_handle_collection(message: Message, state: FSMContext, mode: str = "edit"):
+    await _edit_caption_or_text(
+        photo=lz_var.skins['clt_menu']['file_id'],
+        msg=message,
+        text="👋 资源橱窗菜单！请选择操作：", 
+        reply_markup=collection_menu_keyboard(),
+        state= state,
+        mode= mode
+    )  
 
-
-    # await callback.message.answer_photo(
-    #     photo=lz_var.skins['clt_menu']['file_id'],
-    #     caption="👋 资源橱窗菜单！请选择操作：",
-    #     parse_mode="HTML",
-    #     reply_markup=collection_menu_keyboard())   
-
-
-    # await callback.message.edit_reply_markup(reply_markup=collection_menu_keyboard())
 
 @router.callback_query(F.data == "my_history")
 async def handle_my_history(callback: CallbackQuery,state: FSMContext):
-    
+    await do_handle_my_history(callback.message,state, mode="edit")    
+
+
+async def do_handle_my_history(message: Message,state: FSMContext, mode: str = "edit"):
     await _edit_caption_or_text(
         photo=lz_var.skins['history']['file_id'],
-        msg=callback.message,
+        msg=message,
         text="👋 这是你的历史记录菜单！请选择操作：", 
         reply_markup=history_menu_keyboard(),
-        state= state
+        state= state,
+        mode= mode
     )
-
 
    
 
@@ -3590,7 +3623,12 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
         kb_rows.append(nav_row)  
 
     shared_url = f"https://t.me/{lz_var.bot_username}?start=clt_{cid}"
-    kb_rows.append([InlineKeyboardButton(text="🔗 复制资源橱窗链结", copy_text=CopyTextButton(text=shared_url))])
+    kb_rows.append([
+        InlineKeyboardButton(text="🔗 复制资源橱窗链结", copy_text=CopyTextButton(text=shared_url)),
+        InlineKeyboardButton(text="📤 上传到此橱窗", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upclt_{cid}")
+        ])
+
+  
 
 
     if ops == 'handle_clt_my':
@@ -3897,7 +3935,7 @@ async def handle_go_home(callback: CallbackQuery):
             caption="👋 欢迎使用 LZ 机器人！请选择操作：",
             parse_mode="HTML"
         ),
-        reply_markup=main_menu_keyboard()
+        reply_markup=MySQLPool.main_menu_keyboard()
     )
 
     # await callback.message.edit_reply_markup(reply_markup=main_menu_keyboard())
@@ -5045,7 +5083,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 # 这里可以选择是否要从数据库中查找
             else:
               
-                file_id_list = await db.get_file_id_by_file_unique_id(lz_var.default_thumb_unique_file_ids)
+                file_id_list = await PGPool.get_file_id_by_file_unique_id(lz_var.default_thumb_unique_file_ids)
                 # 令 lz_var.thumb_file_id = file_id_row
                 if file_id_list:
                     lz_var.default_thumb_file_id = file_id_list

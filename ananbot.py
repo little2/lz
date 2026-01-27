@@ -647,7 +647,7 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
                 ],
                 [
                     InlineKeyboardButton(text=f"💎 积分 ({product_info['fee']})", callback_data=f"set_price:{content_id}"),
-                    InlineKeyboardButton(text="➕ 橱窗", callback_data=f"clt:{content_id}")
+                    InlineKeyboardButton(text="🪟 橱窗", callback_data=f"clt:{content_id}")
                 ],
                 [InlineKeyboardButton(text=f"{anonymous_button_text}", callback_data=f"toggle_anonymous:{content_id}")],
                 [InlineKeyboardButton(text="➕ 添加资源", callback_data=f"add_items:{content_id}")],
@@ -3430,9 +3430,11 @@ async def get_review_menu(message:Message, content_id:int, state:FSMContext):
 
 @dp.message(Command("start"))
 async def handle_search(message: Message, state: FSMContext):
+    print(f"🔍 收到 /start 指令: {message.text}", flush=True)
     # 获取 start 后面的参数（如果有）
     args = message.text.split(maxsplit=1)
     if len(args) == 1:
+        current_message = await MySQLPool.show_main_menu(message) 
         return  # 或者给出引导文案后 return
 
     if len(args) > 1:
@@ -3440,6 +3442,9 @@ async def handle_search(message: Message, state: FSMContext):
         parts = param.split("_")   
         if not parts:  # 空串情况
             return await message.answer("❌ 无效的参数1")
+    
+    print(f"🔍 处理 start 参数: {param}", flush=True)
+
     if param == "upload":
         await message.answer(f"📦 请直接上传视频/文件", parse_mode="HTML")    
 
@@ -3508,6 +3513,10 @@ async def handle_search(message: Message, state: FSMContext):
         except Exception as e:
             print(f"⚠️ 解码失败: {e}", flush=True)
             pass
+    else:
+        print("🔍 显示主菜单", flush=True)
+        current_message = await MySQLPool.show_main_menu(message)     
+        
    
 
 
@@ -4922,22 +4931,24 @@ async def cancel_series_panel(cb: CallbackQuery, state: FSMContext):
 ############
 CLT_CTX = "clt_ctx"  # 保存“原始 caption/按钮”的上下文
 
-def build_clt_keyboard(all_my_clt: list[dict], selected_ids: set[int]) -> InlineKeyboardMarkup:
+def build_clt_keyboard(all_my_clt: list[dict], selected_ids: set[int], content_id: int, per_row: int = 2) -> InlineKeyboardMarkup:
     rows = []
     for c in all_my_clt:
         cid = int(c["id"])
-        title = (c.get("title") or "未命名资源橱窗").strip()
-        checked = "✅ " if cid in selected_ids else ""
-        rows.append([
-            InlineKeyboardButton(
-                text=f"{checked}{title}",
-                callback_data=f"clt_toggle:{cid}"
-            )
-        ])
-
+        name = (c.get("title") or "未命名资源橱窗").strip()
+        checked = cid in selected_ids
+        text = f"{'✅' if checked else '⬜'} {name}"
+        # rows.append([
+        #     InlineKeyboardButton(
+        #         text=text,
+        #         callback_data=f"clt_toggle:{cid}"
+        #     )
+        # ])
+        rows.append(InlineKeyboardButton(text=text, callback_data=f"clt_toggle:{cid}"))
+    rows = [rows[i:i+per_row] for i in range(0, len(rows), per_row)]
     rows.append([
-        InlineKeyboardButton(text="✅ 完成", callback_data="clt_close"),
-        InlineKeyboardButton(text="❌ 取消", callback_data="clt_cancel"),
+        InlineKeyboardButton(text="✅ 完成", callback_data=f"clt_close:{content_id}"),
+        InlineKeyboardButton(text="❌ 取消", callback_data=f"clt_cancel:{content_id}"),
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -4947,10 +4958,10 @@ def build_clt_keyboard(all_my_clt: list[dict], selected_ids: set[int]) -> Inline
 async def open_clt_panel(cb: CallbackQuery, state: FSMContext):
     content_id = int(cb.data.split(":")[1])
 
-    product = await MySQLPool.search_sora_content_by_id(content_id)  # ✅ 正确方法名【turn11file2†lz_mysql.py†L28-L46】
-    if not product:
-        await cb.answer("找不到该资源", show_alert=True)
-        return
+    # product = await MySQLPool.search_sora_content_by_id(content_id)  # ✅ 正确方法名【turn11file2†lz_mysql.py†L28-L46】
+    # if not product:
+    #     await cb.answer("找不到该资源", show_alert=True)
+    #     return
 
     user_id = cb.from_user.id
 
@@ -4971,9 +4982,16 @@ async def open_clt_panel(cb: CallbackQuery, state: FSMContext):
     }
     await state.update_data({CLT_CTX: ctx})
 
-    kb = build_clt_keyboard(all_my_clt, set(selected_ids_db))
-    await cb.message.edit_text("请选择要加入的资源橱窗：", reply_markup=kb)
-    await cb.answer()
+    kb = build_clt_keyboard(all_my_clt, set(selected_ids_db), content_id)
+
+    new_caption = "请选择要加入的资源橱窗："
+    try:
+        await cb.message.edit_caption(caption=new_caption, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await cb.message.edit_text(text=new_caption, reply_markup=kb, parse_mode="HTML")
+    finally:
+        await cb.answer()
+
 
 @dp.callback_query(F.data.startswith("clt_toggle:"))
 async def toggle_clt_item(cb: CallbackQuery, state: FSMContext):
@@ -5000,23 +5018,29 @@ async def toggle_clt_item(cb: CallbackQuery, state: FSMContext):
     await state.update_data({CLT_CTX: ctx})
 
     all_my_clt = await MySQLPool.list_user_collections(user_id=cb.from_user.id, limit=200, offset=0)
-    kb = build_clt_keyboard(all_my_clt, selected)
+    kb = build_clt_keyboard(all_my_clt, selected, int(current_content_id))
 
     await cb.message.edit_reply_markup(reply_markup=kb)
     await cb.answer("已更新")
 
-
-@dp.callback_query(F.data == "clt_close")
+@dp.callback_query(F.data.startswith("clt_close:"))
 async def close_clt_panel(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    try:
+        _, cid = cb.data.split(":")
+        content_id = int(cid)
+    except Exception:
+        return await cb.answer("⚠️ 参数错误", show_alert=True)
+    
     ctx = data.get(CLT_CTX, {})
     if not ctx:
         await cb.answer("操作已过期，请重新打开面板", show_alert=True)
         return
 
-    current_content_id = next(iter(ctx.keys()))
-    content_id = int(current_content_id)
-    entry = ctx[current_content_id]
+    key = str(content_id)
+    entry = ctx.get(key)
+    if not entry:
+        return await cb.answer("操作已过期，请重新打开面板", show_alert=True)
 
     selected = set(int(x) for x in entry.get("selected_clt", []))
 
@@ -5038,48 +5062,60 @@ async def close_clt_panel(cb: CallbackQuery, state: FSMContext):
     # 可选：清理缓存（避免 list_user_collections / clt_by_content_id 命中旧值）
     # await MySQLPool.delete_cache(f"user:clt:{cb.from_user.id}:")  # 若你想更激进清 cache【turn11file9†lz_mysql.py†L8-L36】
 
-    # 恢复原面板
-    await cb.message.edit_text(
-        entry.get("original_text") or "已完成",
-        reply_markup=entry.get("original_markup"),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+
 
     # 清掉该 content 的 ctx
-    ctx.pop(current_content_id, None)
+    ctx.pop(str(content_id), None)
     await state.update_data({CLT_CTX: ctx})
 
     await cb.answer(f"已保存：新增 {ok_add}，移除 {ok_rm}")
+    # 恢复原面板
+    await return_to_main_menu(cb, content_id)
 
 
-@dp.callback_query(F.data == "clt_cancel")
+@dp.callback_query(F.data.startswith("clt_cancel:"))
 async def cancel_clt_panel(cb: CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    ctx = data.get(CLT_CTX, {})
-    if not ctx:
-        await cb.answer("已取消")
-        return
-
-    current_content_id = next(iter(ctx.keys()))
-    entry = ctx[current_content_id]
-
-    await cb.message.edit_text(
-        entry.get("original_text") or "已取消",
-        reply_markup=entry.get("original_markup"),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
-
-    ctx.pop(current_content_id, None)
-    await state.update_data({CLT_CTX: ctx})
-    await cb.answer("已取消")
+    try:
+        _, cid = cb.data.split(":")
+        content_id = int(cid)
+    except Exception:
+        return await cb.answer("⚠️ 参数错误", show_alert=True)
+    
+    await return_to_main_menu(cb, content_id)
 
 
 
 ############
 #  共用   
 ############
+
+async def return_to_main_menu(cb: CallbackQuery, content_id: int):
+    print(f"return_to_main_menu content_id={content_id}", flush=True)
+    sora = await AnanBOTPool.get_sora_content_by_id(content_id)
+    if not sora or not sora.get("source_id"):
+        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
+    file_unique_id = sora["source_id"]
+    # 失效缓存并重绘商品卡片
+    try:
+        invalidate_cached_product(content_id)
+    except Exception:
+        pass
+
+    print(f"invalidate_cached_product done content_id={content_id}", flush=True)
+
+    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+    try:
+        await cb.message.edit_media(
+            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+            reply_markup=preview_keyboard
+        )
+    except Exception as e:
+        logging.exception(f"c返回商品卡片失败: {e}")
+        # 兜底：至少把按钮恢复
+        try:
+            await cb.message.edit_reply_markup(reply_markup=preview_keyboard)
+        except Exception:
+            pass
 
 @dp.message(F.chat.type == "private", F.text.startswith("/removetag"))
 async def handle_start_remove_tag(message: Message, state: FSMContext):
@@ -5859,10 +5895,13 @@ async def main():
     
     me = await publish_bot.get_me()
     PUBLISH_BOT_USERNAME = me.username
+    lz_var.publish_bot_name = PUBLISH_BOT_USERNAME
 
 
    # ✅ 初始化 MySQL 连接池
     await AnanBOTPool.init_pool()
+
+    await MySQLPool.init_pool()
 
     # await AnanBOTPool.sync_bid_product()
 
@@ -5882,6 +5921,8 @@ async def main():
 
         task_keep_alive = asyncio.create_task(keep_alive_ping())
 
+        lz_var.skins = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+
         # ✅ Render 环境用 PORT，否则本地用 8080
         await web._run_app(app, host="0.0.0.0", port=8080)
 
@@ -5891,6 +5932,9 @@ async def main():
 
         
     else:
+
+        lz_var.skins = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询
 

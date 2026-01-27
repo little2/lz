@@ -66,6 +66,7 @@ class Media:
         message_id: int | None = None,
         photo: str | None = None,
         state: FSMContext | None = None,
+        mode: str = "edit"
     ):
         """
         统一编辑（从 lz_menu 抽离）：
@@ -91,24 +92,40 @@ class Media:
                 print("没有 message_id，无法定位消息", flush=True)
                 return None
 
-            media_attr = None
-            if msg is not None:
-                media_attr = next(
-                    (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
-                    None,
-                )
+            if mode == "edit":
+                media_attr = None
+                if msg is not None:
+                    media_attr = next(
+                        (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
+                        None,
+                    )
+                else:
+                    print(f"{msg}",flush=True)
+            else:
+                media_attr = mode
 
             current_message = None
 
             if media_attr:
+                print(f"编辑含媒体消息(media_attr={media_attr})...", flush=True)
                 if photo:
-                    current_message = await lz_var.bot.edit_message_media(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        media=InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
-                        reply_markup=reply_markup
-                        
-                    )
+                    if mode == "edit":
+                        current_message = await lz_var.bot.edit_message_media(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            media=InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
+                            reply_markup=reply_markup
+                            
+                        )
+                    else:
+                        current_message = await lz_var.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=photo,
+                            caption=text,
+                            parse_mode="HTML",
+                            reply_markup=reply_markup
+                            
+                        )
                 else:
                     if media_attr == "photo":
                         orig_photo_id = None
@@ -118,39 +135,73 @@ class Media:
                             orig_photo_id = None
 
                         if orig_photo_id:
-                            current_message = await lz_var.bot.edit_message_media(
-                                chat_id=chat_id,
-                                message_id=message_id,
-                                media=InputMediaPhoto(media=orig_photo_id, caption=text, parse_mode="HTML"),
-                                reply_markup=reply_markup
-                               
-                            )
+                            if mode == "edit":
+                                current_message = await lz_var.bot.edit_message_media(
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    media=InputMediaPhoto(media=orig_photo_id, caption=text, parse_mode="HTML"),
+                                    reply_markup=reply_markup
+                                
+                                )
+                            else:
+                                current_message = await lz_var.bot.send_photo(
+                                    chat_id=chat_id,
+                                    photo=orig_photo_id,
+                                    caption=text,
+                                    parse_mode="HTML",
+                                    reply_markup=reply_markup
+                                   
+                                )
                         else:
+                            if mode == "edit":
+                                current_message = await lz_var.bot.edit_message_caption(
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    caption=text,
+                                    parse_mode="HTML",
+                                    reply_markup=reply_markup
+                                )
+                            else:
+                                current_message = await lz_var.bot.send_message(
+                                    chat_id=chat_id,
+                                    text=text,
+                                    parse_mode="HTML",
+                                    reply_markup=reply_markup
+                                )
+                    else:
+                        if mode == "edit":
                             current_message = await lz_var.bot.edit_message_caption(
                                 chat_id=chat_id,
                                 message_id=message_id,
                                 caption=text,
                                 parse_mode="HTML",
                                 reply_markup=reply_markup
-                               
+                                
                             )
-                    else:
-                        current_message = await lz_var.bot.edit_message_caption(
-                            chat_id=chat_id,
-                            message_id=message_id,
-                            caption=text,
-                            parse_mode="HTML",
-                            reply_markup=reply_markup
-                           
-                        )
+                        else:
+                            current_message = await lz_var.bot.send_message(
+                                chat_id=chat_id,
+                                text=text,
+                                parse_mode="HTML",
+                                reply_markup=reply_markup
+                                
+                            )
             else:
-                current_message = await lz_var.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    text=text,
-                    reply_markup=reply_markup
-                    
-                )
+                print(f"编辑无媒体消息...", flush=True)
+                if mode == "edit":
+                     current_message = await lz_var.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=message_id,
+                        text=text,
+                        reply_markup=reply_markup
+                        
+                    )
+                else:
+                    current_message = await lz_var.bot.send_message(
+                        chat_id=chat_id,
+                        text=text,
+                        reply_markup=reply_markup
+                    )
 
             if state is not None and current_message is not None:
                 try:

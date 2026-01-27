@@ -23,3 +23,6 @@ search_stopwords.txt
 search_synonyms.txt
 .todo
 u2net.onnx
+*skins.json
+ranking_xg.html
+ranking_earn.html

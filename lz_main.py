@@ -17,8 +17,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER
-from lz_db import db
+# from lz_db import db
+from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
+from utils.tpl import Tplate
 
 from handlers import lz_media_parser
 from handlers import lz_menu
@@ -269,6 +271,8 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
     # import lz_var
     # from lz_db import db
 
+    config_path = f"{lz_var.bot_username}_skins.json"
+    print(f"🔍 载入或生成皮肤配置文件：{config_path}")
 
     default_skins = {
         "home":    {"file_id": "", "file_unique_id": "AQADHwtrG8puoUd-"},  # Luzai02bot 的默认封面
@@ -314,7 +318,8 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
             fu = obj["file_unique_id"]
             print(f"🔍 {name}: file_id 为空，尝试从数据库查询…（{fu}）")
             try:
-                file_ids = await db.get_file_id_by_file_unique_id([fu])
+                file_ids = await PGPool.get_file_id_by_file_unique_id([fu])
+                print(f"📚 数据库查询结果：{file_ids}")
                 if file_ids:
                     obj["file_id"] = file_ids[0]
                     print(f"✅ 已从数据库补齐 {name}: {obj['file_id']}")
@@ -413,6 +418,7 @@ async def sync():
             break
 
 async def main():
+    global PUBLISH_BOT_NAME
     # 10.2 并行运行 Telethon 与 Aiogram
    
     # await delete_my_profile_photos(user_client)
@@ -437,6 +443,7 @@ async def main():
     try:
         me = await bot.get_me()
         lz_var.bot_username = me.username
+        lz_var.publish_bot_name = lz_var.bot_username
         lz_var.bot_id = me.id
         print(f"✅ Bot {me.id} - {me.username} 已启动", flush=True)
     except Exception as e:
@@ -477,7 +484,8 @@ async def main():
     await ensure_lexicon_files(output_dir=".", force=False)
 
     # 3) 再连 PostgreSQL（此时 db.connect 内加载 jieba 就不会跳过）
-    await db.connect()
+    await PGPool.init_pool()
+    # await db.connect()
 
     await sync()
 
@@ -485,9 +493,11 @@ async def main():
     @dp.shutdown()
     async def _on_shutdown():
         try:
-            await db.disconnect()
+            # await db.disconnect()    
+            await PGPool.close()        
         except Exception as e:
             print(f"[shutdown] PG disconnect error: {e}")
+        
         try:
             await MySQLPool.close()
         except Exception as e:
@@ -518,14 +528,14 @@ async def main():
             setup_application(app, dp, bot=bot)
 
             # ✅ Render 环境用 PORT，否则本地用 8080
-            lz_var.skins = await load_or_create_skins()
+            lz_var.skins = await Tplate.load_or_create_skins(get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
             # print(f"Skin {lz_var.skins}")
             port = int(os.environ.get("PORT", 8080))
             await web._run_app(app, host="0.0.0.0", port=port)
             
         else:
             print("🚀 啟動 Polling 模式")
-            lz_var.skins = await load_or_create_skins()
+            lz_var.skins = await Tplate.load_or_create_skins(get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
             # print(f"Skin {lz_var.skins}")
             
             await dp.start_polling(bot, polling_timeout=10.0)
@@ -534,7 +544,9 @@ async def main():
     finally:
          # 双保险：若没走到 @dp.shutdown（例如异常中断），也清理资源
         try:
-            await db.disconnect()
+            # await db.disconnect()
+            await PGPool.close()
+
         except Exception:
             pass
         try:

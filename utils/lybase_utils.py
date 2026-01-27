@@ -133,7 +133,9 @@
 #         finally:
 #             await cls.release(conn, cur)
 
-
+import lz_var
+from lz_config import ENVIRONMENT, UPLOADER_BOT_NAME, PUBLISH_BOT_NAME
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 
@@ -406,3 +408,57 @@ class LYBase:
         finally:
             await cls.release(conn, cur)
 
+
+    @classmethod
+    async def show_main_menu(cls, message):
+        current_message = await message.answer_photo(
+                photo=lz_var.skins['home']['file_id'],
+                caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+                parse_mode="HTML",
+                reply_markup=cls.main_menu_keyboard()
+        )   
+        return current_message
+
+
+    @classmethod
+    def main_menu_keyboard(cls):
+        keyboard = [
+            [
+                InlineKeyboardButton(text="🔍 搜索", url=f"https://t.me/{lz_var.publish_bot_name}?start=search", callback_data="search"),
+                InlineKeyboardButton(text="🏆 排行", url=f"https://t.me/{lz_var.publish_bot_name}?start=rank",callback_data="ranking"),
+            ],
+        ]
+
+        # 仅在 dev 环境显示「资源橱窗」 PUBLISH_BOT_TOKEN
+        if ENVIRONMENT == "dev":
+            keyboard.append([
+                InlineKeyboardButton(text="🪟 资源橱窗", url=f"https://t.me/{lz_var.publish_bot_name}?start=collection",callback_data="collection"),
+                InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{lz_var.publish_bot_name}?start=history", callback_data="my_history"),
+            ])
+        else:
+            keyboard.append([
+                InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{lz_var.publish_bot_name}?start=history", callback_data="my_history"),
+            ])
+
+        keyboard.append([
+            InlineKeyboardButton(
+                text="📤 上传资源",
+                url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
+            )
+        ])
+
+        keyboard.append([
+            InlineKeyboardButton(
+                text="🐲 小龙阳",
+                url=f"https://t.me/{lz_var.guider_bot_name}?start=map"
+            )
+        ])
+
+
+
+        return InlineKeyboardMarkup(inline_keyboard=keyboard)
+    
+   
+
+
+''''''

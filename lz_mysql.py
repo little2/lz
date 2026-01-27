@@ -1801,5 +1801,27 @@ class MySQLPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+    @classmethod
+    async def get_file_id_by_file_unique_id(cls, unique_ids: list[str]) -> list[str]:
+        if not unique_ids:
+            rows = []
+        else:
+            placeholders = ",".join(["%s"] * len(unique_ids))
+            sql = f"""
+                SELECT file_id
+                FROM file_extension
+                WHERE file_unique_id IN ({placeholders})
+                AND bot = %s
+            """
+            params = tuple(unique_ids) + (lz_var.bot_username,)
 
+            conn, cur = await MySQLPool.get_conn_cursor()
+            try:
+                await cur.execute(sql, params)
+                rows = await cur.fetchall()
+                return [r['file_id'] for r in rows if r['file_id']]
+            finally:
+                await MySQLPool.release(conn, cur)
+                        
+    
     #** End of lz_mysql.py **#

@@ -15,7 +15,7 @@ from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
 
 # ====== 连接池参数（与原文件一致，并支持环境变量覆盖）======
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
-DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
+DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "2"))
 ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
 COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
 CONNECT_TIMEOUT = float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))
@@ -77,7 +77,7 @@ class PGPool:
                             max_inactive_connection_lifetime=300,
                             command_timeout=COMMAND_TIMEOUT,
                             timeout=CONNECT_TIMEOUT,
-                            statement_cache_size=1024,
+                            statement_cache_size=0,
                             # server_settings=None,  # ✅ 先置空
                             # 👉 把这些会话参数放到这里
                             server_settings={

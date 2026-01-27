@@ -44,7 +44,7 @@ def load_jieba_dict_once(path: str):
 
 
 DEFAULT_MIN = int(os.getenv("POSTGRES_POOL_MIN", "1"))
-DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "5"))
+DEFAULT_MAX = int(os.getenv("POSTGRES_POOL_MAX", "2"))
 ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
 COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
 CONNECT_TIMEOUT = float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))  # 新增
@@ -82,7 +82,7 @@ class DB:
                     max_inactive_connection_lifetime=300,
                     command_timeout=COMMAND_TIMEOUT,
                     timeout=CONNECT_TIMEOUT,            # 新增：连接级超时
-                    statement_cache_size=1024,          # 稳态优化
+                    statement_cache_size=0,          # 稳态优化
                 )
                 # 预热：设置时区/应用名
                 async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:

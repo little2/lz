@@ -4915,227 +4915,165 @@ async def cancel_series_panel(cb: CallbackQuery, state: FSMContext):
     await cb.answer("已取消，不做修改")
 
 
+
+
 ############
 #  资源橱窗
 ############
 CLT_CTX = "clt_ctx"  # 保存“原始 caption/按钮”的上下文
 
-def build_clt_keyboard(all_my_clt: list[dict], selected_ids: set[int], content_id: int, per_row: int = 2) -> InlineKeyboardMarkup:
-    btns = []
-    for s in all_my_clt:
-        cid = int(s["id"] if isinstance(s, dict) else s[0])
-        name = s["name"] if isinstance(s, dict) else s[1]
-        checked = cid in selected_ids
-        text = f"{'✅' if checked else '⬜'} {name}"
-        btns.append(InlineKeyboardButton(text=text, callback_data=f"clt_toggle:{content_id}:{cid}"))
-    rows = [btns[i:i+per_row] for i in range(0, len(btns), per_row)]
-    rows.append([InlineKeyboardButton(text="✅ 设置完成并返回", callback_data=f"clt_close:{content_id}")])
-    rows.append([InlineKeyboardButton(text="取消", callback_data=f"clt_cancel:{content_id}")])
+def build_clt_keyboard(all_my_clt: list[dict], selected_ids: set[int]) -> InlineKeyboardMarkup:
+    rows = []
+    for c in all_my_clt:
+        cid = int(c["id"])
+        title = (c.get("title") or "未命名资源橱窗").strip()
+        checked = "✅ " if cid in selected_ids else ""
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{checked}{title}",
+                callback_data=f"clt_toggle:{cid}"
+            )
+        ])
+
+    rows.append([
+        InlineKeyboardButton(text="✅ 完成", callback_data="clt_close"),
+        InlineKeyboardButton(text="❌ 取消", callback_data="clt_cancel"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 
 @dp.callback_query(F.data.startswith("clt:"))
 async def open_clt_panel(cb: CallbackQuery, state: FSMContext):
-    try:
-        _, cid = cb.data.split(":")
-        content_id = int(cid)
-    except Exception:
-        return await cb.answer("⚠️ 参数错误", show_alert=True)
+    content_id = int(cb.data.split(":")[1])
 
-    row = await AnanBOTPool.get_sora_content_by_id(content_id)
-    if not row or not row.get("source_id"):
-        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
-    file_unique_id = row["source_id"]
+    product = await MySQLPool.search_sora_content_by_id(content_id)  # ✅ 正确方法名【turn11file2†lz_mysql.py†L28-L46】
+    if not product:
+        await cb.answer("找不到该资源", show_alert=True)
+        return
 
-    # 读全量系列与已选
-    all_my_clt = await AnanBOTPool.get_all_my_clt()
-    selected_ids_db = await AnanBOTPool.get_clt_ids_for_content_id(content_id)
+    user_id = cb.from_user.id
 
-    # FSM：缓存“原始 caption + 按钮”与“当前选择”
+    # 取用户所有资源橱窗（title 字段）【turn11file9†lz_mysql.py†L39-L73】
+    all_my_clt = await MySQLPool.list_user_collections(user_id=user_id, limit=200, offset=0)
+
+    # DB 里该 content_id 当前已在哪些 clt
+    rows = await MySQLPool.get_clt_by_content_id(content_id)  # 返回 user_collection_file rows【turn11file6†lz_mysql.py†L21-L40】
+    selected_ids_db = {int(r["collection_id"]) for r in rows if r.get("collection_id") is not None}
+
+    # 写入 FSM
     data = await state.get_data()
     ctx = data.get(CLT_CTX, {})
-    key = f"{cb.message.chat.id}:{cb.message.message_id}"
-    if key not in ctx:
-        ctx[key] = {
-            "orig_caption": cb.message.caption or "",
-            "orig_markup": cb.message.reply_markup  # 直接存对象，关闭时重用
-        }
-        await state.update_data(**{CLT_CTX: ctx})
-    await state.update_data({f"selected_clt:{file_unique_id}": list(selected_ids_db)})
+    ctx[str(content_id)] = {
+        "selected_clt": sorted(selected_ids_db),
+        "original_text": cb.message.text,
+        "original_markup": cb.message.reply_markup,
+    }
+    await state.update_data({CLT_CTX: ctx})
 
-    # 生成面板 caption（附统计）
-    selected_names = [s["name"] for s in all_my_clt if s["id"] in selected_ids_db]
-    unselected_names = [s["name"] for s in all_my_clt if s["id"] not in selected_ids_db]
-    panel = (
-        "\n\n📚 系列（点击切换）\n"
-        f"已选（{len(selected_names)}）：{', '.join(selected_names) if selected_names else '无'}\n"
-        f"未选（{len(unselected_names)}）：{', '.join(unselected_names) if unselected_names else '无'}"
-    )
-    new_caption = (ctx[key]["orig_caption"] or "").rstrip() + panel
-
-    kb = build_clt_keyboard(all_my_clt, selected_ids_db, content_id)
-    try:
-        await cb.message.edit_caption(caption=new_caption, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        await cb.message.edit_text(text=new_caption, reply_markup=kb, parse_mode="HTML")
-    finally:
-        await cb.answer()
+    kb = build_clt_keyboard(all_my_clt, set(selected_ids_db))
+    await cb.message.edit_text("请选择要加入的资源橱窗：", reply_markup=kb)
+    await cb.answer()
 
 @dp.callback_query(F.data.startswith("clt_toggle:"))
 async def toggle_clt_item(cb: CallbackQuery, state: FSMContext):
-    try:
-        _, cid, clt_id_str = cb.data.split(":")
-        content_id = int(cid)
-        clt_id = int(clt_id_str)
-    except Exception:
-        return await cb.answer("⚠️ 参数错误", show_alert=True)
+    collection_id = int(cb.data.split(":")[1])
 
-    row = await AnanBOTPool.get_sora_content_by_id(content_id)
-    if not row or not row.get("source_id"):
-        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
-    file_unique_id = row["source_id"]
-
-    # FSM 中读取并更新“当前选择”
     data = await state.get_data()
-    fsm_key = f"selected_series:{file_unique_id}"
-    selected_ids = set(data.get(fsm_key, []))
-    if clt_id in selected_ids:
-        selected_ids.remove(clt_id)
-        tip = "❎ 已取消"
-    else:
-        selected_ids.add(clt_id)
-        tip = "✅ 已选中"
-    await state.update_data({fsm_key: list(selected_ids)})
-
-    # 重渲染 caption + 键盘
-    all_my_clt = await AnanBOTPool.get_all_my_clt()
-    selected_names = [s["name"] for s in all_my_clt if s["id"] in selected_ids]
-    unselected_names = [s["name"] for s in all_my_clt if s["id"] not in selected_ids]
-
-    # 取原 caption
     ctx = data.get(CLT_CTX, {})
-    key = f"{cb.message.chat.id}:{cb.message.message_id}"
-    base_caption = (ctx.get(key) or {}).get("orig_caption", cb.message.caption or "")
-    panel = (
-        "\n\n🪟 橱窗（点击切换）\n"
-        f"已选（{len(selected_names)}）：{', '.join(selected_names) if selected_names else '无'}\n"
-        f"未选（{len(unselected_names)}）：{', '.join(unselected_names) if unselected_names else '无'}\n"
-        f"{tip}"
-    )
-    new_caption = (base_caption or "").rstrip() + panel
-    kb = build_clt_keyboard(all_my_clt, selected_ids, content_id)
+    if not ctx:
+        await cb.answer("操作已过期，请重新打开面板", show_alert=True)
+        return
 
-    try:
-        await cb.message.edit_caption(caption=new_caption, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        await cb.message.edit_text(text=new_caption, reply_markup=kb, parse_mode="HTML")
-    finally:
-        await cb.answer()
+    # 默认取最近一次打开的 content_id
+    current_content_id = next(iter(ctx.keys()))
+    entry = ctx[current_content_id]
+
+    selected = set(int(x) for x in entry.get("selected_clt", []))
+    if collection_id in selected:
+        selected.remove(collection_id)
+    else:
+        selected.add(collection_id)
+
+    entry["selected_clt"] = sorted(selected)
+    ctx[current_content_id] = entry
+    await state.update_data({CLT_CTX: ctx})
+
+    all_my_clt = await MySQLPool.list_user_collections(user_id=cb.from_user.id, limit=200, offset=0)
+    kb = build_clt_keyboard(all_my_clt, selected)
+
+    await cb.message.edit_reply_markup(reply_markup=kb)
+    await cb.answer("已更新")
 
 
-@dp.callback_query(F.data.startswith("clt_close:"))
+@dp.callback_query(F.data == "clt_close")
 async def close_clt_panel(cb: CallbackQuery, state: FSMContext):
-    try:
-        _, cid = cb.data.split(":")
-        content_id = int(cid)
-    except Exception:
-        return await cb.answer("⚠️ 参数错误", show_alert=True)
-
-    # 定位 file_unique_id
-    sora = await AnanBOTPool.get_sora_content_by_id(content_id)
-    if not sora or not sora.get("source_id"):
-        return await cb.answer("⚠️ 找不到该资源的 source_id", show_alert=True)
-    file_unique_id = sora["source_id"]
-
-    # 取 FSM 最终选择并落库
     data = await state.get_data()
-    fsm_key = f"selected_series:{file_unique_id}"
-    selected_ids = set(map(int, data.get(fsm_key, [])))
-    try:
-        summary = await AnanBOTPool.sync_file_series(file_unique_id, selected_ids)
-    except Exception as e:
-        logging.exception(f"落库系列失败: {e}")
-        summary = {"added": 0, "removed": 0, "unchanged": 0}
+    ctx = data.get(CLT_CTX, {})
+    if not ctx:
+        await cb.answer("操作已过期，请重新打开面板", show_alert=True)
+        return
 
-    # 清理 FSM
-    try:
-        await state.update_data({fsm_key: []})
-    except Exception:
-        pass
-    ctx = data.get(SERIES_CTX, {})
-    key = f"{cb.message.chat.id}:{cb.message.message_id}"
-    if key in ctx:
-        del ctx[key]
-        await state.update_data(**{SERIES_CTX: ctx})
+    current_content_id = next(iter(ctx.keys()))
+    content_id = int(current_content_id)
+    entry = ctx[current_content_id]
 
-    # 失效缓存并重绘商品卡片
-    try:
-        invalidate_cached_product(content_id)
-    except Exception:
-        pass
+    selected = set(int(x) for x in entry.get("selected_clt", []))
 
-    thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
-    try:
-        await cb.message.edit_media(
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
-            reply_markup=preview_keyboard
-        )
-    except Exception as e:
-        logging.exception(f"c返回商品卡片失败: {e}")
-        # 兜底：至少把按钮恢复
-        try:
-            await cb.message.edit_reply_markup(reply_markup=preview_keyboard)
-        except Exception:
-            pass
+    # DB 当前值
+    rows = await MySQLPool.get_clt_by_content_id(content_id)  #【turn11file6†lz_mysql.py†L21-L40】
+    current = {int(r["collection_id"]) for r in rows if r.get("collection_id") is not None}
 
-    await cb.answer(f"✅ 系列已保存 (+{summary.get('added',0)}/-{summary.get('removed',0)})", show_alert=False)
+    to_add = selected - current
+    to_remove = current - selected
+
+    ok_add = ok_rm = 0
+    for cid in to_add:
+        if await MySQLPool.add_content_to_user_collection(cid, content_id):  #【turn11file0†lz_mysql.py†L28-L44】
+            ok_add += 1
+    for cid in to_remove:
+        if await MySQLPool.remove_content_from_user_collection(cid, content_id):  #【turn11file0†lz_mysql.py†L51-L68】
+            ok_rm += 1
+
+    # 可选：清理缓存（避免 list_user_collections / clt_by_content_id 命中旧值）
+    # await MySQLPool.delete_cache(f"user:clt:{cb.from_user.id}:")  # 若你想更激进清 cache【turn11file9†lz_mysql.py†L8-L36】
+
+    # 恢复原面板
+    await cb.message.edit_text(
+        entry.get("original_text") or "已完成",
+        reply_markup=entry.get("original_markup"),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+    # 清掉该 content 的 ctx
+    ctx.pop(current_content_id, None)
+    await state.update_data({CLT_CTX: ctx})
+
+    await cb.answer(f"已保存：新增 {ok_add}，移除 {ok_rm}")
 
 
-@dp.callback_query(F.data.startswith("clt_cancel:"))
+@dp.callback_query(F.data == "clt_cancel")
 async def cancel_clt_panel(cb: CallbackQuery, state: FSMContext):
-    try:
-        _, cid = cb.data.split(":")
-        content_id = int(cid)
-    except Exception:
-        return await cb.answer("⚠️ 参数错误", show_alert=True)
+    data = await state.get_data()
+    ctx = data.get(CLT_CTX, {})
+    if not ctx:
+        await cb.answer("已取消")
+        return
 
-    # 清理和橱窗相关的 FSM 缓存（不落库）
-    try:
-        # 取得当前资源的 file_unique_id，清除选择缓存
-        sora = await AnanBOTPool.get_sora_content_by_id(content_id)
-        if sora and sora.get("source_id"):
-            fsm_key = f"selected_clt:{sora['source_id']}"
-            data = await state.get_data()
-            if fsm_key in data:
-                await state.update_data({fsm_key: []})
+    current_content_id = next(iter(ctx.keys()))
+    entry = ctx[current_content_id]
 
-        # 清掉保存的原始 caption/markup（如果存过）
-        data = await state.get_data()
-        ctx = data.get("clt_ctx", {})
-        key = f"{cb.message.chat.id}:{cb.message.message_id}"
-        if key in ctx:
-            del ctx[key]
-            await state.update_data(**{"clt_ctx": ctx})
-    except Exception:
-        pass
+    await cb.message.edit_text(
+        entry.get("original_text") or "已取消",
+        reply_markup=entry.get("original_markup"),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
-    # 直接回到商品卡片（不保存任何变更）
-    try:
-        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
-        await cb.message.edit_media(
-            media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
-            reply_markup=preview_keyboard
-        )
-    except Exception:
-        # 兜底：至少恢复按钮
-        try:
-            _, preview_text, preview_keyboard = await get_product_tpl(content_id)
-            await cb.message.edit_caption(caption=preview_text, parse_mode="HTML")
-            await cb.message.edit_reply_markup(reply_markup=preview_keyboard)
-        except Exception:
-            pass
-
-    await cb.answer("已取消，不做修改")
+    ctx.pop(current_content_id, None)
+    await state.update_data({CLT_CTX: ctx})
+    await cb.answer("已取消")
 
 
 

@@ -1050,6 +1050,9 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
           2) 每个 file_unique_id 是否已经发起过 fetch
       - 整个函数会被 spawn_once 包装在后台执行，不阻塞主流程。
     """
+    # TODO
+    return True
+
     if state is None or not result:
         return
 
@@ -1298,7 +1301,7 @@ async def _build_pagination(
         # 注意要把 result 拷贝成 list，避免外面后续修改它
         snapshot = list(result)
 
-        #预加载任务
+        
         spawn_once(
             key,
             lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),
@@ -3955,6 +3958,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
             # 注意要把 result 拷贝成 list，避免外面后续修改它
             snapshot = list(result)
 
+           
             spawn_once(
                 key,
                 lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),

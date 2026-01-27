@@ -168,6 +168,14 @@ class Tplate:
 
         return {"album_list_text": album_list_text, "album_cont_list_text": album_cont_list_text, "list_text": list_text, "summary_text": summary_text, "opt_text": opt_text}
 
+
+        # import os, json, inspect
+        # from typing import Optional, Callable, Awaitable
+
+        # GetFileIdsFn = Callable[[list[str]], Awaitable[dict[str, str]]]
+
+
+
     @classmethod
     async def load_or_create_skins(
         cls,
@@ -213,8 +221,7 @@ class Tplate:
             "product_cover3": {"file_id": "", "file_unique_id": "AQADMa0xG4g4QEV-"}
         }
 
-        if os.path.exists(config_path):
-            print(f"存在皮肤配置文件：{config_path} {if_del}")
+     
 
 
         if os.path.exists(config_path) and if_del:
@@ -253,13 +260,13 @@ class Tplate:
                 # 这里假设 get_file_ids_fn 返回顺序与 fu_list 对齐（我们之前写的 PGPool 版本就是这样）
                 fu_to_fid = {fu: fid for fu, fid in zip(fu_list, file_ids) if fid}
                 print(f"📚 数据库批量查询命中：{len(fu_to_fid)}/{len(fu_list)}")
-
+                print(f"need_fix=>{need_fix}")
                 # 回填 skins
                 for name, fu in need_fix:
                     fid = fu_to_fid.get(fu)
                     if fid:
                         skins[name]["file_id"] = fid
-                        print(f"✅ 已补齐 {name}: {fid}")
+                        print(f"✅ 已补齐 {name}: {fu} {fid}")
                     else:
                         print(f"⚠️ 未找到 {name} 对应 file_id：{fu}")
 

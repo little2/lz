@@ -50,7 +50,7 @@ from lz_db import db
 from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
 import lz_var
 import random
-# from lz_main import load_or_create_skins
+from lz_main import load_or_create_skins
 import redis.asyncio as redis_async
 
 
@@ -1413,8 +1413,8 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
 
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
-    # lz_var.skins = await load_or_create_skins(if_del=True)
-    lz_var.skins = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+    lz_var.skins = await load_or_create_skins(if_del=True)
+    # lz_var.skins = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
     await message.answer("🔄 皮肤配置已重新加载。")
 
 

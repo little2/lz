@@ -1808,7 +1808,7 @@ class MySQLPool(LYBase):
         else:
             placeholders = ",".join(["%s"] * len(unique_ids))
             sql = f"""
-                SELECT file_id
+                SELECT * 
                 FROM file_extension
                 WHERE file_unique_id IN ({placeholders})
                 AND bot = %s
@@ -1819,7 +1819,16 @@ class MySQLPool(LYBase):
             try:
                 await cur.execute(sql, params)
                 rows = await cur.fetchall()
-                return [r['file_id'] for r in rows if r['file_id']]
+                f_row = {}
+                for r in rows or []:
+                    row = dict(r)
+                    f_row[row["file_unique_id"]] = row
+                return f_row
+            except Exception as e:
+                print(f"⚠️ get_file_id_by_file_unique_id 出错: {e}", flush=True)
+                return []
+            
+                
             finally:
                 await MySQLPool.release(conn, cur)
                         

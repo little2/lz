@@ -179,75 +179,6 @@ async def handle_user_private_media(event: events.NewMessage.Event):
                 print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
 
 
-async def handle_user_private_media2(event):
-
-    msg = event.message
-    print(f"【Telethon】收到私聊消息 {msg.text} ", flush=True)
-
-
-    msg = event.message
-    if not msg.is_private:
-        # 如果 msg.text 包含 "|_kick_|", "鲁仔帮我" 指令，就处理
-        action = match_keyword(msg.text, KICK_KEYWORDS)
-        if action == "luzai":
-            clean_text = strip_keywords(
-                msg.text,
-                KICK_KEYWORDS[action]
-            )
-
-            print(
-                f"【Telethon】收到群消息，触发 luzai 指令，剩余内容：{clean_text}",
-                flush=True
-            )
-
-        return
-
-    file_type = ""
-    media = None
-    if msg.document:
-        media = msg.document
-        file_type = "document"
-    elif msg.video:
-        media = msg.video
-        file_type = "video"
-    elif msg.photo:
-        media = msg.photo
-        file_type = "photo"
-
-    print(f"【Telethon】收到私聊消息 {msg.text} {file_type}", flush=True)
-
-    # 1) 媒体：转发给 bot
-    if media:
-        if not getattr(lz_var, "bot_username", None):
-            print("⚠️ bot_username 未就绪，跳过转发", flush=True)
-            return
-        try:
-            await lz_var.user_client.send_file(lz_var.bot_username, media)
-            # 转发成功再删
-            try:
-                await event.delete()
-            except Exception as e:
-                print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
-        except Exception as e:
-            print(f"❌ 转发媒体失败：{e}", flush=True)
-        return
-
-    # 2) 文本：kick bot
-    if msg.text:
-        botname = None
-        try:
-            match = re.search(r"\|_kick_\|\s*(.*?)\s*(bot)", msg.text, re.IGNORECASE)
-            if match:
-                botname = match.group(1) + match.group(2)
-                await lz_var.user_client.send_message(botname, "/start")
-                try:
-                    await event.delete()
-                except Exception as e:
-                    print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
-        except Exception as e:
-            print(f"Error kicking bot: {e} botname={botname or '<unknown>'}", flush=True)
-    await event.delete()
-
 def register_telethon_handlers(client):
     client.add_event_handler(handle_user_private_media, events.NewMessage(incoming=True))
 
@@ -313,20 +244,32 @@ async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.j
         skins = default_skins.copy()
 
     # --- 若 file_id 为空，尝试用数据库补齐 ---
+    fu_row = []
     for name, obj in skins.items():
         if not obj.get("file_id") and obj.get("file_unique_id"):
             fu = obj["file_unique_id"]
+            fu_row.append(fu)
+
             print(f"🔍 {name}: file_id 为空，尝试从数据库查询…（{fu}）")
-            try:
-                file_ids = await PGPool.get_file_id_by_file_unique_id([fu])
-                print(f"📚 数据库查询结果：{file_ids}")
-                if file_ids:
-                    obj["file_id"] = file_ids[0]
-                    print(f"✅ 已从数据库补齐 {name}: {obj['file_id']}")
-                else:
-                    print(f"⚠️ 数据库未找到 {fu} 对应的 file_id")
-            except Exception as e:
-                print(f"❌ 查询 file_id 出错：{e}")
+    try:
+        if fu_row:
+            # //await get_file_ids_fn(fu_list)
+            file_ids_row = await PGPool.get_file_id_by_file_unique_id(fu_row)
+            print(f"📚 {file_ids_row}。", flush=True)
+
+            for name, obj in skins.items():
+                if not obj.get("file_id") and obj.get("file_unique_id"):
+                    fu = obj["file_unique_id"]
+                    fid_row = file_ids_row.get(fu)
+                    if fid_row:
+                        obj["file_id"] = fid_row.get("file_id", "")
+                        print(f"✅ {name}: 已从数据库查询到 file_id {obj}.", flush=True)
+                  
+
+
+    except Exception as e:
+        print(f"❌ 查询 file_id 出错：{e}")
+
 
     # --- 若仍有 file_id 为空，尝试向 x-man 询问 ---
     need_fix = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]

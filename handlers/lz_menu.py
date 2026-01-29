@@ -50,7 +50,7 @@ from lz_db import db
 from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
 import lz_var
 import random
-from lz_main import load_or_create_skins
+# from lz_main import load_or_create_skins
 import redis.asyncio as redis_async
 
 
@@ -1413,8 +1413,8 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
 
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
-    lz_var.skins = await load_or_create_skins(if_del=True)
-    # lz_var.skins = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+    # lz_var.skins = await load_or_create_skins(if_del=True)
+    lz_var.skins = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
     await message.answer("🔄 皮肤配置已重新加载。")
 
 
@@ -5082,11 +5082,14 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
               
                 # 这里可以选择是否要从数据库中查找
             else:
-              
-                file_id_list = await PGPool.get_file_id_by_file_unique_id(lz_var.default_thumb_unique_file_ids)
+                file_id_list = []
+                file_id_row = await PGPool.get_file_id_by_file_unique_id(lz_var.default_thumb_unique_file_ids)
                 # 令 lz_var.thumb_file_id = file_id_row
-                if file_id_list:
-                    lz_var.default_thumb_file_id = file_id_list
+                if file_id_row:
+                    for row in file_id_row:
+                        lz_var.default_thumb_file_id.append(row['file_id'])
+                        file_id_list.append(row['file_id'])
+                    # lz_var.default_thumb_file_id = file_id_list
                     thumb_file_id = random.choice(file_id_list)
                 else:
                     print("❌ 没有找到 default_thumb_unique_file_ids,增加扩展库中")
@@ -5284,6 +5287,8 @@ KICK_KEYWORDS = {
     "luzai": [
         "鲁仔帮我找",
         "鲁仔帮我搜",
+        "萨莱帮我找",
+        "萨莱帮我搜",
         "魯仔幫我找",
         "魯仔幫我搜",
     ],

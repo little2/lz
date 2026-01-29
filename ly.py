@@ -1406,7 +1406,7 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
             board_stat=r,
             base_salary=150,
             bonus_ratio=0.10,
-            min_msg_count=0,
+            min_msg_count=5,
         )
 
         payouts = calc["payouts"]

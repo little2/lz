@@ -240,58 +240,59 @@ class Tplate:
             skins = default_skins.copy()
 
         # ---------- 1) 收集所有需要补齐的 fu，一次查询 ----------
-        need_fix: list[tuple[str, str]] = []
-        fu_list: list[str] = []
-        seen = set()
-
+        # --- 若 file_id 为空，尝试用数据库补齐 ---
+        fu_row = []
         for name, obj in skins.items():
-            # print(f"🔍 皮肤项 {name}: file_id={obj.get('file_id')}  file_unique_id={obj.get('file_unique_id')}")
-            fu = obj.get("file_unique_id")
-            if (not obj.get("file_id")) and fu:
-                need_fix.append((name, fu))
-                if fu not in seen:
-                    seen.add(fu)
-                    fu_list.append(fu)
+            if not obj.get("file_id") and obj.get("file_unique_id"):
+                fu = obj["file_unique_id"]
+                fu_row.append(fu)
 
-        if fu_list:
-            print(f"🔍 skins 缺失 file_id 共 {len(need_fix)} 项，准备批量查询 fu={len(fu_list)} 个…")
-            try:
-                file_ids = await get_file_ids_fn(fu_list)
-                # 这里假设 get_file_ids_fn 返回顺序与 fu_list 对齐（我们之前写的 PGPool 版本就是这样）
-                fu_to_fid = {fu: fid for fu, fid in zip(fu_list, file_ids) if fid}
-                print(f"📚 数据库批量查询命中：{len(fu_to_fid)}/{len(fu_list)}")
-                print(f"need_fix=>{need_fix}")
-                # 回填 skins
-                for name, fu in need_fix:
-                    fid = fu_to_fid.get(fu)
-                    if fid:
-                        skins[name]["file_id"] = fid
-                        print(f"✅ 已补齐 {name}: {fu} {fid}")
-                    else:
-                        print(f"⚠️ 未找到 {name} 对应 file_id：{fu}")
+                print(f"🔍 {name}: file_id 为空，尝试从数据库查询…（{fu}）")
+        try:
+            if fu_row:
+                # //await get_file_ids_fn(fu_list)
+                file_ids_row = await get_file_ids_fn(fu_row)
+                print(f"📚 {file_ids_row}。", flush=True)
 
-            except Exception as e:
-                print(f"❌ 批量查询 file_id 出错：{e}")
+                for name, obj in skins.items():
+                    if not obj.get("file_id") and obj.get("file_unique_id"):
+                        fu = obj["file_unique_id"]
+                        fid_row = file_ids_row.get(fu)
+                        if fid_row:
+                            obj["file_id"] = fid_row.get("file_id")
+                            tmp = fid_row.get("file_id")
+                            print(f"✅ {name}: 已从数据库查询到 file_id {tmp}", flush=True)
+                    
 
-        # ---------- 2) 若仍有缺，向 x-man 询问 ----------
-        need_fix2 = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]
-        for name, obj in need_fix2:
+
+        except Exception as e:
+            print(f"❌ 查询 file_id 出错：{e}")
+
+
+        # --- 若仍有 file_id 为空，尝试向 x-man 询问 ---
+        need_fix = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]
+        for name, obj in need_fix:
             fu = obj["file_unique_id"]
             print(f"🧾 {name}: 向 x-man {lz_var.x_man_bot_id} 请求 file_id…（{fu}）")
             try:
-                await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
+                msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
+                print(f"📨 已请求 {fu}，并已接收返回",flush=True)
             except Exception as e:
-                print(f"⚠️ 向 x-man 请求失败：{e}", flush=True)
+                print(f"⚠️ 向 x-man 请求失败：{e}",flush=True)
                 await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
 
+
+        # --- 写入文件（即便有缺） ---
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(skins, f, ensure_ascii=False, indent=4)
+        # print(f"💾 已写入 {config_path}")
 
         lz_var.default_thumb_file_id = [
             skins.get("product_cover1", {}).get("file_id", ""),
             skins.get("product_cover2", {}).get("file_id", ""),
-            skins.get("product_cover3", {}).get("file_id", ""),
+            skins.get("product_cover3", {}).get("file_id", ""), 
         ]
+        
         return skins
 
 

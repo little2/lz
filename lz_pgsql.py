@@ -1044,15 +1044,20 @@ class PGPool:
         try:
             rows = await conn.fetch(
                 '''
-                SELECT file_id
+                SELECT file_id,file_unique_id
                 FROM file_extension
                 WHERE file_unique_id = ANY($1::text[])
                 AND bot = $2
                 ''',
                 unique_ids, lz_var.bot_username
             )
-            # print(f"Fetched {len(rows)} rows for unique_ids: {unique_ids} {rows}")
-            return [r['file_id'] for r in rows if r['file_id']]
+
+            f_row = {}
+            for r in rows or []:
+                row = dict(r)
+                f_row[row["file_unique_id"]] = row
+            return f_row
+
         finally:
             await cls.release(conn)
         

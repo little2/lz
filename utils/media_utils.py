@@ -264,7 +264,13 @@ class Media:
                 print(f"✅ 已向 {lz_var.x_man_bot_id} 请求文件 {ask_file_unique_id}", flush=True)
 
             except Exception as e:
-                print(f"❌ 发送 ask_file_unique_id 给用户失败: {e}", flush=True)
+                if "Bad Request: chat not found" in str(e):
+                    print(f"❌ 发送 ask_file_unique_id 给用户失败：Bot 未与用户建立对话，请先让 {lz_var.x_man_bot_id} 给 {lz_var.bot_username} 发一条消息再试。 |_kick_|{lz_var.bot_username}", flush=True)
+                    
+                    result = await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
+                    print(f"result==>{result}", flush=True)
+                else:
+                    print(f"❌ 发送 ask_file_unique_id 给用户失败: {e}", flush=True)
         
         if state is None:
             return None

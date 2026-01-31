@@ -3,7 +3,7 @@ import textwrap
 import os
 import json
 import lz_var
-
+from utils.media_utils import Media
 from utils.unit_converter import UnitConverter
 from typing import Awaitable, Callable, Optional
 GetFileIdsFn = Callable[[list[str]], Awaitable[list[str]]]
@@ -279,7 +279,8 @@ class Tplate:
                 print(f"📨 已请求 {fu}，并已接收返回",flush=True)
             except Exception as e:
                 print(f"⚠️ 向 x-man 请求失败：{e}",flush=True)
-                await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
+                await Media.handshake(lz_var.bot_username)
+                # await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
 
 
         # --- 写入文件（即便有缺） ---

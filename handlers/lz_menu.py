@@ -4452,21 +4452,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     })
     timer.lap("2780 结束")
 
-
-
-
-
-    # print(f"🔍 交易记录结果: {result}", flush=True)
-
-    
+    # print(f"🔍 交易记录结果: {result}", flush=True)    
     # ✅ 兜底：确保 result & user_info 可用
     if not isinstance(result, dict):
         await callback.answer("⚠️ 交易服务暂不可用，请稍后再试。", show_alert=True)
         return
-
-
-
-
 
     # print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
     timer.lap(f"判断交易结果{result.get('status')}")
@@ -4527,7 +4517,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
                         print(f"ret={ret}")
                     except Exception as e:
-                        print(f"❌ 发送兑换通知给资源拥有者失败: {e}", flush=True)
+                        print(f"❌ 发送兑换通知给资源拥有者 {receiver_id} 失败: {e}", flush=True)
 
 
 
@@ -4544,53 +4534,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
         feedback_kb = None
         if UPLOADER_BOT_NAME and source_id:
-
             feedback_kb = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
-            # rows_kb: list[list[InlineKeyboardButton]] = []
-
-            # bottom_row = []
-            # bottom_row.append(
-            #     InlineKeyboardButton(
-            #         text="⚠️ 我要打假",
-            #         url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
-            #     )
-            # )
-
-            # if ENVIRONMENT == "dev":
-            #     bottom_row.append(
-            #         InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:product")
-            #     ) 
-
-            # rows_kb.append(bottom_row)           
-
-            # if file_type == "video" or file_type == "v":
-            #     #只有视频有亮点模式
-            #     pattern = r"\b\d{2}:\d{2}\b"
-            #     matches = re.findall(pattern, ret_content)
-            #     print(f"{matches} {len(matches)}", flush=True)
-            #     if len(matches) >= 3:
-            #         rows_kb.append([
-            #             InlineKeyboardButton(
-            #                 text="⚡️ 亮点模式",
-            #                 callback_data=f"keyframe:{content_id}"
-            #             )
-            #         ])
-
-
-            # rows_kb.append(
-            #     [
-            #         InlineKeyboardButton(
-            #             text="⬇️ 菜单置底",
-            #             callback_data=f"copymenu:{content_id}"
-            #         )
-            #     ]
-            # )
-
-            # feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
-
-       
-
-
         try:
             send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb, protect_content=is_protect_content)
             if callback.message.message_id is not None:
@@ -4604,9 +4548,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 if not productInfomation:
                      await callback.answer(f"资源同步中，请稍等一下再试，请先看看别的资源吧 {content_id}", show_alert=True)
                      return   
-
+               
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id, protect_content=is_protect_content)
-                
                 if result and not result.get('ok'):
                     await callback.answer(result.get('message'), show_alert=True)
                     return

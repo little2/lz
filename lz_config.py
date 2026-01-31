@@ -37,7 +37,6 @@ try:
         config.update(configuration_json)  # 將 JSON 鍵值對合併到 config 中
 except Exception as e:
     print(f"⚠️ 無法解析 CONFIGURATION：{e}")
-
     configuration_json = json.loads(os.getenv('CONFIGURATION', '') or '{}')
 
 
@@ -60,3 +59,4 @@ UPLOADER_BOT_NAME = config.get('uploader_bot_name', os.getenv('UPLOADER_BOT_NAME
 PUBLISH_BOT_NAME = config.get('publish_bot_name', os.getenv('PUBLISH_BOT_NAME', ''))
 KEY_USER_ID     = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
 KEY_USER_PHONE = config.get('key_user_phone', os.getenv('KEY_USER_PHONE', ''))
+

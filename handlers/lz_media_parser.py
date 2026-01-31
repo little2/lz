@@ -28,6 +28,7 @@ def parse_caption_json(caption: str):
         return False
 
 
+
 from aiogram.fsm.context import FSMContext
 from utils.media_utils import ProductPreviewFSM  # ⬅️ 新增
 from utils.product_utils import MenuBase

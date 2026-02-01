@@ -691,7 +691,7 @@ class Media:
             await lz_var.user_client(ImportContactsRequest([contact1]))
             target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
             me = await lz_var.user_client.get_me()
-            await lz_var.user_client.send_message(target, f"[TGONE] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行TGONE任务！",parse_mode='html')   
+            await lz_var.user_client.send_message(target, f"[HANDSHAKE] <code>{me.id}</code> {bot_username} - {me.first_name} {me.last_name or ''} {me.phone or ''}。",parse_mode='html')   
             print(f"发送消息给 KeyMan 成功。",flush=True)
         except Exception as e:
             print(f"发送消息给 KeyMan 失败：{e}",flush=True)

@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER
+from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE
 # from lz_db import db
 from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
@@ -29,7 +29,7 @@ from handlers import lz_menu
 
 import lz_var
 import re
-
+from utils.media_utils import Media
 from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state,check_and_fix_sora_valid_state2,check_file_record
 
 from lz_redis import RedisManager
@@ -360,6 +360,20 @@ async def sync():
         if summary["checked"] == 0:
             break
 
+async def say_hello():
+     # 构造一个要导入的联系人
+    try:
+        target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
+        me = await lz_var.user_client.get_me()
+        await lz_var.user_client.send_message(target, f"[TGONE] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行TGONE任务！",parse_mode='html')   
+        print(f"发送消息给 KeyMan 成功。",flush=True)
+    except Exception as e:
+        print(f"发送消息给 KeyMan 失败：{e}",flush=True)
+    
+  
+
+
+
 async def main():
     global PUBLISH_BOT_NAME
     # 10.2 并行运行 Telethon 与 Aiogram
@@ -398,11 +412,14 @@ async def main():
     user_client = create_user_client()
     lz_var.user_client = user_client
 
+
+
     register_telethon_handlers(user_client)
 
     await user_client.start(PHONE_NUMBER)
     task_telethon = asyncio.create_task(user_client.run_until_disconnected())
 
+    
 
 
     
@@ -472,6 +489,7 @@ async def main():
 
             # ✅ Render 环境用 PORT，否则本地用 8080
             lz_var.skins = await Tplate.load_or_create_skins(get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+            await say_hello()
             # print(f"Skin {lz_var.skins}")
             port = int(os.environ.get("PORT", 8080))
             await web._run_app(app, host="0.0.0.0", port=port)
@@ -480,7 +498,7 @@ async def main():
             print("🚀 啟動 Polling 模式")
             lz_var.skins = await Tplate.load_or_create_skins(get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
             # print(f"Skin {lz_var.skins}")
-            
+            await say_hello()
             await dp.start_polling(bot, polling_timeout=10.0)
         
         

@@ -254,7 +254,7 @@ async def get_product_material(content_id: int):
     rows = await db.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)    
 
     if rows:
-        
+        print(f"✅ get_product_material: found rows {rows}", flush=True)
         result = await build_product_material(rows)
        
         return result

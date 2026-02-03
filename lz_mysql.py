@@ -1297,7 +1297,7 @@ class MySQLPool(LYBase):
             cached = chat.full_name or f"@{chat.username}" or "未知用户"
             return cached
         except Exception as e:
-            print(f"❌ 获取用户资料失败: {e}")
+            # print(f"❌ 获取用户资料失败: {e}")
             return "未知用户"
 
     @classmethod

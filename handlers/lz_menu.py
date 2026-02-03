@@ -99,11 +99,13 @@ class RedeemFSM(StatesGroup):
 
 async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: int) -> Optional[int]:
     """校验管理权限。
-
+    
     Returns:
         owner_user_id：有权限时返回 owner_user_id；无权限则弹窗并返回 None。
     """
+    print(f"{callback.from_user.id} 尝试管理 content_id={content_id}", flush=True)
     try:
+        print(f"🏃 查询 content_id={content_id} 的 owner_user_id...", flush=True)
         record = await db.search_sora_content_by_id(int(content_id))
         owner_user_id = int(record.get("owner_user_id") or 0) if record else 0
     except Exception as e:
@@ -113,7 +115,8 @@ async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: in
 
     uid = int(callback.from_user.id)
     if uid == owner_user_id or uid in ADMIN_IDS:
-        return owner_user_id
+        print(f"✅ 用户 {uid} 具备管理权限（owner_user_id={owner_user_id}）", flush=True)
+        return uid
 
     await callback.answer("你没有权限管理这个资源。", show_alert=True)
     return None
@@ -2119,6 +2122,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 @router.callback_query(F.data.startswith("sora_operation:"))
 async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext):
     # 解析 content_id
+   
     try:
         _, content_id_str = callback.data.split(":", 1)
         content_id = int(content_id_str)
@@ -2141,18 +2145,22 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
     # 权限校验（owner 或 ADMIN）
     owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
     if owner_user_id is None or not owner_user_id:
+        print(f"❌ 权限校验未通过，用户 {callback.from_user.id} 不能管理内容 {content_id} {owner_user_id}", flush=True)
         return
 
-
+    print(f"✅ 通过权限校验，用户 {callback.from_user.id} 可以管理内容 {content_id}", flush=True)
 
     # 记录返回所需信息（可选：用于返回上一页时重建）
     data = await state.get_data()
+    print(f"state data: {data}", flush=True)
     search_key_index = data.get("search_key_index")  # 你现有搜索流程会写这个
+    print(f"search_key_index==>{search_key_index}", flush=True)
     await state.update_data(
         sora_op_content_id=content_id,
         sora_op_owner_user_id=owner_user_id,
         sora_op_search_key_index=search_key_index,
     )
+    print(f"Updated state data for sora_operation: {await state.get_data()}", flush=True)
 
     record = await db.search_sora_content_by_id(int(content_id))
     print(f"{record}",flush=True)
@@ -2200,7 +2208,8 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
 
 
 
-    await _edit_caption_or_text(callback.message, text=text, reply_markup=kb, state=state)
+    r= await _edit_caption_or_text(callback.message, text=text, reply_markup=kb, state=state)
+    print(f"sora_operation r==>{r}", flush=True)
     await callback.answer()
 
 
@@ -4461,21 +4470,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     })
     timer.lap("2780 结束")
 
-
-
-
-
-    # print(f"🔍 交易记录结果: {result}", flush=True)
-
-    
+    # print(f"🔍 交易记录结果: {result}", flush=True)    
     # ✅ 兜底：确保 result & user_info 可用
     if not isinstance(result, dict):
         await callback.answer("⚠️ 交易服务暂不可用，请稍后再试。", show_alert=True)
         return
-
-
-
-
 
     # print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
     timer.lap(f"判断交易结果{result.get('status')}")
@@ -4536,7 +4535,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
                         print(f"ret={ret}")
                     except Exception as e:
-                        print(f"❌ 发送兑换通知给资源拥有者失败: {e}", flush=True)
+                        print(f"❌ 发送兑换通知给资源拥有者 {receiver_id} 失败: {e}", flush=True)
 
 
 
@@ -4553,53 +4552,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
         feedback_kb = None
         if UPLOADER_BOT_NAME and source_id:
-
             feedback_kb = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
-            # rows_kb: list[list[InlineKeyboardButton]] = []
-
-            # bottom_row = []
-            # bottom_row.append(
-            #     InlineKeyboardButton(
-            #         text="⚠️ 我要打假",
-            #         url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
-            #     )
-            # )
-
-            # if ENVIRONMENT == "dev":
-            #     bottom_row.append(
-            #         InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:product")
-            #     ) 
-
-            # rows_kb.append(bottom_row)           
-
-            # if file_type == "video" or file_type == "v":
-            #     #只有视频有亮点模式
-            #     pattern = r"\b\d{2}:\d{2}\b"
-            #     matches = re.findall(pattern, ret_content)
-            #     print(f"{matches} {len(matches)}", flush=True)
-            #     if len(matches) >= 3:
-            #         rows_kb.append([
-            #             InlineKeyboardButton(
-            #                 text="⚡️ 亮点模式",
-            #                 callback_data=f"keyframe:{content_id}"
-            #             )
-            #         ])
-
-
-            # rows_kb.append(
-            #     [
-            #         InlineKeyboardButton(
-            #             text="⬇️ 菜单置底",
-            #             callback_data=f"copymenu:{content_id}"
-            #         )
-            #     ]
-            # )
-
-            # feedback_kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
-
-       
-
-
         try:
             send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb, protect_content=is_protect_content)
             if callback.message.message_id is not None:
@@ -4613,9 +4566,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 if not productInfomation:
                      await callback.answer(f"资源同步中，请稍等一下再试，请先看看别的资源吧 {content_id}", show_alert=True)
                      return   
-
+               
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id, protect_content=is_protect_content)
-                
                 if result and not result.get('ok'):
                     await callback.answer(result.get('message'), show_alert=True)
                     return

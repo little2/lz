@@ -826,10 +826,10 @@ def history_menu_keyboard():
     ]
 
     # 仅在 dev 环境显示「我的收藏资源橱窗」
-    if ENVIRONMENT == "dev":
-        keyboard.append(
-            [InlineKeyboardButton(text="❤️ 我的收藏资源橱窗", callback_data="clt_my")]
-        )
+
+    keyboard.append(
+        [InlineKeyboardButton(text="❤️ 我的收藏资源橱窗", callback_data="clt_my")]
+    )
 
     keyboard.append(
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")]
@@ -2069,22 +2069,23 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 ]
             )
         else:
-            if ENVIRONMENT == "dev":
-                reply_markup.inline_keyboard.append(
-                    [
-                        InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
-                    ]
-                )
+            reply_markup.inline_keyboard.append(
+                [
+                    InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"),
+                ]
+            )
     
     bottom_row = []
     bottom_row.append(
         InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
     )
 
-    if ENVIRONMENT == "dev":
-        bottom_row.append(
-            InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:productinfo")
-        ) 
+
+    bottom_row.append(
+        InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:productinfo")
+    ) 
+
+
 
     reply_markup.inline_keyboard.append(bottom_row)
     
@@ -2508,6 +2509,10 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
 @router.callback_query(F.data.regexp(r"^add_to_collection:\d+:\d+(?::([A-Za-z]+))?$"))
 async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
 
+    if not await check_valid_key(callback.message):
+        return
+
+
     parts = callback.data.split(":")
     # 例：clt:my:{cid}:{page}:{mode}
     content_id = int(parts[1])
@@ -2684,6 +2689,10 @@ async def handle_collection(callback: CallbackQuery, state: FSMContext):
     # )
 
 async def do_handle_collection(message: Message, state: FSMContext, mode: str = "edit"):
+
+    if not await check_valid_key(message):
+        return
+
     await _edit_caption_or_text(
         photo=lz_var.skins['clt_menu']['file_id'],
         msg=message,
@@ -2749,15 +2758,15 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
 
 async def check_valid_key(message) -> bool:
     user_id = message.from_user.id
-    action = "search_tag"
+    action = "beta"
     key = f"{action}:{user_id}"
     msg_time_local = message.date + timedelta(hours=8)
-    yymmdd = msg_time_local.strftime("%y%m%d")
+    # yymmdd = msg_time_local.strftime("%y%m%d")
 
     confirm_val = await _valkey.get(key)
-    print(f"[valkey] get: {key}={confirm_val}", flush=True)
+    # print(f"[valkey] get: {key}={confirm_val}", flush=True)
 
-    if confirm_val != yymmdd:
+    if confirm_val != 1:
         TAG_FILTER_QUOTES = [
             "新出的标签筛选，直接赢麻了",
             "标签筛选刚上线，yyds实锤",
@@ -2865,13 +2874,13 @@ async def check_valid_key(message) -> bool:
 
 
         option_buttons = []
-        option_buttons.append(
-            [
-            InlineKeyboardButton(
-                text=f"🏷️ 标签筛选",
-                url=f"https://t.me/{lz_var.bot_username}?start=search_tag"
-            )]
-        )
+        # option_buttons.append(
+        #     [
+        #     InlineKeyboardButton(
+        #         text=f"🏷️ 标签筛选",
+        #         url=f"https://t.me/{lz_var.bot_username}?start=search_tag"
+        #     )]
+        # )
         option_buttons.append(
             [InlineKeyboardButton(
                 text=f"📩 教务处小助手",
@@ -2882,23 +2891,21 @@ async def check_valid_key(message) -> bool:
 
         
         await message.answer(
-            text="⚠️ 小提示：你正在使用 /search_tag，已进入标签筛选界面\n\n"
-           
-            "• 这个功能目前还在 内测中，需要先手动开启才能使用\n"
-            "• 启用后，大约 60 秒内即可生效，有效期为 1 天\n"
-            "• 因为还在持续优化，个别内容可能会有点不太准\n"
-            "• 使用过程中如果遇到任何问题，欢迎随时找下面的 教务处小助手机器人 跟我们说一声\n\n"
-            "感谢你的理解与支持 ❤️\n\n"
-            "🔓 怎么开启？\n\n"
-            "在任意群组里 公开发送 下面这行文字即可（复制粘贴就行）：\n"
-            f"<code>{random.choice(TAG_FILTER_QUOTES)}</code> 👈 (点字可复制)\n\n"
+            text="✨ 新功能「资源橱窗」正在内测中！\n\n"
+            "• 可建多个收藏集、一键分享，超好用！\n\n"
+            "🔒 目前仅限内测用户使用。\n"
+            "想体验？私信 【教务处小助手】 申请！\n\n"
+            "🐞 遇到问题或建议？也请直接告诉 【教务处小助手】，别在群里问哦～\n"
+            "🐞 你的反馈对我们超重要！🙏\n\n"           
             ,
-
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
         )
         return False
     return True
+
+
+
 
 
 @router.callback_query(F.data == "search_tag")
@@ -3331,6 +3338,10 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
 
 @router.callback_query(F.data == "clt_my")
 async def handle_clt_my(callback: CallbackQuery,state: FSMContext):
+
+    if not await check_valid_key(callback.message):
+        return
+
     user_id = callback.from_user.id
     # “我的资源橱窗”之前是只换按钮；为了统一体验，也可以换 text，但你要求按钮呈现，因此只换按钮：
 
@@ -3615,10 +3626,10 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
     if mode == 'edit':
         nav_row.append(InlineKeyboardButton(text="🔧 编辑资源橱窗", callback_data=f"clt:edit:{cid}:0:k"))
     else:
-        if ENVIRONMENT == "dev":
-            fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
-            nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
-    
+        
+        fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
+        nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
+
     if nav_row:
         kb_rows.append(nav_row)  
 
@@ -3632,11 +3643,9 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
 
 
     if ops == 'handle_clt_my':
-        if ENVIRONMENT == "dev":
-            kb_rows.append([InlineKeyboardButton(text="🔙 返回我的资源橱窗", callback_data="clt_my")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回我的资源橱窗", callback_data="clt_my")])
     elif ops == 'handle_clt_fav':
-        if ENVIRONMENT == "dev":
-            kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的资源橱窗", callback_data="clt_favorite")])
+        kb_rows.append([InlineKeyboardButton(text="🔙 返回收藏的资源橱窗", callback_data="clt_favorite")])
     else:
         kb_rows.append([InlineKeyboardButton(text="🔙 返回", callback_data="clt_my")])
 
@@ -4675,10 +4684,10 @@ async def build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
         )
     )
 
-    if ENVIRONMENT == "dev":
-        bottom_row.append(
-            InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:product")
-        ) 
+
+    bottom_row.append(
+        InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:product")
+    ) 
 
     rows_kb.append(bottom_row)           
 

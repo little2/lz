@@ -430,15 +430,12 @@ class LYBase:
         ]
 
         # 仅在 dev 环境显示「资源橱窗」 PUBLISH_BOT_TOKEN
-        if ENVIRONMENT == "dev":
-            keyboard.append([
-                InlineKeyboardButton(text="🪟 资源橱窗", url=f"https://t.me/{lz_var.publish_bot_name}?start=collection",callback_data="collection"),
-                InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{lz_var.publish_bot_name}?start=history", callback_data="my_history"),
-            ])
-        else:
-            keyboard.append([
-                InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{lz_var.publish_bot_name}?start=history", callback_data="my_history"),
-            ])
+ 
+        keyboard.append([
+            InlineKeyboardButton(text="🪟 资源橱窗", url=f"https://t.me/{lz_var.publish_bot_name}?start=collection",callback_data="collection"),
+            InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{lz_var.publish_bot_name}?start=history", callback_data="my_history"),
+        ])
+
 
         keyboard.append([
             InlineKeyboardButton(

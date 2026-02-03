@@ -2903,11 +2903,12 @@ async def check_valid_key(message) -> bool:
             text="✨ 新功能「资源橱窗」正在内测中！\n\n"
             "• 可建多个收藏集、一键分享，超好用！\n\n"
             "🔒 目前仅限内测用户使用。\n"
-            "想体验？私信 【教务处小助手】 申请！\n\n"
+            "想体验？私信 【教务处小助手】 并说明理由申请！\n\n"
             "🐞 遇到问题或建议？也请直接告诉 【教务处小助手】，别在群里问哦～\n"
             "🐞 你的反馈对我们超重要！🙏\n\n"           
             ,
             parse_mode="HTML",
+            protect_content = True,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
         )
         return False

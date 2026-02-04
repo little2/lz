@@ -2064,13 +2064,11 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
             ]
         )    
     else:
-
         if int(search_key_index) > 0:
-            reply_markup.inline_keyboard.append(
-                [
-                    InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"),
-                ]
-            )
+            new_bottom_row = []
+            new_bottom_row.append(InlineKeyboardButton(text="🔙 返回搜索结果", callback_data=f"pageid|{search_key_index}|{page_num}"))
+            new_bottom_row.append(InlineKeyboardButton(text="🏠 回主目录", callback_data="go_home"))
+            reply_markup.inline_keyboard.append(new_bottom_row)
         else:
             reply_markup.inline_keyboard.append(
                 [
@@ -2079,17 +2077,8 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
             )
     
     bottom_row = []
-    bottom_row.append(
-        InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url))
-    )
-
-
-    bottom_row.append(
-        InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:productinfo")
-    ) 
-
-
-
+    bottom_row.append(InlineKeyboardButton(text="🔗 复制资源链结", copy_text=CopyTextButton(text=shared_url)))
+    bottom_row.append(InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:productinfo")) 
     reply_markup.inline_keyboard.append(bottom_row)
     
 
@@ -2775,7 +2764,7 @@ async def check_valid_key(message) -> bool:
     confirm_val = await _valkey.get(key)
     # print(f"[valkey] get: {key}={confirm_val}", flush=True)
 
-    if confirm_val != 1:
+    if confirm_val != "0204":
         TAG_FILTER_QUOTES = [
             "新出的标签筛选，直接赢麻了",
             "标签筛选刚上线，yyds实锤",

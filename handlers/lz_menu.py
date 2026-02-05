@@ -2766,7 +2766,7 @@ async def check_valid_key(message) -> bool:
     user_id = message.from_user.id
 
     key = f"beta:{user_id}"
-    msg_time_local = message.date + timedelta(hours=8)
+    # msg_time_local = message.date + timedelta(hours=8)
     # yymmdd = msg_time_local.strftime("%y%m%d")
 
     confirm_val = await MySQLPool.get_cache_by_key(key)

@@ -2514,7 +2514,7 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
 @router.callback_query(F.data.regexp(r"^add_to_collection:\d+:\d+(?::([A-Za-z]+))?$"))
 async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
 
-    if not await check_valid_key(callback.message):
+    if not await check_valid_key(callback):
         return
 
 
@@ -2762,7 +2762,7 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
     )
 
 async def check_valid_key(message) -> bool:
-    print(f"===> {message} check_valid_key", flush=True)
+    # print(f"===> {message} check_valid_key", flush=True)
     user_id = message.from_user.id
 
     key = f"beta:{user_id}"
@@ -2902,7 +2902,7 @@ async def check_valid_key(message) -> bool:
             text="✨ 新功能「资源橱窗」正在内测中！\n\n"
             "• 可建多个收藏集、一键分享，超好用！\n\n"
             "🔒 目前仅限内测用户使用。\n"
-            "想体验？私信 【教务处小助手】 并说明理由申请！\n\n"
+            "想体验？私信 【教务处小助手】 并说明意愿申请！\n\n"
             "🐞 遇到问题或建议？也请直接告诉 【教务处小助手】，别在群里问哦～\n"
             "🐞 你的反馈对我们超重要！🙏\n\n"           
             ,
@@ -2920,7 +2920,7 @@ async def check_valid_key(message) -> bool:
 @router.callback_query(F.data == "search_tag")
 async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
    
-    if not await check_valid_key(callback.message):
+    if not await check_valid_key(callback):
         return
 
 
@@ -3348,7 +3348,7 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
 @router.callback_query(F.data == "clt_my")
 async def handle_clt_my(callback: CallbackQuery,state: FSMContext):
 
-    if not await check_valid_key(callback.message):
+    if not await check_valid_key(callback):
         return
 
     user_id = callback.from_user.id

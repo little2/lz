@@ -2763,8 +2763,8 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
 
 async def check_valid_key(message) -> bool:
     user_id = message.from_user.id
-    action = "beta"
-    key = f"{action}:{user_id}"
+
+    key = f"beta:{user_id}"
     msg_time_local = message.date + timedelta(hours=8)
     # yymmdd = msg_time_local.strftime("%y%m%d")
 

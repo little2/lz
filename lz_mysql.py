@@ -731,10 +731,12 @@ class MySQLPool(LYBase):
 
     @classmethod
     async def set_cache_by_key(
-        cls, cache_key, cache_value, ttl: int | None = 300
+        cls, cache_key, cache_value, ttl: int | None = 3000
     ) -> List[Dict[str, Any]]:
       
-        cls.cache.set(cache_key, cache_value, ttl=ttl)
+        # //set(self, key: str, value: Any, ttl: int = 1200, only_l2: bool = True):
+
+        cls.cache.set(cache_key, cache_value, ttl=ttl, only_l2=False)
         print(f"🔹 MemoryCache set for {cache_key}, {cache_value} items")
            
 

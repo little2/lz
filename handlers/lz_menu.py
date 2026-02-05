@@ -1614,7 +1614,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         if args[1] == "beta":
            
             key = f"beta:{user_id}"
-            MySQLPool.set_cache_by_key(key, "0204", expire=86400*30)
+            MySQLPool.set_cache_by_key(key, "0204", ttl=86400*30)  # 30 天有效期
             await do_handle_collection(message, state=state, mode="photo")
             return
 

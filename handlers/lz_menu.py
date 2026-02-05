@@ -2762,6 +2762,7 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
     )
 
 async def check_valid_key(message) -> bool:
+    print(f"===> {message} check_valid_key", flush=True)
     user_id = message.from_user.id
 
     key = f"beta:{user_id}"

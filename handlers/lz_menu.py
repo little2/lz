@@ -1614,7 +1614,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         if args[1] == "beta":
            
             key = f"beta:{user_id}"
-            MySQLPool.set_cache_by_key(key, "0204", ttl=86400*30)  # 30 天有效期
+            await MySQLPool.set_cache_by_key(key, "0204", ttl=86400*30)  # 30 天有效期
             await do_handle_collection(message, state=state, mode="photo")
             return
 
@@ -2768,7 +2768,7 @@ async def check_valid_key(message) -> bool:
     msg_time_local = message.date + timedelta(hours=8)
     # yymmdd = msg_time_local.strftime("%y%m%d")
 
-    confirm_val = MySQLPool.get_cache_by_key(key)
+    confirm_val = await MySQLPool.get_cache_by_key(key)
 
     # confirm_val = await _valkey.get(key)
     print(f"[valkey] get: {key}={confirm_val}", flush=True)

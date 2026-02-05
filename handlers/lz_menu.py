@@ -1611,6 +1611,13 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
     if len(args) > 1:
         param = args[1].strip()
         parts = param.split("_")
+        if args[1] == "beta":
+           
+            key = f"beta:{user_id}"
+            await _valkey.set(key, "0204")
+            await do_handle_collection(message, state=state, mode="photo")
+            return
+
         if args[1] == "search_tag":
             await handle_search_tag_command(message, state)
         elif parts[0] == "rci":    #remove_collect_item
@@ -2761,8 +2768,9 @@ async def check_valid_key(message) -> bool:
     msg_time_local = message.date + timedelta(hours=8)
     # yymmdd = msg_time_local.strftime("%y%m%d")
 
+
     confirm_val = await _valkey.get(key)
-    # print(f"[valkey] get: {key}={confirm_val}", flush=True)
+    print(f"[valkey] get: {key}={confirm_val}", flush=True)
 
     if confirm_val != "0204":
         TAG_FILTER_QUOTES = [

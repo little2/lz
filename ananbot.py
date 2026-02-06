@@ -5905,7 +5905,7 @@ async def main():
 
     # await AnanBOTPool.sync_bid_product()
 
-    await set_default_thumb_file_id()
+    
     
     # await _sync_pg(409009)
 
@@ -5926,8 +5926,8 @@ async def main():
         load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
         if(load_result.get("ok") == 1):
             lz_var.skins = load_result.get("skins", {})
+            await set_default_thumb_file_id()
         else:
-            
             print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
 
         # ✅ Render 环境用 PORT，否则本地用 8080
@@ -5942,6 +5942,7 @@ async def main():
         load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
         if(load_result.get("ok") == 1):
             lz_var.skins = load_result.get("skins", {})
+            await set_default_thumb_file_id()
         else:
             print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
 

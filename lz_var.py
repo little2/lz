@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 import json
+load_dotenv(dotenv_path='.lz.env')
 
 bot_username: str = None  # Telegram 机器人 username
 bot_id: int = None        # Telegram 机器人 ID

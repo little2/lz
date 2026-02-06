@@ -133,7 +133,7 @@ async def handle_user_private_media(event: events.NewMessage.Event):
 
     # 安全打印：text 可能为 None
     text = msg.raw_text or ""
-    print(f"【Telethon】NewMessage private={msg.is_private} text={text!r}", flush=True)
+    # print(f"【Telethon】NewMessage private={msg.is_private} text={text!r}", flush=True)
 
     # 1) 群消息：只在有 text 时才做关键字匹配
     if not msg.is_private:

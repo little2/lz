@@ -5921,7 +5921,14 @@ async def main():
 
         task_keep_alive = asyncio.create_task(keep_alive_ping())
 
-        lz_var.skins = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+     
+
+        load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+        if(load_result.get("ok") == 1):
+            lz_var.skins = load_result.get("skins", {})
+        else:
+            
+            print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
 
         # ✅ Render 环境用 PORT，否则本地用 8080
         await web._run_app(app, host="0.0.0.0", port=8080)
@@ -5932,8 +5939,11 @@ async def main():
 
         
     else:
-
-        lz_var.skins = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+        load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+        if(load_result.get("ok") == 1):
+            lz_var.skins = load_result.get("skins", {})
+        else:
+            print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
 
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询

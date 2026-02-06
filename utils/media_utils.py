@@ -6,8 +6,6 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import Message, InputMediaPhoto
 from aiogram.exceptions import TelegramBadRequest
-from telethon.tl.functions.contacts import ImportContactsRequest
-from telethon.tl.types import InputPhoneContact,InputMediaContact
 from typing import Any
 
 from aiogram import Bot
@@ -18,9 +16,6 @@ from io import BytesIO
 from typing import Optional, Tuple
 from aiogram.types import BufferedInputFile, PhotoSize
 from lz_config import UPLOADER_BOT_NAME
-from lz_config import KEY_USER_ID,KEY_USER_PHONE
-
-
 
 class ProductPreviewFSM(StatesGroup):
     waiting_for_x_media = State()
@@ -270,7 +265,7 @@ class Media:
             except Exception as e:
                 if "Bad Request: chat not found" in str(e):
                     print(f"❌ 发送 ask_file_unique_id 给用户失败：Bot 未与用户建立对话，请先让 {lz_var.x_man_bot_id} 给 {lz_var.bot_username} 发一条消息再试。 |_kick_|{lz_var.bot_username}", flush=True)
-                    await cls.handshake(lz_var.bot_username)
+                   
                   
                 else:
                     print(f"❌ 发送 ask_file_unique_id 给用户失败: {e}", flush=True)
@@ -684,44 +679,7 @@ class Media:
             text = f"💡当前 {show_quantity}/{total_quantity} 个，第 {box_id} / {box_quantity} 页"
             return { "feedback_kb": feedback_kb, "text": text}
         
-    @classmethod
-    async def handshake(cls,bot_username:str | None = None):
-        try:
-            contact1 = InputPhoneContact(client_id=0, phone=KEY_USER_PHONE, first_name="KeyMan", last_name="")
-            await lz_var.user_client(ImportContactsRequest([contact1]))
-            target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
-            me = await lz_var.user_client.get_me()
-            await lz_var.user_client.send_message(target, f"[HANDSHAKE] <code>{me.id}</code> {bot_username} - {me.first_name} {me.last_name or ''} {me.phone or ''}。",parse_mode='html')   
-            print(f"发送消息给 KeyMan 成功。",flush=True)
-        except Exception as e:
-            print(f"发送消息给 KeyMan 失败：{e}",flush=True)
-
-        try:
-            if bot_username is None:
-                bot_username = lz_var.bot_username
-
-        
-            contact2 = InputPhoneContact(client_id=0, phone=lz_var.x_man_bot_phone, first_name="KeyMan", last_name="")
-            await lz_var.user_client(ImportContactsRequest([contact2]))
-            target = await lz_var.user_client.get_entity(lz_var.x_man_bot_username)     
-            await lz_var.user_client.send_message(target, f"|_kick_|{bot_username}")   
-            
-
-
-            await lz_var.user_client.send_message(
-                target,   # 必须是已解析的 entity（不是裸 user_id）
-                file=InputMediaContact(
-                    phone_number=me.phone,                      # ⚠️ 必须有手机号
-                    first_name=me.first_name or "LZ",
-                    last_name=me.last_name or "",
-                    vcard=""  # 可选 vCard 信息
-                )
-            )   
-            
-
-            print(f"发送消息给 x-man 成功。",flush=True)
-        except Exception as e:
-            print(f"发送消息给 x-man 失败：{e}",flush=True)
+    
         
 
 ''''''

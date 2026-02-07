@@ -278,8 +278,10 @@ class Tplate:
                 msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
                 print(f"📨 已请求 {fu}，并已接收返回",flush=True)
             except Exception as e:
-                print(f"⚠️ 向 x-man 请求失败：{e}",flush=True)
-                await Media.handshake(lz_var.bot_username)
+                print(f"⚠️ 向 x-man 请求失败：{e} - {lz_var.x_man_bot_id}",flush=True)
+                return {"ok":None, "handshake": lz_var.x_man_bot_id}
+                
+                # await Media.handshake(lz_var.bot_username)
                 # await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
 
 
@@ -294,7 +296,7 @@ class Tplate:
             skins.get("product_cover3", {}).get("file_id", ""), 
         ]
         
-        return skins
+        return {"ok":1, "skins": skins}
 
 
 

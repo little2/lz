@@ -50,7 +50,7 @@ from lz_db import db
 from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
 import lz_var
 import random
-# from lz_main import load_or_create_skins
+
 import redis.asyncio as redis_async
 
 
@@ -1484,8 +1484,15 @@ async def handle_search_by_id(message: Message, state: FSMContext, command: Comm
 
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
-    # lz_var.skins = await load_or_create_skins(if_del=True)
-    lz_var.skins = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+    load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+    if(load_result.get("ok") == 1):
+        lz_var.skins = load_result.get("skins", {})
+    else:
+        from utils.handshake import HandshakeUtils
+        print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
+        HandshakeUtils.handshake(load_result.get('handshake'))
+
+
     await message.answer("🔄 皮肤配置已重新加载。")
 
 
@@ -2762,7 +2769,7 @@ async def handle_collection(callback: CallbackQuery, state: FSMContext):
     # )
 
 async def do_handle_collection(message: Message, state: FSMContext, mode: str = "edit"):
-
+    print(f"do_handle_collection: mode={message}", flush=True)
     if not await check_valid_key(message):
         return
 
@@ -2829,9 +2836,52 @@ async def handle_search_keyword(callback: CallbackQuery,state: FSMContext):
         state= state
     )
 
-async def check_valid_key(message) -> bool:
+
+from typing import Union
+def get_actor_user_id(event: Union[Message, CallbackQuery]) -> int | None:
+    if isinstance(event, Message):
+        return event.from_user.id if event.from_user else None
+    if isinstance(event, CallbackQuery):
+        return event.from_user.id if event.from_user else None
+    return None
+
+
+def get_chat_id(event: Union[Message, CallbackQuery]) -> int | None:
+    if isinstance(event, Message):
+        return event.chat.id if event.chat else None
+    if isinstance(event, CallbackQuery):
+        # callback.message 可能为 None（比如 inline 模式某些情况）
+        if event.message and event.message.chat:
+            return event.message.chat.id
+        return None
+    return None
+
+def get_real_user_id(event: Union[Message, CallbackQuery]) -> int | None:
+    chat_id = get_chat_id(event)
+    if chat_id is None:
+        return get_actor_user_id(event)
+
+    # 私聊：chat_id 就是对方用户 id（也就是“真实用户”）
+    chat_type = None
+    if isinstance(event, Message):
+        chat_type = event.chat.type if event.chat else None
+    else:
+        chat_type = event.message.chat.type if event.message and event.message.chat else None
+
+    if chat_type == "private":
+        return chat_id
+
+    # 群聊：返回“触发者”
+    return get_actor_user_id(event)
+
+
+
+async def check_valid_key(event) -> bool:
     # print(f"===> {message} check_valid_key", flush=True)
-    user_id = message.from_user.id
+    if isinstance(event, CallbackQuery):
+        user_id = event.from_user.id
+    else:
+        user_id = get_real_user_id(event)
 
     key = f"beta:{user_id}"
     # msg_time_local = message.date + timedelta(hours=8)
@@ -2966,7 +3016,7 @@ async def check_valid_key(message) -> bool:
         )
 
         
-        await message.answer(
+        await event.answer(
             text="✨ 新功能「资源橱窗」正在内测中！\n\n"
             "• 可建多个收藏集、一键分享，超好用！\n\n"
             "🔒 目前仅限内测用户使用。\n"
@@ -3411,8 +3461,9 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
 
 @router.callback_query(F.data == "clt_my")
 async def handle_clt_my(callback: CallbackQuery,state: FSMContext):
-
+    print(f"handle_clt_my: {callback.data}")
     if not await check_valid_key(callback):
+        print(f"user_id=>{callback.from_user.id}")
         return
 
     user_id = callback.from_user.id

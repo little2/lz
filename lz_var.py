@@ -1,6 +1,7 @@
 import os
 from dotenv import load_dotenv
 import json
+load_dotenv(dotenv_path='.lz.env')
 
 bot_username: str = None  # Telegram 机器人 username
 bot_id: int = None        # Telegram 机器人 ID
@@ -16,11 +17,6 @@ x_conf = json.loads(x_raw)
 x_man_bot_id: int = x_conf["x_man_bot_id"]
 x_man_bot_phone: str = x_conf["x_man_bot_phone"]
 x_man_bot_username: str = x_conf["x_man_bot_username"]
-
-
-
-
-
 
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
 

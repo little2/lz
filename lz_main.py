@@ -133,7 +133,7 @@ async def handle_user_private_media(event: events.NewMessage.Event):
 
     # 安全打印：text 可能为 None
     text = msg.raw_text or ""
-    print(f"【Telethon】NewMessage private={msg.is_private} text={text!r}", flush=True)
+    # print(f"【Telethon】NewMessage private={msg.is_private} text={text!r}", flush=True)
 
     # 1) 群消息：只在有 text 时才做关键字匹配
     if not msg.is_private:
@@ -192,110 +192,6 @@ from aiogram import Router, F
 router = Router()
 
 
-async def load_or_create_skins(if_del: bool = False, config_path: str = "skins.json") -> dict:
-    """
-    启动时加载皮肤配置（不依赖 YAML）。
-    - 若文件存在则载入。
-    - 若不存在则从 default_skins 生成。
-    - 若有 file_unique_id 但 file_id 为空，会调用 get_file_id_by_file_unique_id() 取得。
-    """
-    # import lz_var
-    # from lz_db import db
-
-    config_path = f"{lz_var.bot_username}_skins.json"
-    print(f"🔍 载入或生成皮肤配置文件：{config_path}")
-
-    default_skins = {
-        "home":    {"file_id": "", "file_unique_id": "AQADHwtrG8puoUd-"},  # Luzai02bot 的默认封面
-        "loading": {"file_id": "", "file_unique_id": "AgADcAYAAtiwqUc"},
-        "clt_menu":     {"file_id": "", "file_unique_id": "AQAD2wtrG-sSiUd-"},  # Luzai01bot 的默认封面
-        "clt_my":  {"file_id": "", "file_unique_id": "AQADcwtrG3QQCEZ-"},
-        "clt_fav": {"file_id": "", "file_unique_id": "AQADcQtrG3QQCEZ-"},
-        "clt_cover": {"file_id": "", "file_unique_id": "AQADHgtrG8puoUd-"},
-        "clt_market": {"file_id": "", "file_unique_id": "AQADdQtrG3QQCEZ-"},  # Luzai03bot 的默认封面
-        "history": {"file_id": "", "file_unique_id": "AQAD6AtrG-sSiUd-"},
-        "history_update": {"file_id": "", "file_unique_id": "AQAD4wtrG-sSiUd-"},
-        "history_redeem": {"file_id": "", "file_unique_id": "AQAD5wtrG-sSiUd-"},
-        "search": {"file_id": "", "file_unique_id": "AQADGgtrG8puoUd-"},
-        "search_keyword": {"file_id": "", "file_unique_id": "AQADHAtrG8puoUd-"},
-        "search_tag": {"file_id": "", "file_unique_id": "AQADHQtrG8puoUd-"},
-        "ranking": {"file_id": "", "file_unique_id": "AQADCwtrG9iwoUd-"},
-        "ranking_resource": {"file_id": "", "file_unique_id": "AQADDQtrG9iwoUd-"},
-        "ranking_uploader": {"file_id": "", "file_unique_id": "AQADDgtrG9iwoUd-"},
-        "product_cover1": {"file_id": "", "file_unique_id": "AQADMK0xG4g4QEV-"},
-        "product_cover2": {"file_id": "", "file_unique_id": "AQADMq0xG4g4QEV-"},
-        "product_cover3": {"file_id": "", "file_unique_id": "AQADMa0xG4g4QEV-"}
-    }
-
-    # 移除文件 config_path
-    if os.path.exists(config_path) and if_del:
-        os.remove(config_path)
-
-    # --- 若已有文件，直接载入 ---
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                skins = json.load(f)
-            # print(f"✅ 已载入 {config_path}（共 {len(skins)} 项）")
-        except Exception as e:
-            print(f"⚠️ 无法读取 {config_path}，将重新生成：{e}")
-            skins = default_skins.copy()
-    else:
-        skins = default_skins.copy()
-
-    # --- 若 file_id 为空，尝试用数据库补齐 ---
-    fu_row = []
-    for name, obj in skins.items():
-        if not obj.get("file_id") and obj.get("file_unique_id"):
-            fu = obj["file_unique_id"]
-            fu_row.append(fu)
-
-            print(f"🔍 {name}: file_id 为空，尝试从数据库查询…（{fu}）")
-    try:
-        if fu_row:
-            # //await get_file_ids_fn(fu_list)
-            file_ids_row = await PGPool.get_file_id_by_file_unique_id(fu_row)
-            print(f"📚 {file_ids_row}。", flush=True)
-
-            for name, obj in skins.items():
-                if not obj.get("file_id") and obj.get("file_unique_id"):
-                    fu = obj["file_unique_id"]
-                    fid_row = file_ids_row.get(fu)
-                    if fid_row:
-                        obj["file_id"] = fid_row.get("file_id", "")
-                        print(f"✅ {name}: 已从数据库查询到 file_id {obj}.", flush=True)
-                  
-
-
-    except Exception as e:
-        print(f"❌ 查询 file_id 出错：{e}")
-
-
-    # --- 若仍有 file_id 为空，尝试向 x-man 询问 ---
-    need_fix = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]
-    for name, obj in need_fix:
-        fu = obj["file_unique_id"]
-        print(f"🧾 {name}: 向 x-man {lz_var.x_man_bot_id} 请求 file_id…（{fu}）")
-        try:
-            msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
-            print(f"📨 已请求 {fu}，并已接收返回",flush=True)
-        except Exception as e:
-            print(f"⚠️ 向 x-man 请求失败：{e}",flush=True)
-            await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
-
-
-    # --- 写入文件（即便有缺） ---
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(skins, f, ensure_ascii=False, indent=4)
-    # print(f"💾 已写入 {config_path}")
-
-    lz_var.default_thumb_file_id = [
-       skins.get("product_cover1", {}).get("file_id", ""),
-       skins.get("product_cover2", {}).get("file_id", ""),
-       skins.get("product_cover3", {}).get("file_id", ""), 
-    ]
-    
-    return skins
 
 async def on_startup(bot: Bot):
     webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -488,7 +384,16 @@ async def main():
             setup_application(app, dp, bot=bot)
 
             # ✅ Render 环境用 PORT，否则本地用 8080
-            lz_var.skins = await Tplate.load_or_create_skins(get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+           
+
+            load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+            if(load_result.get("ok") == 1):
+                lz_var.skins = load_result.get("skins", {})
+            else:
+                from utils.handshake import HandshakeUtils
+                print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
+                HandshakeUtils.handshake(load_result.get('handshake'))
+
             await say_hello()
             # print(f"Skin {lz_var.skins}")
             port = int(os.environ.get("PORT", 8080))
@@ -496,7 +401,16 @@ async def main():
             
         else:
             print("🚀 啟動 Polling 模式")
-            lz_var.skins = await Tplate.load_or_create_skins(get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+            
+
+            load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+            if(load_result.get("ok") == 1):
+                lz_var.skins = load_result.get("skins", {})
+            else:
+                from utils.handshake import HandshakeUtils
+                print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
+                HandshakeUtils.handshake(load_result.get('handshake'))
+
             # print(f"Skin {lz_var.skins}")
             await say_hello()
             await dp.start_polling(bot, polling_timeout=10.0)

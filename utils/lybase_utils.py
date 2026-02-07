@@ -355,10 +355,8 @@ class LYBase:
                 WHERE user_id = %s
             """
             await cur.execute(sql, [score_change, user_id])
-
             if cur.rowcount == 0:
                 return {'ok': '', 'status': 'not_found', 'user_id': user_id}
-
             return {'ok': '1', 'status': 'updated', 'user_id': user_id, 'change': score_change}
 
         except Exception as e:

@@ -92,6 +92,7 @@ class LZFSM(StatesGroup):
     waiting_for_description = State()
     """资源管理：直接下架原因输入"""
     waiting_unpublish_reason = State()
+    waiting_for_clt_cover = State()
 
 class RedeemFSM(StatesGroup):
     waiting_for_condition_answer = State()
@@ -622,6 +623,7 @@ def _build_clt_edit_keyboard(collection_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📌 资源橱窗主题", callback_data=f"clt:edit_title:{collection_id}")],
         [InlineKeyboardButton(text="📝 资源橱窗简介", callback_data=f"clt:edit_desc:{collection_id}")],
+        [InlineKeyboardButton(text="📝 资源橱窗封面图", callback_data=f"clt:edit_cover:{collection_id}")],
         [InlineKeyboardButton(text="👁 是否公开", callback_data=f"cc:is_public:{collection_id}")],
         [InlineKeyboardButton(text=f"🔙 返回资源橱窗信息{collection_id}", callback_data=f"clt:my:{collection_id}:0:k")]
     ])
@@ -633,7 +635,7 @@ def back_only_keyboard(back_to: str):
 
 def is_public_keyboard(collection_id: int, is_public: int | None):
     pub  = ("✔️ " if is_public == 1 else "") + "公开"
-    priv = ("✔️ " if is_public == 0 else "") + "不公开"
+    priv = ("✔️ " if is_public == 0 else "") + "不公开(小懒觉会员专享)"
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text=pub,  callback_data=f"cc:public:{collection_id}:1"),
@@ -717,12 +719,6 @@ async def handle_clt_edit_desc(callback: CallbackQuery, state: FSMContext):
         "anchor_msg_id": callback.message.message_id,
     })
 
-    # await state.update_data({
-    #     "collection_id": int(cid),
-    #     "anchor_message": callback.message,
-    #     "anchor_chat_id": callback.message.chat.id,
-    #     "anchor_msg_id": callback.message.message_id,
-    # })
     await state.set_state(LZFSM.waiting_for_description)
     await _edit_caption_or_text(
         callback.message,
@@ -760,6 +756,78 @@ async def on_description_input(message: Message, state: FSMContext):
     # 3) 刷新锚点消息
     await _build_clt_edit(cid, anchor_message,state)
     await state.clear()
+
+
+# ===== 资源橱窗 : 封面图 =====
+
+@router.callback_query(F.data.regexp(r"^clt:edit_cover:\d+$"))
+async def handle_clt_edit_cover(callback: CallbackQuery, state: FSMContext):
+    _, _, cid = callback.data.split(":")
+    await MenuBase.set_menu_status(state, {
+        "collection_id": int(cid),
+        "anchor_message": callback.message,
+        "anchor_chat_id": callback.message.chat.id,
+        "anchor_msg_id": callback.message.message_id,
+    })
+
+    await state.set_state(LZFSM.waiting_for_clt_cover)
+    await _edit_caption_or_text(
+        callback.message,
+        text="🧾 请上传这个资源橱窗的封面图：",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 返回上页", callback_data=f"clt:edit:{cid}:0:tk")]
+        ]),
+        state= state
+    )
+
+@router.message(LZFSM.waiting_for_clt_cover)
+async def on_clt_cover_input(message: Message, state: FSMContext):
+    data = await state.get_data()
+    cid = int(data.get("collection_id"))
+    anchor_chat_id = data.get("anchor_chat_id")
+    anchor_msg_id  = data.get("anchor_msg_id")
+    anchor_message = data.get("anchor_message")
+
+   
+    
+    # 如果是 video, photo, document, animation 中的任意一种，才继续；否则提示错误并返回。
+    if not (message.photo or message.video or message.document or message.animation):
+        await message.reply("⚠️ 只支持照片或视频作为封面图，请重新上传。")
+        return
+    else:
+        meta = await Media.extract_metadata_from_message(message)
+        await MySQLPool.upsert_media(metadata=meta)
+    
+    # 提取媒体的 file_id 和 file_unique_id, 只支持照片或video作为封面图
+    cover_file_id = None
+    cover_file_unique_id = None
+    if message.photo:
+        largest_photo = message.photo[-1]  # Telegram 会按尺寸从小到大排序，取最后一个是最大的
+        cover_file_id = largest_photo.file_id
+        cover_file_unique_id = largest_photo.file_unique_id
+        cover_type = "photo"
+    elif message.video:
+        cover_file_id = message.video.file_id
+        cover_file_unique_id = message.video.file_unique_id
+        cover_type = "video"    
+    else:
+        await message.reply("⚠️ 只支持照片或视频作为封面图，请重新上传。")
+        return
+
+    # 1) 删除用户输入消息
+    try:
+        await lz_var.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        print(f"⚠️ 删除用户输入失败: {e}", flush=True)
+
+    # 2) 更新数据库
+    await MySQLPool.update_user_collection(collection_id=cid, cover_type=cover_type,cover_file_unique_id=cover_file_unique_id)
+
+    # 3) 刷新锚点消息
+    await _build_clt_edit(cid, anchor_message,state)
+    await state.clear()
+
+
 
 
 # ========= 资源橱窗:是否公开 =========
@@ -2937,10 +3005,6 @@ async def handle_search_tag(callback: CallbackQuery,state: FSMContext):
 @router.message(Command("search_tag"))
 async def handle_search_tag_command(message: Message, state: FSMContext, command: Command = Command("search_tag")):
 
-     
-    if not await check_valid_key(message):
-        return
-
     keyboard = await get_filter_tag_keyboard(callback_query=message,  state=state)
 
     product_message = await lz_var.bot.send_photo(
@@ -3711,7 +3775,7 @@ async def handle_set_collection(message: Message):
     retCollect = await _build_clt_info(cid=cid, user_id=user_id, ops='handle_set_collection')
 
 # 查看资源橱窗
-async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str ='set') -> dict:
+async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str ='set', state: FSMContext = None) -> dict:
     bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
     # 查询资源橱窗 + 封面 file_id（遵循你给的 SQL）
     rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
@@ -3725,9 +3789,18 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
     is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
 
     caption = _build_clt_info_caption(rec)
-
+    source_id = rec.get("cover_file_unique_id")
+    if(source_id):
+        if(rec.get("cover_file_id")):
+            cover_file_id = rec.get("cover_file_id")
+        else:
+            cover_file_id = lz_var.skins['clt_cover']['file_id']
+            spawn_once(f"src:{source_id}", lambda:Media.fetch_file_by_file_uid_from_x(state, source_id, 10))
+            # 再请求一次获取 file_id（可能之前的 file_id 已失效了）
+    else:
+        cover_file_id = rec.get("cover_file_id") or lz_var.skins['clt_cover']['file_id']
     # 有封面 -> sendPhoto；无封面 -> sendMessage
-    cover_file_id = rec.get("cover_file_id") or lz_var.skins['clt_cover']['file_id']
+   
     # cover_file_id = "AgACAgEAAxkBAAICXWjSrgfWzDY2mgnFdUCKY4MVkwSaAAI-C2sblpeYRiQXZv8N-OgzAQADAgADeQADNgQ" #TODO
    
     kb = _build_clt_info_keyboard(cid, is_fav, mode, ops)

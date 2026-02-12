@@ -409,19 +409,24 @@ class LYBase:
 
     @classmethod
     async def show_main_menu(cls, message):
+        print(f"01-显示主菜单给用户 {message.from_user.id if message.from_user else 'unknown'}")
         if lz_var.skins['home']['file_id']:
             current_message = await message.answer_photo(
                     photo=lz_var.skins['home']['file_id'],
                     caption="👋 欢迎使用 LZ 机器人！请选择操作：",
                     parse_mode="HTML",
                     reply_markup=cls.main_menu_keyboard()
-            )   
+            )  
+            print(f"02-1 [X-MEDIA] 成功发送菜单消息", flush=True)
+            
+            
         else:
             current_message = await message.answer(
                     text="👋 欢迎使用 LZ 机器人！请选择操作：",
                     parse_mode="HTML",
                     reply_markup=cls.main_menu_keyboard()
             )
+            print(f"02-2 [X-MEDIA] 成功发送菜单消息（无缩略图）", flush=True)
         return current_message
 
 

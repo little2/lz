@@ -31,34 +31,27 @@ class TwoLevelCache:
     def _k(self, key: str) -> str:
         return f"{self.ns}:{key}"
 
-    def get(self, key: str):
+    async def get(self, key: str):
         # 1) L1
         v = self.l1.get(key)
         if v is not None:
             return v
 
-        # 2) L2：后台回填（不阻塞）
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # 没有 running loop（极少见于你这个 aiogram 场景）
-            return None
-
-        loop.create_task(self._fill_from_l2(key))
-        return None
-
-    async def _fill_from_l2(self, key: str):
+        # 2) L2：等待结果
         try:
             raw = await self.r.get(self._k(key))
             if not raw:
-                return
+                return None
             # 你如果存的是 json，就 decode；若直接存 bytes/str，也可按需调整
             val = json.loads(raw) if isinstance(raw, (bytes, str)) else raw
-            self.l1.set(key, val, ttl=120)  # L1 TTL 建议短一点
-        except Exception:
-            return
+            # 回填到 L1
+            self.l1.set(key, val)
+            return val
+        except Exception as e:
+            print(f"TwoLevelCache: get from L2 failed for key={key}, error={e}")
+            return None
 
-    def set(self, key: str, value: Any, ttl: int = 1200, only_l2: bool = True):
+    def set(self, key: str, value: Any, ttl: int = 86400, only_l2: bool = True):
         # 1) 先写 L1（立即生效）
         if not only_l2:
             self.l1.set(key, value, ttl=ttl)

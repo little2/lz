@@ -1,6 +1,6 @@
 from aiogram import Router, F
 from aiogram.types import Message
-
+from aiogram.dispatcher.event.bases import SkipHandler
 
 
 from aiogram.types import (
@@ -187,32 +187,8 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
 @router.message(F.photo)
 async def handle_photo_message(message: Message):
     print(f"Received photo message: {message.photo}")
-    largest_photo = message.photo[-1]
-    file_id = largest_photo.file_id
-    file_unique_id = largest_photo.file_unique_id
 
 
-
-    # await message.reply(
-    #     f"🖼️ 这是你上传的图片最大尺寸：\n\n"
-    #     f"<b>file_id:</b> <code>{file_id}</code>\n"
-    #     f"<b>file_unique_id:</b> <code>{file_unique_id}</code>",
-    #     parse_mode="HTML"
-    # )
-
-
-    # caption = message.caption or ""
-    # result = parse_caption_json(caption)
-
-
-
-
-    # if result is False:
-    #     pass
-    #     # await message.reply("⚠️ Caption 不是合法的 JSON。")
-    #     return
-
-    # await message.reply(f"✅ 解析成功：{result}")
 
     largest_photo = message.photo[-1]
     file_id = largest_photo.file_id
@@ -226,6 +202,7 @@ async def handle_photo_message(message: Message):
         bot=lz_var.bot_username,
         user_id=user_id
     )
+    raise SkipHandler
 
 @router.message(F.video)
 async def handle_video(message: Message):
@@ -242,6 +219,7 @@ async def handle_video(message: Message):
         bot=lz_var.bot_username,
         user_id=user_id
     )
+    raise SkipHandler
 
 @router.message(F.document)
 async def handle_document(message: Message):
@@ -257,3 +235,4 @@ async def handle_document(message: Message):
         bot=lz_var.bot_username,
         user_id=user_id
     )
+    raise SkipHandler

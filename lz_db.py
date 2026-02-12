@@ -426,7 +426,9 @@ class DB:
 
         await self._ensure_pool()
         async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            result = await conn.fetchrow(sql, file_type, file_unique_id, file_id, bot, user_id, now)
+            
+            result = await conn.execute(sql, file_type, file_unique_id, file_id, bot, user_id, now)
+            
             sql2 =  """
                     SELECT id FROM sora_content WHERE source_id = $1 OR thumb_file_unique_id = $2
                     """        

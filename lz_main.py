@@ -160,7 +160,15 @@ async def handle_user_private_media(event: events.NewMessage.Event):
         if not getattr(lz_var, "bot_username", None):
             print("⚠️ bot_username 未就绪，跳过转发", flush=True)
             return
-        await lz_var.user_client.send_file(lz_var.bot_username, media)
+        try:
+            await lz_var.user_client.send_file(lz_var.bot_username, media)
+        except Exception as e:
+            # 处理受保护聊天无法转发的情况
+            if "ChatForwardsRestrictedError" in str(type(e).__name__):
+                print(f"⚠️ 无法转发受保护聊天的消息: {e}", flush=True)
+            else:
+                print(f"⚠️ 转发消息失败：{e}", flush=True)
+            return
         try:
             await event.delete()
         except Exception as e:
@@ -386,7 +394,7 @@ async def main():
             # ✅ Render 环境用 PORT，否则本地用 8080
            
 
-            load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+            load_result = await Tplate.load_or_create_skins(if_del=False, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
             if(load_result.get("ok") == 1):
                 lz_var.skins = load_result.get("skins", {})
             else:
@@ -403,7 +411,7 @@ async def main():
             print("🚀 啟動 Polling 模式")
             
 
-            load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
+            load_result = await Tplate.load_or_create_skins(if_del=False, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
             if(load_result.get("ok") == 1):
                 lz_var.skins = load_result.get("skins", {})
             else:

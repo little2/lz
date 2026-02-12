@@ -242,194 +242,7 @@ async def _edit_caption_or_text(
         mode=mode
     )
     
-    # try:
-    #     # print(f"text=>{text}")
-    #     if msg is None and (chat_id is None or message_id is None):
-    #         # 没有 msg，也没提供 chat_id/message_id，无法定位消息
-    #         return
-
-    #     if hasattr(msg, 'chat'):
-    #         if chat_id is None:
-    #             chat_id = msg.chat.id
-    #         if message_id is None:
-    #             message_id = msg.message_id
-        
-    #     if message_id is None:
-    #         print('没有 message_id，无法定位消息', flush=True)
-    #         return False
-
-
-    #     # 判断是否为媒体消息（按优先顺序找出第一种存在的媒体属性）
-    #     media_attr = next(
-    #         (attr for attr in ["animation", "video", "photo", "document"] if getattr(msg, attr, None)),
-    #         None
-    #     )
-
-    #     if media_attr:
-    #         # ——————————— 有媒体的情况 ———————————
-    #         if photo:
-    #             # print(f"‼️ 编辑消息，换图 + caption {chat_id} {message_id}", flush=True)
-    #             # 明确要换图：用传入的 photo
-    #             current_message = await lz_var.bot.edit_message_media(
-    #                 chat_id=chat_id,
-    #                 message_id=message_id,
-    #                 media=InputMediaPhoto(
-    #                     media=photo,
-    #                     caption=text,
-    #                     parse_mode="HTML",
-    #                 ),
-    #                 reply_markup=reply_markup
-    #             )
-    #             # print(f"\n\ncurrent_message={current_message}", flush=True)
-    #         else:
-    #             # 未传 photo：尝试“复用原媒体”
-    #             if media_attr == "photo":
-    #                 print(f"‼️ 编辑消息，仅改 caption，复用原图", flush=True)
-    #                 # Aiogram 的 Message.photo 是 PhotoSize 列表，取最后一项（最大尺寸）
-    #                 try:
-    #                     orig_photo_id = (msg.photo[-1].file_id) if getattr(msg, "photo", None) else None
-    #                 except Exception:
-    #                     orig_photo_id = None
-
-    #                 if orig_photo_id:
-    #                     print(f"‼️ 找到原图 ID，复用", flush=True)
-    #                     # 用 edit_message_media + 原图，实现“换媒体但沿用原图 + 改 caption”
-    #                     current_message =  await lz_var.bot.edit_message_media(
-    #                         chat_id=chat_id,
-    #                         message_id=message_id,
-    #                         media=InputMediaPhoto(
-    #                             media=orig_photo_id,
-    #                             caption=text,
-    #                             parse_mode="HTML",
-    #                         ),
-    #                         reply_markup=reply_markup
-    #                     )
-    #                 else:
-    #                     print(f"⚠️ 未找到原图 ID，改为仅改 caption", flush=True)
-    #                     # 兜底：拿不到原图 id，就仅改 caption
-    #                     current_message = await lz_var.bot.edit_message_caption(
-    #                         chat_id=chat_id,
-    #                         message_id=message_id,
-    #                         caption=text,
-    #                         parse_mode="HTML",
-    #                         reply_markup=reply_markup,
-    #                     )
-    #             else:
-    #                 print(f"‼️ 原媒体不是 photo，仅改 caption", flush=True)
-    #                 # 原媒体不是 photo（例如 animation/video/document）：
-    #                 # 为避免 “can't use file of type ... as Photo” 错误，这里不强行换媒体，改为仅改 caption
-    #                 current_message = await lz_var.bot.edit_message_caption(
-    #                     chat_id=chat_id,
-    #                     message_id=message_id,
-    #                     caption=text,
-    #                     parse_mode="HTML",
-    #                     reply_markup=reply_markup,
-    #                 )
-    #     else:
-    #         print(f"‼️ 编辑消息，仅改 text（无媒体）", flush=True)
-    #         # ——————————— 无媒体的情况 ———————————
-    #         current_message = await lz_var.bot.edit_message_text(
-    #             chat_id=chat_id,
-    #             message_id=message_id,
-    #             text=text,
-    #             reply_markup=reply_markup,
-    #         )
-        
-    #     if state is not None:
-    #         await MenuBase.set_menu_status(state, {
-    #             "current_message": current_message,
-    #             "current_chat_id": current_message.chat.id,
-    #             "current_message_id": current_message.message_id
-    #         })
-
-    #     return current_message
-    # except Exception as e:
-    #     # 你也可以在这里加上 traceback 打印，或区分 TelegramBadRequest
-    #     print(f"❌ 编辑消息失败a: {e}", flush=True)
-
-
-
-async def _edit_caption_or_text2(msg : Message | None = None, *,  text: str, reply_markup: InlineKeyboardMarkup | None, chat_id: int|None = None, message_id:int|None = None, photo: str|None = None):
-    """
-    统一编辑：若原消息有照片 -> edit_caption；否则 -> edit_text
-    """
-    try:
-        if chat_id is None:
-            chat_id = msg.chat.id
-        
-        if message_id is None:
-            message_id = msg.message_id
-
-        media_attr = next(
-            (attr for attr in ["animation", "video", "photo", "document"]
-            if getattr(msg, attr, None)),
-            None
-        )
-
-        if media_attr and photo:
-            # 取出媒体对象
-            media = getattr(msg, media_attr)
-
-
-
-            await lz_var.bot.edit_message_media(
-                chat_id=chat_id,
-                message_id=message_id,
-                media=InputMediaPhoto(
-                    media=photo,  # 或改成 media.file_id 视你的变量
-                    caption=text,
-                    parse_mode="HTML"
-                ),
-                reply_markup=reply_markup
-            )
-
-        else:
-            # 没有媒体，只编辑文字
-            await lz_var.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                reply_markup=reply_markup
-            )
-
-
-
-        # if getattr(msg, "photo", None):
-   
-
-        #     if(photo!=None and lz_var.skins.get('home') and lz_var.skins['home'].get('file_id')):
-        #         await lz_var.bot.edit_message_media(
-        #             chat_id=chat_id,
-        #             message_id=message_id,
-        #             media=InputMediaPhoto(
-        #                 media=photo,
-        #                 caption=text,
-        #                 parse_mode="HTML"
-        #             ),
-        #             reply_markup=reply_markup
-        #         )
-
-
-
-        #         # //CgACAgEAAxkBAAIIVmj0hnKZxG9Ti6fHNjIr5Fz5YrmHAAJwBgAC2LCpR2u0VCzFMI5PNgQ
-        #     else:
-        #         await lz_var.bot.edit_message_caption(
-        #             chat_id=chat_id,
-        #             message_id=message_id,
-        #             caption=text,
-        #             reply_markup=reply_markup
-        #         )
-
-
-        # else:
-        #     await lz_var.bot.edit_message_text(
-        #         chat_id=chat_id,
-        #         message_id=message_id,
-        #         text=text,
-        #         reply_markup=reply_markup
-        #     )
-    except Exception as e:
-        print(f"❌ 编辑消息失败b: {e}", flush=True)
+    
 
 
 @debug
@@ -623,7 +436,7 @@ def _build_clt_edit_keyboard(collection_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📌 资源橱窗主题", callback_data=f"clt:edit_title:{collection_id}")],
         [InlineKeyboardButton(text="📝 资源橱窗简介", callback_data=f"clt:edit_desc:{collection_id}")],
-        [InlineKeyboardButton(text="📝 资源橱窗封面图", callback_data=f"clt:edit_cover:{collection_id}")],
+        [InlineKeyboardButton(text="🖼 资源橱窗封面图", callback_data=f"clt:edit_cover:{collection_id}")],
         [InlineKeyboardButton(text="👁 是否公开", callback_data=f"cc:is_public:{collection_id}")],
         [InlineKeyboardButton(text=f"🔙 返回资源橱窗信息{collection_id}", callback_data=f"clt:my:{collection_id}:0:k")]
     ])
@@ -788,7 +601,7 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
     anchor_msg_id  = data.get("anchor_msg_id")
     anchor_message = data.get("anchor_message")
 
-   
+    print(f"263=>{anchor_chat_id} {anchor_msg_id}")
     
     # 如果是 video, photo, document, animation 中的任意一种，才继续；否则提示错误并返回。
     if not (message.photo or message.video or message.document or message.animation):
@@ -796,8 +609,11 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
         return
     else:
         meta = await Media.extract_metadata_from_message(message)
+        meta['bot'] = lz_var.bot_username
         await MySQLPool.upsert_media(metadata=meta)
     
+    print(f"✅ 收到封面图输入，正在处理... message_id={message.message_id} chat_id={message.chat.id}", flush=True)
+
     # 提取媒体的 file_id 和 file_unique_id, 只支持照片或video作为封面图
     cover_file_id = None
     cover_file_unique_id = None
@@ -814,9 +630,12 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
         await message.reply("⚠️ 只支持照片或视频作为封面图，请重新上传。")
         return
 
+    print(f"提取到封面图 file_id={cover_file_id} unique_id={cover_file_unique_id} type={cover_type}", flush=True)
+
     # 1) 删除用户输入消息
     try:
-        await lz_var.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+        r=await lz_var.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+        print(f"✅ 删除用户输入的封面图消息成功: {r}", flush=True)
     except Exception as e:
         print(f"⚠️ 删除用户输入失败: {e}", flush=True)
 
@@ -824,9 +643,58 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
     await MySQLPool.update_user_collection(collection_id=cid, cover_type=cover_type,cover_file_unique_id=cover_file_unique_id)
 
     # 3) 刷新锚点消息
-    await _build_clt_edit(cid, anchor_message,state)
-    await state.clear()
+    print(f"刷新锚点消息 {anchor_chat_id} {anchor_msg_id}", flush=True)
+    
+    # await _build_clt_edit(cid, anchor_message,state)
+   
 
+    user_id = message.from_user.id
+    collection_info  = await _build_clt_info(cid=cid, user_id=user_id, mode='edit', ops='handle_clt_my')
+    # if collection_info.get("success") is False:
+    #     await callback.answer(collection_info.get("message"), show_alert=True)
+    #     return
+    # elif collection_info.get("photo"):
+    #     # await callback.message.edit_media(media=collection_info.get("photo"), caption=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
+        
+    # new_message = await message.edit_media(
+    #     media=InputMediaPhoto(media=collection_info.get("photo"), 
+    #     caption=collection_info.get("caption"), 
+    #     parse_mode="HTML"),
+    #     reply_markup=collection_info.get("reply_markup")
+    # )
+
+    try:
+        await _edit_caption_or_text(
+            photo=cover_file_id,
+            msg=message,
+            text=collection_info.get("caption"), 
+            reply_markup =collection_info.get("reply_markup"),
+            state= state
+        )
+    except Exception as e:
+        # 如果锚点消息不存在或已被删除，尝试发送新消息
+        print(f"⚠️ 编辑锚点消息失败: {e}, 尝试发送新消息", flush=True)
+        try:
+            if cover_file_id:
+                from aiogram.types import InputMediaPhoto
+                await message.answer_photo(
+                    photo=cover_file_id,
+                    caption=collection_info.get("caption"),
+                    reply_markup=collection_info.get("reply_markup"),
+                    parse_mode="HTML"
+                )
+            else:
+                await message.answer(
+                    text=collection_info.get("caption"),
+                    reply_markup=collection_info.get("reply_markup"),
+                    parse_mode="HTML"
+                )
+        except Exception as e2:
+            print(f"❌ 发送新消息也失败: {e2}", flush=True)
+            await message.answer("✅ 封面图已更新，但消息刷新失败，请返回重新查看。")
+
+
+    await state.clear()
 
 
 
@@ -1693,7 +1561,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             await do_handle_collection(message, state=state, mode="photo")
             return
 
-        if args[1] == "search_tag":
+        elif args[1] == "search_tag":
             await handle_search_tag_command(message, state)
         elif parts[0] == "rci":    #remove_collect_item
             date = await state.get_data()
@@ -1839,6 +1707,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
            
             
+            product_info = None
             try:
                 if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
                     
@@ -1950,7 +1819,8 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         #         reply_markup=main_menu_keyboard()
         # )    
 
-        current_message = await MySQLPool.show_main_menu(message)          
+        current_message = await MySQLPool.show_main_menu(message) 
+           
         # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
         await MenuBase.set_menu_status(state, {
             "current_chat_id": current_message.chat.id,
@@ -2880,6 +2750,7 @@ async def check_valid_key(event) -> bool:
     # print(f"===> {message} check_valid_key", flush=True)
     if isinstance(event, CallbackQuery):
         user_id = event.from_user.id
+        event.answer()  # 先答复，避免 Telegram 的“未响应”提示
     else:
         user_id = get_real_user_id(event)
 
@@ -3016,7 +2887,8 @@ async def check_valid_key(event) -> bool:
         )
 
         
-        await event.answer(
+        await lz_var.bot.send_message(
+            chat_id=user_id,
             text="✨ 新功能「资源橱窗」正在内测中！\n\n"
             "• 可建多个收藏集、一键分享，超好用！\n\n"
             "🔒 目前仅限内测用户使用。\n"
@@ -3026,9 +2898,14 @@ async def check_valid_key(event) -> bool:
             ,
             parse_mode="HTML",
             protect_content = True,
+            
             reply_markup=InlineKeyboardMarkup(inline_keyboard=option_buttons)
         )
+        
         return False
+    
+    
+   
     return True
 
 
@@ -3530,9 +3407,6 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
                 parse_mode="HTML"),
                 reply_markup=collection_info.get("reply_markup")
             )
-            
-
-
         else:
             new_message = await callback.message.edit_text(text=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
 
@@ -3634,9 +3508,6 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
     )
     await MySQLPool.delete_cache(f"collection_info_{cid}")
 
-
-
-
 @router.callback_query(F.data == "clt_favorite")
 async def handle_clt_favorite(callback: CallbackQuery,state: FSMContext):
     user_id = callback.from_user.id
@@ -3648,8 +3519,6 @@ async def handle_clt_favorite(callback: CallbackQuery,state: FSMContext):
         reply_markup=kb,
         state= state
     )
-
-
     # await callback.message.edit_reply_markup(reply_markup=kb)
 
 @router.callback_query(F.data.regexp(r"^cc:flist:\d+$"))
@@ -3666,7 +3535,6 @@ def favorite_detail_keyboard(page: int):
         [InlineKeyboardButton(text="🔙 返回收藏列表", callback_data=f"cc:flist:{page}")],
         [InlineKeyboardButton(text="🪟 回资源橱窗菜单", callback_data="collection")],
     ])
-
 
 @router.callback_query(F.data.regexp(r"^clt:fav:(\d+)(?::(\d+)(?::([A-Za-z0-9]+))?)?$"))
 async def handle_clt_fav(callback: CallbackQuery):
@@ -3789,19 +3657,13 @@ def _clti_list_keyboard(cid: int, page: int, has_prev: bool, has_next: bool, is_
         callback_function = 'fav' 
         title = "🔙 返回收藏的资源橱窗主页"
 
-
     if has_prev:
         nav_row.append(InlineKeyboardButton(text="⬅️ 上一页", callback_data=f"clti:{mode}:{cid}:{page-1}"))
 
-
-
     if has_next:
         nav_row.append(InlineKeyboardButton(text="➡️ 下一页", callback_data=f"clti:{mode}:{cid}:{page+1}"))
-
     
     if nav_row: rows.append(nav_row)
-
-
 
     print(f"callback_function={callback_function}")
 

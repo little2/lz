@@ -566,7 +566,7 @@ class MySQLPool(LYBase):
     ) -> List[Dict[str, Any]]:
         
         cache_key = f"user:clt:{user_id}:{limit}:{offset}"
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
@@ -602,7 +602,7 @@ class MySQLPool(LYBase):
         cls, cache_key
     ) -> List[Dict[str, Any]]:
         
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
@@ -630,7 +630,7 @@ class MySQLPool(LYBase):
         按收藏记录 id 倒序（最新收藏在前）。
         """
         cache_key = f"fav:clt:{user_id}:{limit}:{offset}"
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
@@ -1003,7 +1003,7 @@ class MySQLPool(LYBase):
         """
 
         cache_key = f"history:upload:{user_id}"
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
@@ -1039,7 +1039,7 @@ class MySQLPool(LYBase):
         """
 
         cache_key = f"history:redeem:{user_id}"
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             print(f"🔹 MemoryCache hit for {cache_key}")
             return cached        
@@ -1170,7 +1170,7 @@ class MySQLPool(LYBase):
             return "未知用户"
 
         cache_key = f"get_user_name:{user_id}"
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             return cached
 
@@ -1483,7 +1483,7 @@ class MySQLPool(LYBase):
         """
        
         cache_key = f"all_tags_grouped"
-        cached = cls.cache.get(cache_key)
+        cached = await cls.cache.get(cache_key)
         if cached:
             print(f"🔹 MemoryCache hit for {cache_key}")
             return cached
@@ -1735,46 +1735,69 @@ class MySQLPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             file_type = metadata.get("file_type")
-            sql2 = f"""
-                INSERT INTO {file_type}
-                    (file_unique_id ,file_size ,duration, width, height, file_name, mime_type, create_time, update_time) 
-                VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE
-                    file_unique_id = VALUES(file_unique_id),
-                    file_size = VALUES(file_size),
-                    duration = VALUES(duration),
-                    width = VALUES(width),
-                    height = VALUES(height),
-                    file_name = VALUES(file_name),
-                    mime_type = VALUES(mime_type),
-                    update_time = NOW()
-                    
-            """
-            params2 = (
-                metadata.get("file_unique_id"),
-                metadata.get("file_size"),
-                metadata.get("duration"),
-                metadata.get("width"),
-                metadata.get("height"),
-                metadata.get("file_name"),
-                metadata.get("mime_type")
-            )
+            
+            # photo 类型没有 duration 字段
+            if file_type == "photo":
+                sql2 = f"""
+                    INSERT INTO {file_type}
+                        (file_unique_id, file_size, width, height, file_name,  create_time, update_time) 
+                    VALUES
+                        (%s, %s, %s, %s, %s,  NOW(), NOW())
+                    ON DUPLICATE KEY UPDATE
+                        file_unique_id = VALUES(file_unique_id),
+                        file_size = VALUES(file_size),
+                        width = VALUES(width),
+                        height = VALUES(height),
+                        file_name = VALUES(file_name),
+                        update_time = NOW()
+                """
+                params2 = (
+                    metadata.get("file_unique_id"),
+                    metadata.get("file_size"),
+                    metadata.get("width"),
+                    metadata.get("height"),
+                    metadata.get("file_name")
+                   
+                )
+            else:
+                # video, document 等其他类型有 duration 字段
+                sql2 = f"""
+                    INSERT INTO {file_type}
+                        (file_unique_id, file_size, duration, width, height, file_name, mime_type, create_time) 
+                    VALUES
+                        (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON DUPLICATE KEY UPDATE
+                        file_unique_id = VALUES(file_unique_id),
+                        file_size = VALUES(file_size),
+                        duration = VALUES(duration),
+                        width = VALUES(width),
+                        height = VALUES(height),
+                        file_name = VALUES(file_name),
+                        mime_type = VALUES(mime_type)
+                """
+                params2 = (
+                    metadata.get("file_unique_id"),
+                    metadata.get("file_size"),
+                    metadata.get("duration"),
+                    metadata.get("width"),
+                    metadata.get("height"),
+                    metadata.get("file_name"),
+                    metadata.get("mime_type")
+                )
+            
             await cur.execute(sql2, params2)
 
             sql = """
                 INSERT INTO file_extension
-                    (file_type,file_unique_id,file_id,bot,user_id,create_time,update_time)   
+                    (file_type,file_unique_id,file_id,bot,user_id,create_time)   
                 VALUES
-                    (%s, %s, %s, %s, %s,NOW(), NOW())
+                    (%s, %s, %s, %s, %s,NOW())
                 ON DUPLICATE KEY UPDATE
                     file_type = VALUES(file_type),
                     file_unique_id  = VALUES(file_unique_id ),
                     file_id  = VALUES(file_id ),
                     bot  = VALUES(bot ),
                     user_id = VALUES(user_id)
-                    update_time = NOW()
-                    
             """
             params = (
                 metadata.get("file_type"),

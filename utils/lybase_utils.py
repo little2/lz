@@ -419,10 +419,10 @@ class LYBase:
             )  
             print(f"02-1 [X-MEDIA] 成功发送菜单消息", flush=True)
             
-            
+             
         else:
             current_message = await message.answer(
-                    text="👋 欢迎使用 LZ 机器人！请选择操作：",
+                    text="👋 欢迎使用鲁仔机器人！请选择操作：",
                     parse_mode="HTML",
                     reply_markup=cls.main_menu_keyboard()
             )

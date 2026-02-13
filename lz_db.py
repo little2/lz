@@ -208,7 +208,7 @@ class DB:
         await self._ensure_pool()
         query = self._normalize_query(keyword_str)
         cache_key = f"searchkey:{query}:{last_id}:{limit}"
-        cached = self.cache.get(cache_key)
+        cached = await self.cache.get(cache_key)
         if cached:
             return cached
 
@@ -307,7 +307,7 @@ class DB:
         await self._ensure_pool()
         query = self._normalize_query(keyword_str)
         cache_key = f"searchkey:{query}"
-        cached = self.cache.get(cache_key)
+        cached = await self.cache.get(cache_key)
         print(f"Cache key: {cache_key}")
         if cached:
             print("Cache hit")
@@ -443,7 +443,7 @@ class DB:
     async def search_sora_content_by_id(self, content_id: int):
         cache_key = f"sora_content_id:{content_id}"
         # print(f"Searching sora_content by id {content_id} with cache key {cache_key}")
-        cached = self.cache.get(cache_key)
+        cached = await self.cache.get(cache_key)
         if cached:
             print(f"\r\n\r\n173:Cache hit for {cache_key}")
             return cached
@@ -648,7 +648,7 @@ class DB:
     async def get_keyword_by_id(self, keyword_id: int) -> str | None:
         await self._ensure_pool()
         cache_key = f"keyword:id:{keyword_id}"
-        cached = self.cache.get(cache_key)
+        cached = await self.cache.get(cache_key)
         if cached:
             return cached
         

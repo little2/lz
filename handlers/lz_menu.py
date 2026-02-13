@@ -1032,7 +1032,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
         if PGPool.cache:
             for cid_int in id_to_fuid.keys():
                 cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
-                entry = PGPool.cache.get(cache_key)
+                entry = await PGPool.cache.get(cache_key)
                 if entry is None:
                     to_query.append(cid_int)
         else:
@@ -1078,7 +1078,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
                 # 如果这个 fuid 已经被标记发起过 fetch，则同步 requested 状态
                 if fuid and PGPool.cache:
                     prefetch_key = f"pg:sora_prefetch_fuid:{fuid}"
-                    if PGPool.cache.get(prefetch_key):
+                    if await PGPool.cache.get(prefetch_key):
                         entry["requested"] = True
 
                 if PGPool.cache:
@@ -1101,7 +1101,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
                 }
                 if fuid and PGPool.cache:
                     prefetch_key = f"pg:sora_prefetch_fuid:{fuid}"
-                    if PGPool.cache.get(prefetch_key):
+                    if await PGPool.cache.get(prefetch_key):
                         entry["requested"] = True
                 if PGPool.cache:
                     PGPool.cache.set(cache_key, entry, ttl=3600)
@@ -1117,7 +1117,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
 
 
             cache_key = f"pg:sora_media:{bot_name}:{cid_int}"
-            entry = PGPool.cache.get(cache_key) if PGPool.cache else None
+            entry = await PGPool.cache.get(cache_key) if PGPool.cache else None
 
             if entry is None:
                 # 理论上不会发生（前面已经写入），但保险处理
@@ -1137,7 +1137,7 @@ async def _prefetch_sora_media_for_results(state: FSMContext, result: list[dict]
 
             # 已经发起过 fetch（不论成功与否），避免重复请求
             prefetch_key = f"pg:sora_prefetch_fuid:{fuid}"
-            already_prefetched = PGPool.cache.get(prefetch_key) if PGPool.cache else None
+            already_prefetched = await PGPool.cache.get(prefetch_key) if PGPool.cache else None
             if already_prefetched or entry.get("requested"):
                 # 刷新一下缓存 TTL
                 if PGPool.cache:

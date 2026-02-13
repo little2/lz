@@ -161,7 +161,7 @@ class PGPool:
 
         # 内存缓存（短期，避免抖动）
         if cls.cache:
-            cached = cls.cache.get(cache_key)
+            cached = await cls.cache.get(cache_key)
             if cached:
                 # print(f"🔹 MemoryCache hit for {cache_key}")
                 return cached
@@ -855,7 +855,7 @@ class PGPool:
 
         cache_key = f"pg:history:redeem:{user_id}"
         if cls.cache:
-            cached = cls.cache.get(cache_key)
+            cached = await cls.cache.get(cache_key)
             if cached:
                 print(f"🔹 PG MemoryCache hit for {cache_key}")
                 return cached
@@ -910,7 +910,7 @@ class PGPool:
 
         # 内存缓存（短期，减轻 DB 压力）
         if cls.cache:
-            cached = cls.cache.get(cache_key)
+            cached = await cls.cache.get(cache_key)
             if cached:
                 print(f"🔹 PG MemoryCache hit for {cache_key}")
                 return cached

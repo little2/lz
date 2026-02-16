@@ -307,6 +307,7 @@ async def rm_hb_group_command_handler(message: Message) -> None:
    
 @aio_router.message(Command(commands=["hb"]))
 async def hb_command_handler(message: Message) -> None:
+    print("hb command received")
     if not await check_click_protector(message):
         print("click protector triggered"+str(message.from_user.full_name))
         return

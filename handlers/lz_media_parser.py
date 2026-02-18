@@ -165,15 +165,17 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
 
     user_id = str(message.from_user.id) if message.from_user else None
     
-    
+    print(f"✅ [12 X-MEDIA] 准备写入数据库，file_type={file_type} file_unique_id={file_unique_id} file_id={file_id} user_id={user_id}")
 
-    await db.upsert_file_extension(
+    result = await db.upsert_file_extension(
         file_type,
         file_unique_id=file_unique_id,
         file_id=file_id,
         bot=lz_var.bot_username,
         user_id=user_id
     )
+
+    print(f"✅ [13 X-MEDIA] 数据库写入完成，result={result}")
 
 
     # 把结果写回 FSM

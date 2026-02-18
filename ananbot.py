@@ -50,12 +50,13 @@ from lz_config import AES_KEY
 from utils.prof import SegTimer
 from utils.aes_crypto import AESCrypto
 
-from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora, sync_cover_change
+from utils.product_utils import submit_resource_to_chat_action,build_product_material,sync_sora, sync_cover_change, sync_table_by_pks
 import textwrap
 import traceback
 import time
 from pathlib import Path
 from lz_mysql import MySQLPool
+from lz_pgsql import PGPool
 from lexicon_manager import LexiconManager
 
 
@@ -4966,10 +4967,10 @@ async def open_clt_panel(cb: CallbackQuery, state: FSMContext):
     user_id = cb.from_user.id
 
     # 取用户所有资源橱窗（title 字段）【turn11file9†lz_mysql.py†L39-L73】
-    all_my_clt = await MySQLPool.list_user_collections(user_id=user_id, limit=200, offset=0)
+    all_my_clt = await PGPool.list_user_collections(user_id=user_id, limit=200, offset=0)
 
     # DB 里该 content_id 当前已在哪些 clt
-    rows = await MySQLPool.get_clt_by_content_id(content_id)  # 返回 user_collection_file rows【turn11file6†lz_mysql.py†L21-L40】
+    rows = await PGPool.get_clt_by_content_id(content_id)  # 返回 user_collection_file rows【turn11file6†lz_mysql.py†L21-L40】
     selected_ids_db = {int(r["collection_id"]) for r in rows if r.get("collection_id") is not None}
 
     # 写入 FSM
@@ -5017,7 +5018,7 @@ async def toggle_clt_item(cb: CallbackQuery, state: FSMContext):
     ctx[current_content_id] = entry
     await state.update_data({CLT_CTX: ctx})
 
-    all_my_clt = await MySQLPool.list_user_collections(user_id=cb.from_user.id, limit=200, offset=0)
+    all_my_clt = await PGPool.list_user_collections(user_id=cb.from_user.id, limit=200, offset=0)
     kb = build_clt_keyboard(all_my_clt, selected, int(current_content_id))
 
     await cb.message.edit_reply_markup(reply_markup=kb)
@@ -5045,7 +5046,7 @@ async def close_clt_panel(cb: CallbackQuery, state: FSMContext):
     selected = set(int(x) for x in entry.get("selected_clt", []))
 
     # DB 当前值
-    rows = await MySQLPool.get_clt_by_content_id(content_id)  #【turn11file6†lz_mysql.py†L21-L40】
+    rows = await PGPool.get_clt_by_content_id(content_id)  #【turn11file6†lz_mysql.py†L21-L40】
     current = {int(r["collection_id"]) for r in rows if r.get("collection_id") is not None}
 
     to_add = selected - current
@@ -5053,10 +5054,19 @@ async def close_clt_panel(cb: CallbackQuery, state: FSMContext):
 
     ok_add = ok_rm = 0
     for cid in to_add:
-        if await MySQLPool.add_content_to_user_collection(cid, content_id):  #【turn11file0†lz_mysql.py†L28-L44】
+        id = await MySQLPool.add_content_to_user_collection(cid, content_id)  #【turn11file0†lz_mysql.py†L28-L44】
+        if id:
             ok_add += 1
+            await sync_table_by_pks("user_collection_favorite", "id", [id])
     for cid in to_remove:
         if await MySQLPool.remove_content_from_user_collection(cid, content_id):  #【turn11file0†lz_mysql.py†L51-L68】
+            await PGPool.delete_where(
+                table="user_collection_file",
+                conditions={
+                    "collect_id": cid,
+                    "content_id": content_id,
+                },
+            )
             ok_rm += 1
 
     # 可选：清理缓存（避免 list_user_collections / clt_by_content_id 命中旧值）

@@ -134,6 +134,67 @@ class MySQLPool(LYBase):
 
 
 
+    # @classmethod
+    # async def delete_cache(cls, prefix: str):
+    #     keys_to_delete = [k for k in cls.cache.keys() if k.startswith(prefix)]
+    #     for k in keys_to_delete:
+    #         del cls.cache[k]
+    #     pass
+
+        
+    @classmethod
+    async def delete_cache(cls, prefix: str):
+        """
+        删除 cache 中以 prefix 开头的 key。
+        - MemoryCache: 无 keys() 接口，因此从内部 _store 取 key
+        - TwoLevelCache: 仅清 L1（L2 依业务需要可扩展批量删；目前保持轻量，不阻塞）
+        """
+        if not cls.cache:
+            return
+
+        # 统一拿到 L1 的 store（兼容 MemoryCache / TwoLevelCache）
+        l1 = getattr(cls.cache, "l1", None)
+        if l1 is None:
+            l1 = cls.cache  # 可能直接是 MemoryCache
+
+        store = getattr(l1, "_store", None)
+        if not store:
+            return
+
+        keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(prefix)]
+        for k in keys_to_delete:
+            try:
+                # TwoLevelCache / MemoryCache 都支持 delete(key)
+                if hasattr(cls.cache, "delete"):
+                    cls.cache.delete(k)
+                else:
+                    store.pop(k, None)
+            except Exception:
+                pass
+
+ 
+
+    @classmethod
+    async def get_cache_by_key(
+        cls, cache_key
+    ) -> List[Dict[str, Any]]:
+        
+        cached = await cls.cache.get(cache_key)
+        if cached:
+            print(f"🔹 MemoryCache hit for {cache_key}")
+            return cached
+
+        
+
+    @classmethod
+    async def set_cache_by_key(
+        cls, cache_key, cache_value, ttl: int | None = 3000
+    ) -> List[Dict[str, Any]]:
+      
+        # //set(self, key: str, value: Any, ttl: int = 1200, only_l2: bool = True):
+
+        cls.cache.set(cache_key, cache_value, ttl=ttl, only_l2=False)
+        print(f"🔹 MemoryCache set for {cache_key}, {cache_value} items")
 
     @classmethod
     async def find_transaction_by_description(cls, desc: str):
@@ -426,7 +487,9 @@ class MySQLPool(LYBase):
             await cls.release(conn, cursor)
 
    
-
+    '''
+    Collection 内容管理相关方法
+    '''
 
     @classmethod
     async def create_user_collection(
@@ -440,12 +503,13 @@ class MySQLPool(LYBase):
         try:
             await cur.execute(
                 """
-                INSERT INTO user_collection (user_id, title, description, is_public)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO user_collection (user_id, title, description, is_public, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                [user_id, (title or "")[:255], description or "", 1 if is_public == 1 else 0],
+                [user_id, (title or "")[:255], description or "", 1 if is_public == 1 else 0, time(), time()],
             )
             new_id = cur.lastrowid
+            
             await conn.commit()
             return {"ok": "1", "status": "inserted", "id": new_id}
         except Exception as e:
@@ -488,6 +552,9 @@ class MySQLPool(LYBase):
             if not sets:
                 return {"ok": "1", "status": "noop", "id": collection_id}
 
+            sets.append("updated_at = %s")
+            params.append(time)
+
             sql = f"UPDATE user_collection SET {', '.join(sets)} WHERE id = %s"
             params.append(collection_id)
             await cur.execute(sql, params)
@@ -506,7 +573,7 @@ class MySQLPool(LYBase):
         try:
             await cur.execute(
                 """
-                SELECT id, user_id, title, description, is_public, created_at
+                SELECT id, user_id, title, description, is_public, created_at, updated_at, sort_order, cover_type, cover_file_unique_id
                 FROM user_collection
                 WHERE id = %s
                 """,
@@ -517,48 +584,11 @@ class MySQLPool(LYBase):
                 return None
             if isinstance(row, dict):
                 return row
-            cols = ["id", "user_id", "title", "description", "is_public", "created_at"]
+            cols = ["id", "user_id", "title", "description", "is_public", "created_at", "updated_at", "sort_order", "cover_type", "cover_file_unique_id"]
             return {k: v for k, v in zip(cols, row)}
         finally:
             await cls.release(conn, cur)
 
-    # @classmethod
-    # async def delete_cache(cls, prefix: str):
-    #     keys_to_delete = [k for k in cls.cache.keys() if k.startswith(prefix)]
-    #     for k in keys_to_delete:
-    #         del cls.cache[k]
-    #     pass
-
-        
-    @classmethod
-    async def delete_cache(cls, prefix: str):
-        """
-        删除 cache 中以 prefix 开头的 key。
-        - MemoryCache: 无 keys() 接口，因此从内部 _store 取 key
-        - TwoLevelCache: 仅清 L1（L2 依业务需要可扩展批量删；目前保持轻量，不阻塞）
-        """
-        if not cls.cache:
-            return
-
-        # 统一拿到 L1 的 store（兼容 MemoryCache / TwoLevelCache）
-        l1 = getattr(cls.cache, "l1", None)
-        if l1 is None:
-            l1 = cls.cache  # 可能直接是 MemoryCache
-
-        store = getattr(l1, "_store", None)
-        if not store:
-            return
-
-        keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(prefix)]
-        for k in keys_to_delete:
-            try:
-                # TwoLevelCache / MemoryCache 都支持 delete(key)
-                if hasattr(cls.cache, "delete"):
-                    cls.cache.delete(k)
-                else:
-                    store.pop(k, None)
-            except Exception:
-                pass
 
     @classmethod
     async def list_user_collections(
@@ -575,7 +605,7 @@ class MySQLPool(LYBase):
         try:
             await cur.execute(
                 """
-                SELECT id, title, description, is_public, created_at
+                SELECT id, title, description, is_public, created_at, updated_at, sort_order, cover_type, cover_file_unique_id
                 FROM user_collection
                 WHERE user_id = %s
                 ORDER BY id DESC
@@ -589,37 +619,13 @@ class MySQLPool(LYBase):
             if isinstance(rows[0], dict):
                 cls.cache.set(cache_key, rows, ttl=300)
                 return rows
-            cols = ["id", "title", "description", "is_public", "created_at"]
+            cols = ["id", "title", "description", "is_public", "created_at", "updated_at", "sort_order", "cover_type", "cover_file_unique_id"]
             result= [{k: v for k, v in zip(cols, r)} for r in rows]
             cls.cache.set(cache_key, result, ttl=300)
             print(f"🔹 MemoryCache set for {cache_key}, {len(result)} items")
             return result
         finally:
             await cls.release(conn, cur)
-
-    @classmethod
-    async def get_cache_by_key(
-        cls, cache_key
-    ) -> List[Dict[str, Any]]:
-        
-        cached = await cls.cache.get(cache_key)
-        if cached:
-            print(f"🔹 MemoryCache hit for {cache_key}")
-            return cached
-
-        
-
-    @classmethod
-    async def set_cache_by_key(
-        cls, cache_key, cache_value, ttl: int | None = 3000
-    ) -> List[Dict[str, Any]]:
-      
-        # //set(self, key: str, value: Any, ttl: int = 1200, only_l2: bool = True):
-
-        cls.cache.set(cache_key, cache_value, ttl=ttl, only_l2=False)
-        print(f"🔹 MemoryCache set for {cache_key}, {cache_value} items")
-           
-
 
     @classmethod
     async def list_user_favorite_collections(
@@ -733,11 +739,12 @@ class MySQLPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             sql = """
-            INSERT INTO user_collection_favorite (user_collection_id, user_id)
-            VALUES (%s, %s)
+            INSERT INTO user_collection_favorite (user_collection_id, user_id, update_at)
+            VALUES (%s, %s, %s)
             """
-            await cur.execute(sql, (collection_id, user_id))
-            return True
+            await cur.execute(sql, (collection_id, user_id, int(time.time())))
+            new_id = cur.lastrowid
+            return new_id
         except Exception as e:
             # 可能需要唯一约束避免重复；无唯一约束时重复插入会多条，这里简单忽略异常或加逻辑
             print(f"⚠️ add_collection_favorite 失败: {e}", flush=True)
@@ -760,6 +767,125 @@ class MySQLPool(LYBase):
             return False
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
+        """
+        返回 (资源橱窗数量, 第一条资源橱窗ID或None)。
+        只查一次：LIMIT 2 即可区分 0/1/多，并顺便拿到第一条ID。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            SELECT id
+            FROM user_collection
+            WHERE user_id = %s
+            ORDER BY id ASC
+            LIMIT 2
+            """
+            await cur.execute(sql, (user_id,))
+            rows = await cur.fetchall()
+            cnt = len(rows)
+            first_id = rows[0]["id"] if cnt >= 1 else None
+            return cnt, first_id
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_clt_files_by_clt_id(cls, collection_id: int) -> list[dict]:
+        """
+        查询某个资源橱窗的所有文件
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # id, source_id, file_type, content
+            sql = """
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM user_collection_file ucf
+            LEFT JOIN sora_content sc ON ucf.content_id = sc.id
+            WHERE ucf.collection_id = %s AND sc.valid_state != 4
+            ORDER BY ucf.sort ASC
+            """
+            await cur.execute(sql, (collection_id,))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ get_clt_files_by_clt_id 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_clt_by_content_id(cls, content_id: int) -> list[dict]:
+        """
+        查询某个资源橱窗的所有文件
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            # id, source_id, file_type, content
+            sql = """
+            SELECT *
+            FROM user_collection_file 
+            WHERE content_id = %s 
+            """
+            await cur.execute(sql, (content_id,))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ get_clt_by_content_id 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)
+
+
+    @classmethod
+    async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
+        """
+        把 content_id 加入某个资源橱窗。已存在则不报错（联合主键去重）。
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            INSERT INTO user_collection_file (collection_id, content_id, sort)
+            VALUES (%s, %s, 0)
+            ON DUPLICATE KEY UPDATE sort = VALUES(sort)
+            """
+            # content_id 列是 varchar(100)，统一转成字符串
+            await cur.execute(sql, (int(collection_id), str(content_id)))
+            new_id = cur.lastrowid
+            await conn.commit()
+            return new_id
+        except Exception as e:
+            print(f"❌ add_content_to_user_collection error: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def remove_content_from_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
+        """
+        把 content_id 移出
+        """
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+            DELETE FROM user_collection_file WHERE collection_id = %s AND content_id = %s
+            """
+            # content_id 列是 varchar(100)，统一转成字符串
+            await cur.execute(sql, (int(collection_id), str(content_id)))
+            await conn.commit()
+            return True
+        except Exception as e:
+            print(f"❌ remove_content_from_user_collection error: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
+
+    '''
+    业务相关方法
+    '''
+
 
     @classmethod
     async def upsert_news_content(cls, tpl_data: dict) -> dict:
@@ -850,151 +976,7 @@ class MySQLPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
-    ''''
-    Collection 内容管理相关方法
-    '''
  
-    @classmethod
-    async def get_user_collections_count_and_first(cls, user_id: int) -> tuple[int, int | None]:
-        """
-        返回 (资源橱窗数量, 第一条资源橱窗ID或None)。
-        只查一次：LIMIT 2 即可区分 0/1/多，并顺便拿到第一条ID。
-        """
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            sql = """
-            SELECT id
-            FROM user_collection
-            WHERE user_id = %s
-            ORDER BY id ASC
-            LIMIT 2
-            """
-            await cur.execute(sql, (user_id,))
-            rows = await cur.fetchall()
-            cnt = len(rows)
-            first_id = rows[0]["id"] if cnt >= 1 else None
-            return cnt, first_id
-        finally:
-            await cls.release(conn, cur)
-
-    @classmethod
-    async def get_clt_files_by_clt_id(cls, collection_id: int) -> list[dict]:
-        """
-        查询某个资源橱窗的所有文件
-        """
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            # id, source_id, file_type, content
-            sql = """
-            SELECT sc.id, sc.source_id, sc.file_type, sc.content
-            FROM user_collection_file ucf
-            LEFT JOIN sora_content sc ON ucf.content_id = sc.id
-            WHERE ucf.collection_id = %s AND sc.valid_state != 4
-            ORDER BY ucf.sort ASC
-            """
-            await cur.execute(sql, (collection_id,))
-            rows = await cur.fetchall()
-            return [dict(r) for r in rows] if rows else []
-        except Exception as e:
-            print(f"⚠️ get_clt_files_by_clt_id 出错: {e}", flush=True)
-            return []
-        finally:
-            await cls.release(conn, cur)
-
-    @classmethod
-    async def get_clt_by_content_id(cls, content_id: int) -> list[dict]:
-        """
-        查询某个资源橱窗的所有文件
-        """
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            # id, source_id, file_type, content
-            sql = """
-            SELECT *
-            FROM user_collection_file 
-            WHERE content_id = %s 
-            """
-            await cur.execute(sql, (content_id,))
-            rows = await cur.fetchall()
-            return [dict(r) for r in rows] if rows else []
-        except Exception as e:
-            print(f"⚠️ get_clt_by_content_id 出错: {e}", flush=True)
-            return []
-        finally:
-            await cls.release(conn, cur)
-
-    @classmethod
-    async def create_default_collection(cls, user_id: int, title: str = "未命名资源橱窗") -> int | None:
-        """
-        创建默认资源橱窗并返回新建ID；失败返回 None。
-        首选 lastrowid；极少数情况下取不到时，兜底再查一次。
-        """
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            insert_sql = """
-            INSERT INTO user_collection (user_id, title, is_public)
-            VALUES (%s, %s, 1)
-            """
-            await cur.execute(insert_sql, (user_id, title))
-            await conn.commit()
-            new_id = cur.lastrowid
-            if new_id:
-                return int(new_id)
-
-            # 兜底：再查最新一条
-            await cur.execute(
-                "SELECT id FROM user_collection WHERE user_id=%s ORDER BY id DESC LIMIT 1",
-                (user_id,)
-            )
-            row = await cur.fetchone()
-            return int(row["id"]) if row else None
-        except Exception as e:
-            print(f"❌ create_default_collection error: {e}", flush=True)
-            return None
-        finally:
-            await cls.release(conn, cur)
-
-    @classmethod
-    async def add_content_to_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
-        """
-        把 content_id 加入某个资源橱窗。已存在则不报错（联合主键去重）。
-        """
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            sql = """
-            INSERT INTO user_collection_file (collection_id, content_id, sort)
-            VALUES (%s, %s, 0)
-            ON DUPLICATE KEY UPDATE sort = VALUES(sort)
-            """
-            # content_id 列是 varchar(100)，统一转成字符串
-            await cur.execute(sql, (int(collection_id), str(content_id)))
-            await conn.commit()
-            return True
-        except Exception as e:
-            print(f"❌ add_content_to_user_collection error: {e}", flush=True)
-            return False
-        finally:
-            await cls.release(conn, cur)
-
-    @classmethod
-    async def remove_content_from_user_collection(cls, collection_id: int, content_id: int | str) -> bool:
-        """
-        把 content_id 移出
-        """
-        conn, cur = await cls.get_conn_cursor()
-        try:
-            sql = """
-            DELETE FROM user_collection_file WHERE collection_id = %s AND content_id = %s
-            """
-            # content_id 列是 varchar(100)，统一转成字符串
-            await cur.execute(sql, (int(collection_id), str(content_id)))
-            await conn.commit()
-            return True
-        except Exception as e:
-            print(f"❌ remove_content_from_user_collection error: {e}", flush=True)
-            return False
-        finally:
-            await cls.release(conn, cur)
 
     @classmethod
     async def search_history_upload(cls, user_id: int) -> list[dict]:
@@ -1819,7 +1801,103 @@ class MySQLPool(LYBase):
             return {"ok": "", "status": "error", "error": str(e)}
         finally:
             await cls.release(conn, cur)
+
+
+    # ========= Generic Sync Helpers =========
+    @staticmethod
+    def _safe_ident_mysql(name: str) -> str:
+        """Very small identifier sanitizer to avoid SQL injection via table/column names."""
+        if not isinstance(name, str):
+            raise ValueError("identifier must be str")
+        name = name.strip()
+        if not name:
+            raise ValueError("identifier is empty")
+
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            raise ValueError(f"invalid identifier: {name}")
+        return f"`{name}`"
+
+    @classmethod
+    async def fetch_records_updated_after(
+        cls,
+        table: str,
+        timestamp: int,
+        update_field: str = "update_at",
+        limit: int = 5000,
+    ) -> list[dict]:
+        """
+        通用增量查询：从 MySQL 取出 {update_field} > timestamp 的记录。
+
+        - table: 表名（两库同名）
+        - timestamp: big int 时间戳（与你表里的 update_at 对齐）
+        - update_field: 默认 'update_at'
+        - limit: 防止一次拉太多（默认 5000）
+
+        返回: list[dict]
+        """
+        await cls.ensure_pool()
+
+        t_sql = cls._safe_ident_mysql(table)
+        u_sql = cls._safe_ident_mysql(update_field)
+        sql = f"SELECT * FROM {t_sql} WHERE {u_sql} > %s ORDER BY {u_sql} ASC LIMIT %s"
+
+        conn = cur = None
+        try:
+            conn, cur = await cls.get_conn_cursor()
+            await cur.execute(sql, (int(timestamp), int(limit)))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(
+                f"⚠️ [MySQLPool] fetch_records_updated_after error: table={table} ts={timestamp} err={e}",
+                flush=True,
+            )
+            return []
+        finally:
+            if conn and cur:
+                await cls.release(conn, cur)
  
+
+
+    @classmethod
+    async def fetch_records_by_pks(
+        cls,
+        table: str,
+        pk_field: str,
+        pks: list,
+        *,
+        limit: int = 5000,
+    ) -> list[dict]:
+        """
+        从 MySQL 按主键列表取记录：SELECT * FROM table WHERE pk IN (...)
+        """
+        table = (table or "").strip()
+        pk_field = (pk_field or "").strip()
+        if not pks:
+            return []
+
+        # 你的 MySQL 端建议继续沿用你已有的 ident 校验函数（若已实现则复用）
+        if hasattr(cls, "_safe_ident_mysql"):
+            cls._safe_ident_mysql(table)
+            cls._safe_ident_mysql(pk_field)
+
+        # 去重 + 截断，避免 IN 太大
+        uniq_pks = list(dict.fromkeys(pks))[: max(1, int(limit))]
+
+        placeholders = ",".join(["%s"] * len(uniq_pks))
+        sql = f"SELECT * FROM `{table}` WHERE `{pk_field}` IN ({placeholders})"
+
+        conn, cur = await cls.get_conn_cursor(dict_cursor=True)  # 若你已有这种封装就用
+        try:
+            await cur.execute(sql, uniq_pks)
+            rows = await cur.fetchall()
+            return rows or []
+        finally:
+            try:
+                await cur.close()
+            finally:
+                conn.close()
 
 
     #** End of lz_mysql.py **#

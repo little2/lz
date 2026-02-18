@@ -1247,5 +1247,199 @@ async def build_product_material(rows):
         }
     }
         
-        
 
+async def sync_table(
+    table: str,
+    pk: str,
+    last_ts: int,
+    *,
+    update_field: str = "update_at",
+    limit: int = 5000,
+    chunk_size: int = 1000,
+) -> Dict[str, Any]:
+    """
+    单向同步：以 MySQL 为源，将指定 table 的增量记录同步到 PostgreSQL。
+    规则：
+      - 仅同步 MySQL 中 {update_field} > last_ts 的记录
+      - PG 端使用 UPSERT（新增或取代）
+
+    返回示例：
+    {
+        "table": "sora_content",
+        "pk": "id",
+        "last_ts_in": 1700000000000,
+        "mysql_count": 120,
+        "pg_upserted": 120,
+        "max_update_at": 1700000001234,
+    }
+    """
+
+    # 1) 确保两端连接池已就绪（幂等）
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    table = (table or "").strip()
+    pk = (pk or "").strip()
+    last_ts = int(last_ts or 0)
+
+    # 2) 从 MySQL 拉增量
+    mysql_rows = await MySQLPool.fetch_records_updated_after(
+        table=table,
+        timestamp=last_ts,
+        update_field=update_field,
+        limit=limit,
+    )
+    mysql_count = len(mysql_rows)
+
+    print(
+        f"[sync_table] MySQL rows = {mysql_count} "
+        f"for table={table}, {update_field}>{last_ts}",
+        flush=True,
+    )
+
+    if not mysql_rows:
+        summary = {
+            "table": table,
+            "pk": pk,
+            "last_ts_in": last_ts,
+            "mysql_count": 0,
+            "pg_upserted": 0,
+            "max_update_at": last_ts,
+        }
+        print(f"[sync_table] Done (no data): {summary}", flush=True)
+        return summary
+
+    # 3) 批量 UPSERT 到 PostgreSQL（新增或取代）
+    pg_upserted = await PGPool.upsert_records_generic(
+        table=table,
+        pk_field=pk,
+        rows=mysql_rows,
+        chunk_size=chunk_size,
+    )
+
+    # 4) 计算本次最大 update_at，用于推进水位
+    max_update_at = last_ts
+    try:
+        max_update_at = max(int(r.get(update_field) or 0) for r in mysql_rows) or last_ts
+    except Exception:
+        max_update_at = last_ts
+
+    summary = {
+        "table": table,
+        "pk": pk,
+        "last_ts_in": last_ts,
+        "mysql_count": mysql_count,
+        "pg_upserted": int(pg_upserted or 0),
+        "max_update_at": int(max_update_at),
+    }
+
+    print(f"[sync_table] Done: {summary}", flush=True)
+    return summary
+
+
+async def sync_table_by_pks(
+    table: str,
+    pk: str,
+    pks: List[Any],
+    *,
+    chunk_size: int = 1000,
+    limit: int = 5000,
+) -> Dict[str, Any]:
+    """
+    单向同步：以 MySQL 为源，根据指定主键列表 pks 同步到 PostgreSQL。
+    - MySQL: SELECT * FROM table WHERE pk IN (...)
+    - PG: UPSERT (新增或取代)
+
+    返回示例：
+    {
+        "table": "sora_content",
+        "pk": "id",
+        "pks_in": 3,
+        "mysql_count": 3,
+        "pg_upserted": 3,
+    }
+    """
+
+    # 1) 确保两端连接池已就绪（幂等）
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    table = (table or "").strip()
+    pk = (pk or "").strip()
+    pks = pks or []
+
+    # 2) 去重 + 截断（防止一次给太多 pk）
+    uniq_pks = list(dict.fromkeys(pks))[: max(1, int(limit))]
+
+    print(
+        f"[sync_table_by_pks] Start table={table}, pk={pk}, pks={len(uniq_pks)}",
+        flush=True,
+    )
+
+    if not uniq_pks:
+        summary = {
+            "table": table,
+            "pk": pk,
+            "pks_in": 0,
+            "mysql_count": 0,
+            "pg_upserted": 0,
+        }
+        print(f"[sync_table_by_pks] Done (no pks): {summary}", flush=True)
+        return summary
+
+    # 3) MySQL 按主键拉记录
+    mysql_rows = await MySQLPool.fetch_records_by_pks(
+        table=table,
+        pk_field=pk,
+        pks=uniq_pks,
+        limit=limit,
+    )
+    mysql_count = len(mysql_rows)
+
+    print(
+        f"[sync_table_by_pks] MySQL rows = {mysql_count} for table={table}, pks={len(uniq_pks)}",
+        flush=True,
+    )
+
+    if not mysql_rows:
+        summary = {
+            "table": table,
+            "pk": pk,
+            "pks_in": len(uniq_pks),
+            "mysql_count": 0,
+            "pg_upserted": 0,
+        }
+        print(f"[sync_table_by_pks] Done (no rows): {summary}", flush=True)
+        return summary
+
+    # 4) PG 批量 UPSERT（新增或取代）
+    pg_upserted = await PGPool.upsert_records_generic(
+        table=table,
+        pk_field=pk,
+        rows=mysql_rows,
+        chunk_size=chunk_size,
+    )
+
+    summary = {
+        "table": table,
+        "pk": pk,
+        "pks_in": len(uniq_pks),
+        "mysql_count": mysql_count,
+        "pg_upserted": int(pg_upserted or 0),
+    }
+
+    print(f"[sync_table_by_pks] Done: {summary}", flush=True)
+    return summary
+
+
+''''''

@@ -66,6 +66,7 @@ from utils.tpl import Tplate
 from utils.string_utils import LZString
 from utils.product_utils import build_product_material,sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
+from utils.product_utils import sync_table_by_pks
 from utils.action_gate import ActionGate
 
 
@@ -508,6 +509,7 @@ async def on_title_input(message: Message, state: FSMContext):
     # 1) 更新数据库
     await MySQLPool.update_user_collection(collection_id=cid, title=text)
 
+    await sync_table_by_pks("user_collection", "id", [cid])
 
     # 2) 删除用户输入的这条消息
     try:
@@ -565,6 +567,7 @@ async def on_description_input(message: Message, state: FSMContext):
 
     # 2) 更新数据库
     await MySQLPool.update_user_collection(collection_id=cid, description=text)
+    await sync_table_by_pks("user_collection", "id", [cid])
 
     # 3) 刷新锚点消息
     await _build_clt_edit(cid, anchor_message,state)
@@ -641,6 +644,7 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
 
     # 2) 更新数据库
     await MySQLPool.update_user_collection(collection_id=cid, cover_type=cover_type,cover_file_unique_id=cover_file_unique_id)
+    await sync_table_by_pks("user_collection", "id", [cid])
 
     # 3) 刷新锚点消息
     print(f"刷新锚点消息 {anchor_chat_id} {anchor_msg_id}", flush=True)
@@ -705,7 +709,7 @@ async def handle_cc_is_public(callback: CallbackQuery):
     _, _, cid = callback.data.split(":")
     cid = int(cid)
 
-    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    rec = await PGPool.get_user_collection_by_id(collection_id=cid)
     is_public = rec.get("is_public") if rec else None
 
     text = "👁 请选择这个资源橱窗是否可以公开："
@@ -729,11 +733,10 @@ async def handle_cc_public_set(callback: CallbackQuery, state: FSMContext   ):
     _, _, cid, val = callback.data.split(":")
     cid, is_public = int(cid), int(val)
     await MySQLPool.update_user_collection(collection_id=cid, is_public=is_public)
-    
+    await sync_table_by_pks("user_collection", "id", [cid])
+
     await _build_clt_edit(cid, callback.message, state=state)
 
-    # rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
-    # await callback.message.edit_reply_markup(reply_markup=is_public_keyboard(cid, rec.get("is_public")))
     await callback.answer("✅ 已更新可见性设置")
 
 # ========= 资源橱窗:返回（从输入页回设置菜单 / 从“我的资源橱窗”回资源橱窗主菜单） =========
@@ -743,7 +746,7 @@ async def handle_cc_public_set(callback: CallbackQuery, state: FSMContext   ):
 async def handle_cc_back(callback: CallbackQuery,state: FSMContext):
     _, _, cid = callback.data.split(":")
     cid = int(cid)
-    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    rec = await PGPool.get_user_collection_by_id(collection_id=cid)
     title = rec.get("title") if rec else "未命名资源橱窗"
     desc  = rec.get("description") if rec else ""
     pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
@@ -1574,6 +1577,15 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             page = int(parts[2]) or 0
             await MySQLPool.remove_content_from_user_collection(int(clt_id), int(content_id))
 
+            
+            await PGPool.delete_where(
+                table="user_collection_file",
+                conditions={
+                    "collect_id": clt_id,
+                    "content_id": content_id,
+                },
+            )
+
             result = await _get_clti_list(clt_id,page,user_id,"list")
                
             if result.get("success") is False:
@@ -1910,7 +1922,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 print(f"🔍 取得搜索结果以定位当前位置: {keyword}", flush=True)
                 search_result = await db.search_keyword_page_plain(keyword)
         elif stag == "cm" or stag == 'cf':  
-            search_result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
+            search_result = await PGPool.get_clt_files_by_clt_id(search_key_index)
         elif stag == 'fd':
             # 我的兑换   
             search_result = await PGPool.search_history_redeem(search_key_index)
@@ -2416,7 +2428,7 @@ async def build_add_to_collection_keyboard(user_id: int, content_id: int, page: 
         kb_rows.append([InlineKeyboardButton(text="🔙 返回资源橱窗菜单", callback_data="clt_my")])
         return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    clt_rows = await MySQLPool.get_clt_by_content_id(content_id)
+    clt_rows = await PGPool.get_clt_by_content_id(content_id)
 
     # 提取已包含该 content 的 collection_id 集合
     collect_ids = {row["collection_id"] for row in clt_rows} if clt_rows else set()
@@ -2472,25 +2484,27 @@ async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
     # 统计用户资源橱窗数量 & 取第一个资源橱窗ID
-    count, first_id = await MySQLPool.get_user_collections_count_and_first(user_id=user_id)
+    count, first_id = await PGPool.get_user_collections_count_and_first(user_id=user_id)
 
     if count == 0:
         # 自动创建一个默认资源橱窗并加入
-        new_id = await MySQLPool.create_default_collection(user_id=user_id, title="未命名资源橱窗")
+        new_id = await MySQLPool.create_user_collection(user_id=user_id, title="未命名资源橱窗") 
         if not new_id:
             await callback.answer("创建资源橱窗失败，请稍后再试", show_alert=True)
             return
 
-        ok = await MySQLPool.add_content_to_user_collection(collection_id=new_id, content_id=content_id)
-        tip = "✅ 已为你创建资源橱窗并加入" if ok else "资源橱窗已创建，但加入失败"
+        id = await MySQLPool.add_content_to_user_collection(collection_id=new_id, content_id=content_id)
+        await sync_table_by_pks("user_collection_file", "id", [id] if id else [])
+        tip = "✅ 已为你创建资源橱窗并加入" if id else "资源橱窗已创建，但加入失败"
         await callback.answer(tip, show_alert=False)
       
         return
 
     if count == 1 and first_id:
         # 直接加入唯一资源橱窗
-        ok = await MySQLPool.add_content_to_user_collection(collection_id=first_id, content_id=content_id)
-        tip = "✅ 已加入你的唯一资源橱窗" if ok else "⚠️ 已在该资源橱窗里或加入失败"
+        id = await MySQLPool.add_content_to_user_collection(collection_id=first_id, content_id=content_id)
+        await sync_table_by_pks("user_collection_file", "id", [id] if id else [])
+        tip = "✅ 已加入你的唯一资源橱窗" if id else "⚠️ 已在该资源橱窗里或加入失败"
         await callback.answer(tip, show_alert=False)
         return
 
@@ -2520,8 +2534,9 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
     
 
 
-    ok = await MySQLPool.add_content_to_user_collection(collection_id=collection_id, content_id=content_id)
-    if ok:
+    id = await MySQLPool.add_content_to_user_collection(collection_id=collection_id, content_id=content_id)
+    if id:
+        await sync_table_by_pks("user_collection_file", "id", [id])
         tip = "✅ 已加入该资源橱窗"
     else:
         tip = "⚠️ 已在该资源橱窗里或加入失败"
@@ -3270,9 +3285,9 @@ async def _load_collections_rows(user_id: int, page: int, mode: str):
     PAGE_SIZE = 6
     offset = page * PAGE_SIZE
     if mode == "mine":
-        rows = await MySQLPool.list_user_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
+        rows = await PGPool.list_user_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
     elif mode == "fav":
-        rows = await MySQLPool.list_user_favorite_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
+        rows = await PGPool.list_user_favorite_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
     else:
         rows = []
     has_next = len(rows) > PAGE_SIZE
@@ -3459,7 +3474,7 @@ async def _build_clt_edit(cid: int, anchor_message: Message,state: FSMContext):
 
 async def _build_clt_edit_caption(cid: int ):
     
-    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    rec = await PGPool.get_user_collection_by_id(collection_id=cid)
     title = rec.get("title") if rec else "未命名资源橱窗"
     desc  = rec.get("description") if rec else ""
     pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
@@ -3485,9 +3500,9 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     ret = await MySQLPool.create_user_collection(user_id=user_id)  # 默认：未命名资源橱窗、公开
     cid = ret.get("id")
+    await sync_table_by_pks("user_collection", "id", [cid])
 
-
-    rec = await MySQLPool.get_user_collection_by_id(collection_id=cid)
+    rec = await PGPool.get_user_collection_by_id(collection_id=cid)
     title = rec.get("title") if rec else "未命名资源橱窗"
     desc  = rec.get("description") if rec else ""
     pub   = "公开" if (rec and rec.get("is_public") == 1) else "不公开"
@@ -3691,7 +3706,7 @@ async def handle_set_collection(message: Message):
 async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str ='set', state: FSMContext = None) -> dict:
     bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
     # 查询资源橱窗 + 封面 file_id（遵循你给的 SQL）
-    rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
+    rec = await PGPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
     if not rec:
         # return await message.answer("⚠️ 未找到该收藏")
         return {"success": False, "message": "未找到该收藏"}
@@ -3699,7 +3714,7 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
     
     # 是否已收藏（用于按钮文案）
    
-    is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+    is_fav = await PGPool.is_collection_favorited(user_id=user_id, collection_id=cid)
 
     caption = _build_clt_info_caption(rec)
     source_id = rec.get("cover_file_unique_id")
@@ -3782,10 +3797,10 @@ async def handle_clti_list(callback: CallbackQuery, state: FSMContext):
 
 async def _get_clti_list(cid,page,user_id,mode):
     # 拉取本页数据（返回 file_id list 与 has_next）
-    files, has_next = await MySQLPool.list_collection_files_file_id(collection_id=cid, limit=RESULTS_PER_PAGE+1, offset=page*RESULTS_PER_PAGE)
+    files, has_next = await PGPool.list_collection_files_file_id(collection_id=cid, limit=RESULTS_PER_PAGE+1, offset=page*RESULTS_PER_PAGE)
     display = files[:RESULTS_PER_PAGE]
     has_prev = page > 0
-    is_fav = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+    is_fav = await PGPool.is_collection_favorited(user_id=user_id, collection_id=cid)
 
     if not display:
         return {"success": False, "message": "这个资源橱窗暂时没有收录文件"}
@@ -3843,10 +3858,10 @@ async def handle_uc_info(callback: CallbackQuery,state: FSMContext):
     _, _, cid_str = callback.data.split(":")
     cid = int(cid_str)
     bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
-    rec = await MySQLPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
+    rec = await PGPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
     if not rec:
         await callback.answer("未找到该收藏", show_alert=True); return
-    is_fav = await MySQLPool.is_collection_favorited(user_id=callback.from_user.id, collection_id=cid)
+    is_fav = await PGPool.is_collection_favorited(user_id=callback.from_user.id, collection_id=cid)
     await _edit_caption_or_text(callback.message, text=_build_clt_info_caption(rec), reply_markup=_build_clt_info_keyboard(cid, is_fav),state= state)
     await callback.answer()
 
@@ -3860,14 +3875,32 @@ async def handle_uc_fav(callback: CallbackQuery):
     print(f"➡️ 用户 {user_id} 切换资源橱窗 {cid} 收藏状态", flush=True)
 
     is_fav = False
-    already = await MySQLPool.is_collection_favorited(user_id=user_id, collection_id=cid)
+    already = await PGPool.is_collection_favorited(user_id=user_id, collection_id=cid)
     if already:
         ok = await MySQLPool.remove_collection_favorite(user_id=user_id, collection_id=cid)
-        tip = "已取消收藏" if ok else "取消收藏失败"
+        if ok:
+            tip = "已取消收藏" 
+           
+            await PGPool.delete_where(
+                table="user_collection_favorite",
+                conditions={
+                    "user_id": user_id,
+                    "user_collection_id": cid,
+                },
+            )
+            
+        else:
+            tip = "取消收藏失败"
         is_fav = False
     else:
-        ok = await MySQLPool.add_collection_favorite(user_id=user_id, collection_id=cid)
-        tip = "已加入收藏" if ok else "收藏失败"
+        id = await MySQLPool.add_collection_favorite(user_id=user_id, collection_id=cid)
+        if id:
+            await sync_table_by_pks("user_collection_favorite", "id", [id])
+            tip = "已加入收藏"
+        else:
+            tip = "收藏失败"
+        
+        
         is_fav = True
 
     print(f"➡️ 用户 {user_id} 资源橱窗 {cid} 收藏状态切换结果: {tip}", flush=True)
@@ -3974,7 +4007,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         elif search_from == "cm" or search_from == "cf":
             # print(f"🔍 搜索资源橱窗 ID {search_key_index} 的内容")
             # 拉取收藏夹内容
-            result = await MySQLPool.get_clt_files_by_clt_id(search_key_index)
+            result = await PGPool.get_clt_files_by_clt_id(search_key_index)
             if not result:
                 await callback.answer("⚠️ 资源橱窗为空", show_alert=True)
                 return
@@ -5109,7 +5142,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             # print(f"🔍 载入搜索附加信息: {search_key_index} from {search_from}")
             if search_from == "cm" or search_from == "cf":
                 
-                clt_info = await MySQLPool.get_user_collection_by_id(collection_id=int(search_key_index))
+                clt_info = await PGPool.get_user_collection_by_id(collection_id=int(search_key_index))
                 
                 ret_content += f"\r\n🪟 资源橱窗: {clt_info.get('title')}\n\n"
             else:

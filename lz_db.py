@@ -410,6 +410,8 @@ class DB:
         bot: str,
         user_id: str = None
     ):
+        
+
         now = datetime.utcnow()
 
         sql = """
@@ -423,12 +425,17 @@ class DB:
             
         """
 
+       
+
 
         await self._ensure_pool()
         async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
             
             result = await conn.execute(sql, file_type, file_unique_id, file_id, bot, user_id, now)
-            
+            print(f"Upserted file_extension for unique_id={file_unique_id}, bot={bot}, result={result}")
+            # 打印执行的sql和结果
+  
+
             sql2 =  """
                     SELECT id FROM sora_content WHERE source_id = $1 OR thumb_file_unique_id = $2
                     """        
@@ -438,6 +445,7 @@ class DB:
                 cache_key = f"sora_content_id:{content_id}"
                 # 这里原本是 db.cache.delete(...)，应为 self.cache.delete(...)
                 self.cache.delete(cache_key)
+            return result
 
     #要和 ananbot_utils.py 作整合
     async def search_sora_content_by_id(self, content_id: int):

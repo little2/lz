@@ -1342,9 +1342,10 @@ async def sync_table(
     return summary
 
 
+
 async def sync_table_by_pks(
     table: str,
-    pk: str,
+    pk,
     pks: List[Any],
     *,
     chunk_size: int = 1000,
@@ -1352,8 +1353,22 @@ async def sync_table_by_pks(
 ) -> Dict[str, Any]:
     """
     单向同步：以 MySQL 为源，根据指定主键列表 pks 同步到 PostgreSQL。
-    - MySQL: SELECT * FROM table WHERE pk IN (...)
+    支持单主键 / 复合主键。
+
+    - MySQL: SELECT * FROM table WHERE pk IN (...) / WHERE (pk1,pk2) IN ((...),(...))
     - PG: UPSERT (新增或取代)
+
+    参数示例：
+
+    单主键：
+        pk="id"
+        pks=[1,2,3]
+
+    复合主键：
+        pk=["collection_id","content_id"]
+        pks=[(123,"abc"), (123,"def")]
+        # 也兼容 dict：
+        # pks=[{"collection_id":123,"content_id":"abc"}, ...]
 
     返回示例：
     {
@@ -1375,21 +1390,55 @@ async def sync_table_by_pks(
     await PGPool.ensure_pool()
 
     table = (table or "").strip()
-    pk = (pk or "").strip()
     pks = pks or []
 
+    # ---------- normalize pk_fields ----------
+    if isinstance(pk, (list, tuple)):
+        pk_fields = [str(x).strip() for x in pk if str(x).strip()]
+    else:
+        pk_s = (str(pk) if pk is not None else "").strip()
+        if "," in pk_s:
+            pk_fields = [x.strip() for x in pk_s.split(",") if x.strip()]
+        else:
+            pk_fields = [pk_s] if pk_s else []
+
+    pk_label = ",".join(pk_fields) if pk_fields else ""
+
     # 2) 去重 + 截断（防止一次给太多 pk）
-    uniq_pks = list(dict.fromkeys(pks))[: max(1, int(limit))]
+    uniq_pks: list = []
+    seen = set()
+
+    def _to_key_tuple(x):
+        if isinstance(x, dict):
+            return tuple(x.get(f) for f in pk_fields)
+        if isinstance(x, (list, tuple)):
+            if len(pk_fields) == 1:
+                return (x[0],) if len(x) > 0 else (None,)
+            if len(x) != len(pk_fields):
+                raise ValueError(f"composite pk expects {len(pk_fields)} values, got {len(x)}")
+            return tuple(x)
+        return (x,)
+
+    for item in pks:
+        kt = _to_key_tuple(item)
+        if any(v is None for v in kt):
+            continue
+        if kt in seen:
+            continue
+        seen.add(kt)
+        uniq_pks.append(kt[0] if len(pk_fields) == 1 else tuple(kt))
+        if len(uniq_pks) >= max(1, int(limit)):
+            break
 
     print(
-        f"[sync_table_by_pks] Start table={table}, pk={pk}, pks={len(uniq_pks)}",
+        f"[sync_table_by_pks] Start table={table}, pk={pk_label}, pks={len(uniq_pks)}",
         flush=True,
     )
 
     if not uniq_pks:
         summary = {
             "table": table,
-            "pk": pk,
+            "pk": pk_label,
             "pks_in": 0,
             "mysql_count": 0,
             "pg_upserted": 0,
@@ -1400,7 +1449,7 @@ async def sync_table_by_pks(
     # 3) MySQL 按主键拉记录
     mysql_rows = await MySQLPool.fetch_records_by_pks(
         table=table,
-        pk_field=pk,
+        pk_field=pk_fields if len(pk_fields) > 1 else pk_fields[0],
         pks=uniq_pks,
         limit=limit,
     )
@@ -1414,7 +1463,7 @@ async def sync_table_by_pks(
     if not mysql_rows:
         summary = {
             "table": table,
-            "pk": pk,
+            "pk": pk_label,
             "pks_in": len(uniq_pks),
             "mysql_count": 0,
             "pg_upserted": 0,
@@ -1425,14 +1474,14 @@ async def sync_table_by_pks(
     # 4) PG 批量 UPSERT（新增或取代）
     pg_upserted = await PGPool.upsert_records_generic(
         table=table,
-        pk_field=pk,
+        pk_field=pk_fields if len(pk_fields) > 1 else pk_fields[0],
         rows=mysql_rows,
         chunk_size=chunk_size,
     )
 
     summary = {
         "table": table,
-        "pk": pk,
+        "pk": pk_label,
         "pks_in": len(uniq_pks),
         "mysql_count": mysql_count,
         "pg_upserted": int(pg_upserted or 0),
@@ -1440,6 +1489,8 @@ async def sync_table_by_pks(
 
     print(f"[sync_table_by_pks] Done: {summary}", flush=True)
     return summary
+
+    
 
 
 ''''''

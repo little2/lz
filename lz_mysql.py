@@ -506,7 +506,7 @@ class MySQLPool(LYBase):
                 INSERT INTO user_collection (user_id, title, description, is_public, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                [user_id, (title or "")[:255], description or "", 1 if is_public == 1 else 0, time(), time()],
+                [user_id, (title or "")[:255], description or "", 1 if is_public == 1 else 0, time.time(), time.time()],
             )
             new_id = cur.lastrowid
             
@@ -553,10 +553,11 @@ class MySQLPool(LYBase):
                 return {"ok": "1", "status": "noop", "id": collection_id}
 
             sets.append("updated_at = %s")
-            params.append(time)
+            params.append(time.time())
 
             sql = f"UPDATE user_collection SET {', '.join(sets)} WHERE id = %s"
             params.append(collection_id)
+            print(f"{sql} with params {params}")
             await cur.execute(sql, params)
             await conn.commit()
             return {"ok": "1", "status": "updated", "id": collection_id}
@@ -739,7 +740,7 @@ class MySQLPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             sql = """
-            INSERT INTO user_collection_favorite (user_collection_id, user_id, update_at)
+            INSERT INTO user_collection_favorite (user_collection_id, user_id, updated_at)
             VALUES (%s, %s, %s)
             """
             await cur.execute(sql, (collection_id, user_id, int(time.time())))
@@ -846,15 +847,20 @@ class MySQLPool(LYBase):
         conn, cur = await cls.get_conn_cursor()
         try:
             sql = """
-            INSERT INTO user_collection_file (collection_id, content_id, sort)
-            VALUES (%s, %s, 0)
-            ON DUPLICATE KEY UPDATE sort = VALUES(sort)
+            INSERT INTO user_collection_file (collection_id, content_id, sort, updated_at)
+            VALUES (%s, %s, 0, %s)
+            ON DUPLICATE KEY UPDATE sort = VALUES(sort), updated_at = VALUES(updated_at)
             """
             # content_id 列是 varchar(100)，统一转成字符串
-            await cur.execute(sql, (int(collection_id), str(content_id)))
-            new_id = cur.lastrowid
+            await cur.execute(sql, (int(collection_id), int(content_id), int(time.time())))
+            
+            affected_rows = cur.rowcount
+            if affected_rows == 0:
+                print(f"⚠️ content_id {content_id} 已在 collection_id {collection_id} 中，执行了更新但未新增", flush=True)
+                
+               
             await conn.commit()
-            return new_id
+            return affected_rows
         except Exception as e:
             print(f"❌ add_content_to_user_collection error: {e}", flush=True)
             return False
@@ -872,7 +878,7 @@ class MySQLPool(LYBase):
             DELETE FROM user_collection_file WHERE collection_id = %s AND content_id = %s
             """
             # content_id 列是 varchar(100)，统一转成字符串
-            await cur.execute(sql, (int(collection_id), str(content_id)))
+            await cur.execute(sql, (int(collection_id), int(content_id)))
             await conn.commit()
             return True
         except Exception as e:
@@ -1823,15 +1829,15 @@ class MySQLPool(LYBase):
         cls,
         table: str,
         timestamp: int,
-        update_field: str = "update_at",
+        updated_field: str = "updated_at",
         limit: int = 5000,
     ) -> list[dict]:
         """
         通用增量查询：从 MySQL 取出 {update_field} > timestamp 的记录。
 
         - table: 表名（两库同名）
-        - timestamp: big int 时间戳（与你表里的 update_at 对齐）
-        - update_field: 默认 'update_at'
+        - timestamp: big int 时间戳（与你表里的 updatedd_at 对齐）
+        - updated_field: 默认 'updated_at'
         - limit: 防止一次拉太多（默认 5000）
 
         返回: list[dict]
@@ -1839,7 +1845,7 @@ class MySQLPool(LYBase):
         await cls.ensure_pool()
 
         t_sql = cls._safe_ident_mysql(table)
-        u_sql = cls._safe_ident_mysql(update_field)
+        u_sql = cls._safe_ident_mysql(updated_field)
         sql = f"SELECT * FROM {t_sql} WHERE {u_sql} > %s ORDER BY {u_sql} ASC LIMIT %s"
 
         conn = cur = None
@@ -1860,44 +1866,115 @@ class MySQLPool(LYBase):
  
 
 
+        
     @classmethod
     async def fetch_records_by_pks(
         cls,
         table: str,
-        pk_field: str,
+        pk_field,
         pks: list,
         *,
         limit: int = 5000,
     ) -> list[dict]:
         """
-        从 MySQL 按主键列表取记录：SELECT * FROM table WHERE pk IN (...)
+        从 MySQL 按主键列表取记录（支持单主键/复合主键）。
+
+        单主键：
+            pk_field="id"
+            pks=[1,2,3]
+
+        复合主键：
+            pk_field=["collection_id","content_id"]
+            pks=[
+                (123, "abc"),
+                (123, "def"),
+            ]
+            # 也兼容 dict 形式：
+            # pks=[{"collection_id":123,"content_id":"abc"}, ...]
         """
         table = (table or "").strip()
-        pk_field = (pk_field or "").strip()
         if not pks:
             return []
 
-        # 你的 MySQL 端建议继续沿用你已有的 ident 校验函数（若已实现则复用）
+        # ---------- normalize pk_fields ----------
+        pk_fields: list[str]
+        if isinstance(pk_field, (list, tuple)):
+            pk_fields = [str(x).strip() for x in pk_field if str(x).strip()]
+        else:
+            pk_field_s = (str(pk_field) if pk_field is not None else "").strip()
+            # 允许 "a,b" 这种传法
+            if "," in pk_field_s:
+                pk_fields = [x.strip() for x in pk_field_s.split(",") if x.strip()]
+            else:
+                pk_fields = [pk_field_s] if pk_field_s else []
+
+        if not pk_fields:
+            raise ValueError("pk_field is empty")
+
+        # ---------- sanitize identifiers ----------
         if hasattr(cls, "_safe_ident_mysql"):
             cls._safe_ident_mysql(table)
-            cls._safe_ident_mysql(pk_field)
+            for f in pk_fields:
+                cls._safe_ident_mysql(f)
 
-        # 去重 + 截断，避免 IN 太大
-        uniq_pks = list(dict.fromkeys(pks))[: max(1, int(limit))]
+        # ---------- normalize & dedupe keys (stable order) ----------
+        uniq_keys: list = []
+        seen = set()
 
-        placeholders = ",".join(["%s"] * len(uniq_pks))
-        sql = f"SELECT * FROM `{table}` WHERE `{pk_field}` IN ({placeholders})"
+        def _to_key_tuple(x):
+            if isinstance(x, dict):
+                return tuple(x.get(f) for f in pk_fields)
+            if isinstance(x, (list, tuple)):
+                if len(pk_fields) == 1:
+                    return (x[0],) if len(x) > 0 else (None,)
+                if len(x) != len(pk_fields):
+                    raise ValueError(f"composite pk expects {len(pk_fields)} values, got {len(x)}")
+                return tuple(x)
+            # scalar
+            return (x,)
 
-        conn, cur = await cls.get_conn_cursor(dict_cursor=True)  # 若你已有这种封装就用
+        for item in pks:
+            key_t = _to_key_tuple(item)
+            # 复合主键不能有 None（避免 IN 失真）
+            if any(v is None for v in key_t):
+                continue
+            if key_t in seen:
+                continue
+            seen.add(key_t)
+            # 单主键时保留标量；复合主键时保留 tuple
+            uniq_keys.append(key_t[0] if len(pk_fields) == 1 else key_t)
+            if len(uniq_keys) >= max(1, int(limit)):
+                break
+
+        if not uniq_keys:
+            return []
+
+        # ---------- build SQL ----------
+        t_sql = cls._safe_ident_mysql(table) if hasattr(cls, "_safe_ident_mysql") else f"`{table}`"
+        if len(pk_fields) == 1:
+            pk0 = pk_fields[0]
+            pk_sql = cls._safe_ident_mysql(pk0) if hasattr(cls, "_safe_ident_mysql") else f"`{pk0}`"
+            placeholders = ",".join(["%s"] * len(uniq_keys))
+            sql = f"SELECT * FROM {t_sql} WHERE {pk_sql} IN ({placeholders})"
+            params = list(uniq_keys)
+        else:
+            col_sql = ", ".join(
+                (cls._safe_ident_mysql(f) if hasattr(cls, "_safe_ident_mysql") else f"`{f}`")
+                for f in pk_fields
+            )
+            row_ph = "(" + ",".join(["%s"] * len(pk_fields)) + ")"
+            placeholders = ",".join([row_ph] * len(uniq_keys))
+            sql = f"SELECT * FROM {t_sql} WHERE ({col_sql}) IN ({placeholders})"
+            # flatten params
+            params = [v for key in uniq_keys for v in (list(key) if isinstance(key, tuple) else [key])]
+
+        conn, cur = await cls.get_conn_cursor()  # 若你已有这种封装就用
         try:
-            await cur.execute(sql, uniq_pks)
+            await cur.execute(sql, params)
             rows = await cur.fetchall()
             return rows or []
         finally:
-            try:
-                await cur.close()
-            finally:
-                conn.close()
+            await cls.release(conn, cur)
 
 
     #** End of lz_mysql.py **#

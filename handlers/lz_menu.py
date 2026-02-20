@@ -559,6 +559,10 @@ async def on_description_input(message: Message, state: FSMContext):
         await message.reply("⚠️ 介绍不能为空，请重新输入。")
         return
 
+    if cid is None:
+        await message.reply("⚠️ 系统错误：未找到资源橱窗信息，请返回重新进入编辑。")
+        return
+
     # 1) 删除用户输入消息
     try:
         await lz_var.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
@@ -566,6 +570,7 @@ async def on_description_input(message: Message, state: FSMContext):
         print(f"⚠️ 删除用户输入失败: {e}", flush=True)
 
     # 2) 更新数据库
+    
     await MySQLPool.update_user_collection(collection_id=cid, description=text)
     await sync_table_by_pks("user_collection", "id", [cid])
 
@@ -1581,12 +1586,12 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             await PGPool.delete_where(
                 table="user_collection_file",
                 conditions={
-                    "collect_id": clt_id,
-                    "content_id": content_id,
+                    "collection_id": int(clt_id),
+                    "content_id": int(content_id),
                 },
             )
 
-            result = await _get_clti_list(clt_id,page,user_id,"list")
+            result = await _get_clti_list(int(clt_id), page, user_id, "list")
                
             if result.get("success") is False:
                 await message.answer("这个资源橱窗暂时没有收录文件", show_alert=True)
@@ -2494,18 +2499,35 @@ async def handle_add_to_collection(callback: CallbackQuery, state: FSMContext):
             return
 
         id = await MySQLPool.add_content_to_user_collection(collection_id=new_id, content_id=content_id)
-        await sync_table_by_pks("user_collection_file", "id", [id] if id else [])
+
+        await sync_table_by_pks(
+            "user_collection_file",
+            ["collection_id", "content_id"],
+            [(new_id, content_id)]
+        )
+
+       
         tip = "✅ 已为你创建资源橱窗并加入" if id else "资源橱窗已创建，但加入失败"
-        await callback.answer(tip, show_alert=False)
+        await callback.answer(tip, show_alert=True)
       
         return
 
     if count == 1 and first_id:
         # 直接加入唯一资源橱窗
         id = await MySQLPool.add_content_to_user_collection(collection_id=first_id, content_id=content_id)
-        await sync_table_by_pks("user_collection_file", "id", [id] if id else [])
+
+        # pk=["collection_id","content_id"]
+        # pks=[(123,"abc"), (123,"def")]
+
+        await sync_table_by_pks(
+            "user_collection_file",
+            ["collection_id", "content_id"],
+            [(first_id, content_id)]
+        )
+
+       
         tip = "✅ 已加入你的唯一资源橱窗" if id else "⚠️ 已在该资源橱窗里或加入失败"
-        await callback.answer(tip, show_alert=False)
+        await callback.answer(tip, show_alert=True)
         return
 
     # 多个资源橱窗 → 弹出分页选择
@@ -2532,11 +2554,20 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
 
     
+    print(f"add_to_collection: collection_id={collection_id}, content_id={content_id}, page={page}, fuc_from={fuc_from}", flush=True)
+
+    affected_rows = await MySQLPool.add_content_to_user_collection(collection_id=collection_id, content_id=content_id)
+    print(f"affected_rows => {affected_rows}")
+    if affected_rows:
+
+        await sync_table_by_pks(
+            "user_collection_file",
+            ["collection_id", "content_id"],
+            [(collection_id, content_id)]
+        )
 
 
-    id = await MySQLPool.add_content_to_user_collection(collection_id=collection_id, content_id=content_id)
-    if id:
-        await sync_table_by_pks("user_collection_file", "id", [id])
+        # await sync_table_by_pks("user_collection_file", "id", [id])
         tip = "✅ 已加入该资源橱窗"
     else:
         tip = "⚠️ 已在该资源橱窗里或加入失败"
@@ -2545,7 +2576,7 @@ async def handle_choose_collection(callback: CallbackQuery, state: FSMContext):
     await build_after_choose_collection_button(callback, state, content_id, fuc_from)
     
 
-    await callback.answer(tip, show_alert=False)
+    await callback.answer(tip, show_alert=True)
 
 @router.callback_query(F.data.regexp(r"^return_after_clt:(\d+):([A-Za-z]+)$"))
 async def handle_return_after_clt(callback: CallbackQuery, state: FSMContext):
@@ -3499,8 +3530,14 @@ async def _build_clt_edit_caption(cid: int ):
 async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     ret = await MySQLPool.create_user_collection(user_id=user_id)  # 默认：未命名资源橱窗、公开
+    print(f"ret==>{ret}")
     cid = ret.get("id")
+    if cid is None:
+        await callback.answer("创建资源橱窗失败，请稍后再试", show_alert=True)
+        return
     await sync_table_by_pks("user_collection", "id", [cid])
+    cache_key = f"user:clt:{user_id}:50:0"
+    PGPool.cache.delete(cache_key)
 
     rec = await PGPool.get_user_collection_by_id(collection_id=cid)
     title = rec.get("title") if rec else "未命名资源橱窗"

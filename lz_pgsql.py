@@ -1078,66 +1078,92 @@ class PGPool:
         # always double-quote to preserve case/reserved words safety
         return f'"{name}"'
 
-    @classmethod
-    async def upsert_records_generic(
-        cls,
-        table: str,
-        pk_field: str,
-        rows: list[dict],
-        *,
-        chunk_size: int = 1000,
-    ) -> int:
-        """
-        通用 UPSERT：把 MySQL 拉出来的 rows 批量写入 PostgreSQL（新增或取代）。
+    
+@classmethod
+async def upsert_records_generic(
+    cls,
+    table: str,
+    pk_field,
+    rows: list[dict],
+    *,
+    chunk_size: int = 1000,
+) -> int:
+    """
+    通用 UPSERT：把 MySQL 拉出来的 rows 批量写入 PostgreSQL（新增或取代）。
+    支持单主键 / 复合主键。
 
-        - table: 目标表名（与 MySQL 同名）
-        - pk_field: 主键字段名（用于 ON CONFLICT）
-        - rows: list[dict]，每个 dict 的 key 必须是列名
-        - chunk_size: executemany 分批大小（避免 payload 太大）
+    - table: 目标表名（与 MySQL 同名）
+    - pk_field:
+        - 单主键: "id"
+        - 复合主键: ["collection_id", "content_id"]（也兼容 "a,b" 传法）
+    - rows: list[dict]，每个 dict 的 key 必须是列名
+    - chunk_size: executemany 分批大小（避免 payload 太大）
 
-        返回：写入的行数（近似 = 输入 rows 数量）。
-        """
-        if not rows:
-            return 0
+    返回：写入的行数（近似 = 输入 rows 数量）。
+    """
+    if not rows:
+        return 0
 
-        await cls.ensure_pool()
+    await cls.ensure_pool()
 
-        # ---------- identifiers ----------
-        t_sql = cls._safe_ident_pg(table)
-        pk_sql = cls._safe_ident_pg(pk_field)
-
-        # ---------- columns ----------
-        # 以第一笔为准；后续若缺字段，用 None 补齐
-        columns = list(rows[0].keys())
-        if pk_field not in columns:
-            raise ValueError(f"pk_field '{pk_field}' not in row keys")
-
-        col_sql = ", ".join(cls._safe_ident_pg(c) for c in columns)
-        values_sql = ", ".join(f"${i}" for i in range(1, len(columns) + 1))
-        update_cols = [c for c in columns if c != pk_field]
-        if update_cols:
-            update_sql = ", ".join(
-                f"{cls._safe_ident_pg(c)} = EXCLUDED.{cls._safe_ident_pg(c)}" for c in update_cols
-            )
-            sql = f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) ON CONFLICT ({pk_sql}) DO UPDATE SET {update_sql}"
+    # ---------- normalize pk_fields ----------
+    pk_fields: list[str]
+    if isinstance(pk_field, (list, tuple)):
+        pk_fields = [str(x).strip() for x in pk_field if str(x).strip()]
+    else:
+        pk_s = (str(pk_field) if pk_field is not None else "").strip()
+        if "," in pk_s:
+            pk_fields = [x.strip() for x in pk_s.split(",") if x.strip()]
         else:
-            # 只有主键时：冲突就什么都不做
-            sql = f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) ON CONFLICT ({pk_sql}) DO NOTHING"
+            pk_fields = [pk_s] if pk_s else []
 
-        def build_payload(batch: list[dict]) -> list[tuple]:
-            payload: list[tuple] = []
-            for r in batch:
-                payload.append(tuple(r.get(c) for c in columns))
-            return payload
+    if not pk_fields:
+        raise ValueError("pk_field is empty")
 
-        total = 0
-        async with cls._pool.acquire() as conn:
-            async with conn.transaction():
-                for i in range(0, len(rows), int(chunk_size)):
-                    batch = rows[i : i + int(chunk_size)]
-                    await conn.executemany(sql, build_payload(batch))
-                    total += len(batch)
-        return total
+    # ---------- identifiers ----------
+    t_sql = cls._safe_ident_pg(table)
+    pk_sqls = [cls._safe_ident_pg(f) for f in pk_fields]
+    conflict_sql = ", ".join(pk_sqls)
+
+    # ---------- columns ----------
+    # 以第一笔为准；后续若缺字段，用 None 补齐
+    columns = list(rows[0].keys())
+    for f in pk_fields:
+        if f not in columns:
+            raise ValueError(f"pk_field '{f}' not in row keys")
+
+    col_sql = ", ".join(cls._safe_ident_pg(c) for c in columns)
+    values_sql = ", ".join(f"${i}" for i in range(1, len(columns) + 1))
+
+    pk_set = set(pk_fields)
+    update_cols = [c for c in columns if c not in pk_set]
+
+    if update_cols:
+        update_sql = ", ".join(
+            f"{cls._safe_ident_pg(c)} = EXCLUDED.{cls._safe_ident_pg(c)}" for c in update_cols
+        )
+        sql = (
+            f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) "
+            f"ON CONFLICT ({conflict_sql}) DO UPDATE SET {update_sql}"
+        )
+    else:
+        # 只有主键列：冲突就什么都不做
+        sql = (
+            f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) "
+            f"ON CONFLICT ({conflict_sql}) DO NOTHING"
+        )
+
+    def build_payload(batch: list[dict]) -> list[tuple]:
+        return [tuple(r.get(c) for c in columns) for r in batch]
+
+    total = 0
+    async with cls._pool.acquire() as conn:
+        async with conn.transaction():
+            for i in range(0, len(rows), int(chunk_size)):
+                batch = rows[i : i + int(chunk_size)]
+                await conn.executemany(sql, build_payload(batch))
+                total += len(batch)
+    return total
         
 # lz_pgsql.py  —— @classmethod 风格，接口与 lz_mysql.py 一致
 import os
@@ -2493,20 +2519,24 @@ class PGPool:
         # always double-quote to preserve case/reserved words safety
         return f'"{name}"'
 
+    
     @classmethod
     async def upsert_records_generic(
         cls,
         table: str,
-        pk_field: str,
+        pk_field,
         rows: list[dict],
         *,
         chunk_size: int = 1000,
     ) -> int:
         """
         通用 UPSERT：把 MySQL 拉出来的 rows 批量写入 PostgreSQL（新增或取代）。
+        支持单主键 / 复合主键。
 
         - table: 目标表名（与 MySQL 同名）
-        - pk_field: 主键字段名（用于 ON CONFLICT）
+        - pk_field:
+            - 单主键: "id"
+            - 复合主键: ["collection_id", "content_id"]（也兼容 "a,b" 传法）
         - rows: list[dict]，每个 dict 的 key 必须是列名
         - chunk_size: executemany 分批大小（避免 payload 太大）
 
@@ -2517,33 +2547,55 @@ class PGPool:
 
         await cls.ensure_pool()
 
+        # ---------- normalize pk_fields ----------
+        pk_fields: list[str]
+        if isinstance(pk_field, (list, tuple)):
+            pk_fields = [str(x).strip() for x in pk_field if str(x).strip()]
+        else:
+            pk_s = (str(pk_field) if pk_field is not None else "").strip()
+            if "," in pk_s:
+                pk_fields = [x.strip() for x in pk_s.split(",") if x.strip()]
+            else:
+                pk_fields = [pk_s] if pk_s else []
+
+        if not pk_fields:
+            raise ValueError("pk_field is empty")
+
         # ---------- identifiers ----------
         t_sql = cls._safe_ident_pg(table)
-        pk_sql = cls._safe_ident_pg(pk_field)
+        pk_sqls = [cls._safe_ident_pg(f) for f in pk_fields]
+        conflict_sql = ", ".join(pk_sqls)
 
         # ---------- columns ----------
         # 以第一笔为准；后续若缺字段，用 None 补齐
         columns = list(rows[0].keys())
-        if pk_field not in columns:
-            raise ValueError(f"pk_field '{pk_field}' not in row keys")
+        for f in pk_fields:
+            if f not in columns:
+                raise ValueError(f"pk_field '{f}' not in row keys")
 
         col_sql = ", ".join(cls._safe_ident_pg(c) for c in columns)
         values_sql = ", ".join(f"${i}" for i in range(1, len(columns) + 1))
-        update_cols = [c for c in columns if c != pk_field]
+
+        pk_set = set(pk_fields)
+        update_cols = [c for c in columns if c not in pk_set]
+
         if update_cols:
             update_sql = ", ".join(
                 f"{cls._safe_ident_pg(c)} = EXCLUDED.{cls._safe_ident_pg(c)}" for c in update_cols
             )
-            sql = f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) ON CONFLICT ({pk_sql}) DO UPDATE SET {update_sql}"
+            sql = (
+                f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) "
+                f"ON CONFLICT ({conflict_sql}) DO UPDATE SET {update_sql}"
+            )
         else:
-            # 只有主键时：冲突就什么都不做
-            sql = f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) ON CONFLICT ({pk_sql}) DO NOTHING"
+            # 只有主键列：冲突就什么都不做
+            sql = (
+                f"INSERT INTO {t_sql} ({col_sql}) VALUES ({values_sql}) "
+                f"ON CONFLICT ({conflict_sql}) DO NOTHING"
+            )
 
         def build_payload(batch: list[dict]) -> list[tuple]:
-            payload: list[tuple] = []
-            for r in batch:
-                payload.append(tuple(r.get(c) for c in columns))
-            return payload
+            return [tuple(r.get(c) for c in columns) for r in batch]
 
         total = 0
         async with cls._pool.acquire() as conn:

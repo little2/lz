@@ -1371,12 +1371,20 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
     """
     from pg_stats_db import PGStatsDB
 
+    print(f"{task}")
+
     cfg = params or {}
     if not cfg and task.get("task_value"):
-        try:
-            cfg = json.loads(task["task_value"])
-        except Exception:
-            cfg = {}
+        task_value = task.get("task_value")
+        # 如果已经是 dict 就直接用，否则尝试 JSON 解析
+        if isinstance(task_value, dict):
+            cfg = task_value
+        else:
+            try:
+                cfg = json.loads(task_value)
+            except Exception:
+                cfg = {}
+
 
     source_chat_id = int(cfg.get("source_chat_id"))
     target_chat_id = int(cfg.get("target_chat_id"))
@@ -1453,8 +1461,6 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
             bonus = p["bonus"]            # ✅ 可用于公告
             manager_cnt = p["manager_msg_count"]
 
-            
-
             tx = {
                 "sender_id": 0,
                 "receiver_id": manager_id,
@@ -1465,14 +1471,14 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
             }
 
             result = await MySQLPool.transaction_log(tx)
+            # result = {"status":"insert"}  # TODO: 删除测试代码
+        
             print(f"💰result={result}", flush=True)
 
-            # result = {"status":"insert"}  # TODO: 删除测试代码
-            if result.get("status") == "insert":    
-
+            if result.get("status") == "insert": 
+                await MySQLPool.update_board_funds(board_id=r.get("board_id"), pay_funds=-salary)    # TODO: 删除测试代码
+                new_expire_timestamp = await MySQLPool.extend_bm_membership(manager_id=manager_id,manager_cnt=manager_cnt) 
                 
-
-                await MySQLPool.update_board_funds(board_id=r.get("board_id"), pay_funds=-salary)
 
                 # 公告示例（你可按风格再精简）
                 salary_detail = (
@@ -1483,7 +1489,9 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                 # 取回原 manager dict 用 _fmt_manager_line 展示名字
                 m = next((mm for mm in calc["eligible_managers"] if int(mm.get("manager_user_id") or 0) == manager_id), None)
                 manager_line = _fmt_manager_line([m] if m else [{"manager_user_id": manager_id, "manager_msg_count": manager_cnt}])
-
+                # 将timestamp 转成 Y-m-d H:i:s
+                new_expire_timestamp_date = datetime.fromtimestamp(new_expire_timestamp).strftime("%Y-%m-%d %H:%M:%S") if new_expire_timestamp else ""
+                
                 notice = (
                     "💰 版主工资已发放\n"
                     f"🗓 {pay_day}\n"
@@ -1491,14 +1499,17 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                     f"👤 {manager_line}\n"
                     f"💎 +{salary}（{salary_detail}）\n"
                     f"💬 近7天发言 {manager_cnt}\n"
-                    f"🏦 本板版金 {calc['funds']}｜分成池 {calc['bonus_pool']}｜本板扣款 {calc['total_deducted']}"
+                    f"🏦 本板版金 {calc['funds']}｜分成池 {calc['bonus_pool']}｜本板扣款 {calc['total_deducted']}\n"
                 )
                 
+                if new_expire_timestamp_date:
+                    notice =f"{notice}👿 延长小懒觉期限至 {new_expire_timestamp_date}\n"
+
                 await MySQLPool.set_media_auto_send({
                     "chat_id": manager_id,
                     "type": "text",
                     "text": notice,
-                    "bot": "xiaolongdd02bot",
+                    "bot": "xiaolongyang002bot",
                     "create_timestamp": int(time.time()),
                     "plan_send_timestamp": int(time.time()),  # 一小时后
                 })
@@ -1517,134 +1528,6 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                         flush=True,
                     )
 
-
-async def exec_pay_board_manager_salary2(client, task: dict, params: dict | None = None) -> None:
-    """
-    近 7 天版主工资（按板块独立发放）：
-    - 统计口径：PGStatsDB.get_board_thread_stats_range_sum(start_date, end_date, source_chat_id)
-    - 条件：manager_msg_count > 3
-    - 发放：MySQLPool.transaction_log(tx)
-    - 若 result['status'] == 'insert' 才在目标版面公告（避免重复公告）
-
-    task_value 建议 JSON，示例：
-    {
-      "source_chat_id": -100xxx,
-      "target_chat_id": -100yyy,
-      "target_thread_id": 123,
-      "include_bots": false
-    }
-    """
-    from pg_stats_db import PGStatsDB
-
-    cfg = params or {}
-    if not cfg and task.get("task_value"):
-        try:
-            cfg = json.loads(task["task_value"])
-        except Exception:
-            cfg = {}
-
-    source_chat_id = int(cfg.get("source_chat_id"))
-    target_chat_id = int(cfg.get("target_chat_id"))
-    target_thread_id = int(cfg.get("target_thread_id", 0))
-    include_bots = bool(cfg.get("include_bots", False))
-    print(f"💰 [salary] start pay_board_manager_salary source_chat_id={source_chat_id} target_chat_id={target_chat_id} target_thread_id={target_thread_id} include_bots={include_bots}", flush=True)
-
-    # “近七天”用台北时间定义：含昨日共 7 天
-    now_local = now_taipei()
-    end_date = now_local.date() - timedelta(days=1)   # 昨日
-    start_date = end_date - timedelta(days=6)
-    pay_day = end_date.strftime("%Y-%m-%d")
-
-    await PGStatsDB.sync_board_from_mysql()
-
-    rows = await PGStatsDB.get_board_thread_stats_range_sum(
-        stat_date_from=start_date,
-        stat_date_to=end_date,
-        tg_chat_id=source_chat_id,
-        include_bots=include_bots,
-    )
-
-   
-
-    if not rows:
-        print("ℹ️ [salary] no board stats found, nothing to pay", flush=True)
-        return
-
-    # 确保 MySQL pool 可用
-    await MySQLPool.ensure_pool()
-
-    for r in rows:
-        print(f"{r}", flush=True)
-        board_key = (r.get("board_key") or "").strip()
-        if not board_key:
-            # fallback：没有 board_key 就用 thread_id
-            board_key = f"thread_{r.get('thread_id') or ''}".strip("_")
-            board_title = r.get("board_title") or board_key
-
-        managers = r.get("managers") or []
-        missing_ids: set[int] = set()
-
-        for m in managers:
-            try:
-                manager_id = int(m.get("manager_user_id") or 0)
-                manager_cnt = int(m.get("manager_msg_count") or 0)
-                manager_title = m.get("first_name","") + " " + m.get("last_name","")
-                if not manager_title.strip():
-                    missing_ids.add(manager_id)
-            except Exception:
-                continue
-
-            if not manager_id:
-                continue
-            # if manager_cnt <= 3:
-            #     # print(f"ℹ️ [salary] {manager_title} skip manager_id={manager_id} board_key={board_key} cnt={manager_cnt} <=3", flush=True)
-            #     continue
-
-            tx = {
-                "sender_id": 0,
-                "receiver_id": manager_id,
-                "transaction_type": "salary",
-                "transaction_description": f"{pay_day}_{board_key}",
-                "sender_fee": 0,
-                "receiver_fee": 10,
-            }
-
-            try:
-                # result = await MySQLPool.transaction_log(tx)
-                result = {"status": "insert2"}
-            except Exception as e:
-                print(f"❌ [salary] {manager_title} transaction_log failed manager_id={manager_id} board_key={board_key} err={e}", flush=True)
-                continue
-
-
-
-            # 只在“首次插入”时公告，避免重复刷屏
-            if result.get("status") == "insert":
-                notice = (
-                    "💰 版主工资已发放 (由版金扣除)\n"
-                    f"🗓 {pay_day}\n"
-                    f"🏷 {board_title}\n"
-                    f"👤 {manager_title} ({manager_id})\n"
-                    f"💎 +10\n"
-                    f"💬 近7天发言 {manager_cnt}"
-                )
-                try:
-                    await send_text_via_telethon(
-                        client=client,
-                        target_chat_id=target_chat_id,
-                        target_thread_id=target_thread_id,
-                        text=notice,
-                    )
-                except Exception as e:
-                    print(f"⚠️ [salary] send notice failed chat_id={target_chat_id} thread_id={target_thread_id} err={e}", flush=True)
-       
-        if missing_ids:
-           
-            await ensure_user_names_via_telethon(
-                client=client,
-                user_ids=list(missing_ids),
-                chat_id=source_chat_id,
-            )
 
 async def run_taskrec_scheduler(client, poll_seconds: int = 180, stop_event: asyncio.Event | None = None):
     """
@@ -1836,7 +1719,12 @@ async def main():
             print(f"⚠️ 通知命令接收者时出错: {e}", flush=True)
             await add_contact()
 
+    
+    # await exec_pay_board_manager_salary(client=client, task={"task_value":{"source_chat_id": -1001943193056,"target_chat_id": -1003802600020,"target_thread_id": 3, "include_bots": False}})
+
     print("📡 开始监听所有事件...")
+
+
 
     # Render 用 PORT
     port = int(os.environ.get("PORT", 8080))

@@ -363,6 +363,42 @@ class MySQLPool(LYBase):
 
 
     @classmethod
+    async def extend_bm_membership(
+        cls,
+        manager_id : int,
+        manager_cnt:  int
+    ):
+        await cls.ensure_pool()   # ✅ 新增
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            sql = """
+                SELECT expire_timestamp
+                FROM membership 
+                WHERE user_id = %s
+                LIMIT 1
+            """
+            await cursor.execute(sql, (manager_id,))
+            row = await cursor.fetchone()
+            if not row:
+                print("没有")
+                return None
+            print(f"{int(row['expire_timestamp'])} {(manager_cnt*86400)}")
+            user_expire_timestamp = int(row['expire_timestamp']) + (manager_cnt*43200)
+            new_expire_timestamp = int(min(user_expire_timestamp, (time.time()+86400*21)))
+            print(f"{manager_id} -> {new_expire_timestamp}")
+                       
+            await cursor.execute(f"""
+                UPDATE membership SET expire_timestamp = %s 
+                WHERE user_id = %s and course_code='xlj'
+            """, (new_expire_timestamp, manager_id))
+            return new_expire_timestamp
+        except Exception as e:
+            print(f"⚠️ 427 数据库执行出错: {e}")
+        finally:
+            await cls.release(conn, cursor)   
+
+
+    @classmethod
     async def reset_sora_media_by_id(cls, content_id, bot_username):
         await cls.ensure_pool()   # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()

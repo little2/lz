@@ -5929,8 +5929,11 @@ async def main():
         SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/")
         setup_application(app, dp, bot=bot)
 
-        task_keep_alive = asyncio.create_task(keep_alive_ping())
-
+       
+        webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+        print(f"🔗 設定 Telegram webhook 為：{webhook_url}")
+        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.set_webhook(webhook_url)
      
 
         load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
@@ -5949,6 +5952,7 @@ async def main():
 
         
     else:
+        await bot.delete_webhook(drop_pending_updates=True)
         load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
         if(load_result.get("ok") == 1):
             lz_var.skins = load_result.get("skins", {})

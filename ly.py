@@ -669,14 +669,15 @@ async def ping_keepalive_task():
     ping_urls = [
         "https://tgone-da0b.onrender.com",  # TGOND  park
         "https://lz-qjap.onrender.com",     # 上传 luzai02bot
-        "https://lz-v2p3.onrender.com",     # 鲁仔 lz04bot   # 
+        "https://lz-v2p3.onrender.com",     # LZ-No1    
         "https://twork-vdoh.onrender.com",  # TGtworkONE freebsd666bot
         "https://twork-f1im.onrender.com",  # News  news05251
         "https://lz-9bfp.onrender.com",     # 菊次郎 stcxp1069
         "https://lz-rhxh.onrender.com",     # 红包 stoverepmaria
         "https://lz-6q45.onrender.com",     # 布施 yaoqiang648
         "https://tgone-ah13.onrender.com",  # Rely
-        "https://hb-lp3a.onrender.com"      # HB  
+        "https://hb-lp3a.onrender.com",     # HB  
+        "https://lz-upload.onrender.com"    # LZ-No2
     ]
 
     timeout = aiohttp.ClientTimeout(total=10)
@@ -1431,6 +1432,8 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
 
         payouts = calc["payouts"]
         if not payouts:
+
+            
             continue
 
         # （可选）先补齐名字：针对 eligible_managers

@@ -4533,9 +4533,9 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         return
 
     # print(f"💰 交易结果: {result}, 交易后用户积分余额: {user_point}", flush=True)
-    timer.lap(f"判断交易结果{result.get('status')}")
+    timer.lap(f"判断交易结果-{result.get('status')}")
     if result.get('status') == 'exist' or result.get('status') == 'insert' or result.get('status') == 'reward_self':
-
+        drangon_used = 0
         if result.get('status') == 'exist':
             reply_text += f"✅ 你已经兑换过此资源，不需要扣除积分"
             if user_point > 0:
@@ -4544,9 +4544,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             # print(f"💬 回复内容: {reply_text}", flush=True)
         elif result.get('status') == 'insert':
             
-            reply_text += f"✅ 兑换成功，已扣除 {sender_fee} 积分"
+
+            if result and result.get('drangon_used'):
+                drangon_used = int(result.get('drangon_used') or 0)
+
+            reply_text += f"✅ 兑换成功，已使用 {drangon_used} 点龙精折抵，实际扣除 {(sender_fee+drangon_used)} 积分"
             if user_point > 0:
-                reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
+                reply_text += f"，当前积分余额: {(user_point+sender_fee+drangon_used)}。"
 
             available_content_length = 20
             content_preview = ret_content[:available_content_length]
@@ -4680,7 +4684,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         await callback.answer(reply_text, show_alert=True)
         # await callback.message.reply(reply_text, parse_mode="HTML")
         return
-
+    else:
+        reply_text = f"⚠️ 现在太多人使用，请稍侯再试。"
+        await callback.answer(reply_text, show_alert=True)
+        print(f"❌ 交易失败，未知状态: {result}", flush=True)
+        # await callback.message.reply(reply_text, parse_mode="HTML")
+        return
 async def build_after_redeem_buttons(content_id,source_id,file_type,ret_content):
     rows_kb: list[list[InlineKeyboardButton]] = []
 

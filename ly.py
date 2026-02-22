@@ -74,7 +74,7 @@ GroupStatsTracker.configure(
 async def notify_command_receivers_on_start():
     target = await client.get_entity(int(KEY_USER_ID))     
     me = await client.get_me()
-    await client.send_message(target, f"你好, 我是 {me.id} - {me.first_name} {me.last_name or ''}")
+    await client.send_message(target, f"[LYHB] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行 LY 任务！",parse_mode='html')  
     return
    
 async def add_contact():
@@ -261,7 +261,26 @@ async def replay_offline_transactions(max_batch: int = 200):
 
 
 
+@client.on(events.MessageDeleted)
+async def handle_message_deleted(event):
+    """
+    监听群组消息删除
+    """
+    if not event.chat_id:
+        return
 
+    chat_id = int(event.chat_id)
+    deleted_ids = [int(mid) for mid in event.deleted_ids]
+
+    print(
+        f"🗑️ 检测到删除事件 chat_id={chat_id} message_ids={deleted_ids}",
+        flush=True
+    )
+
+    try:
+        await PGStatsDB.mark_message_deleted(chat_id, deleted_ids)
+    except Exception as e:
+        print(f"❌ 更新删除时间失败: {e}", flush=True)
 
 
 # ==================================================================

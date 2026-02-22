@@ -728,6 +728,25 @@ class PGStatsDB:
                             r["text"],
                         )
 
+    @classmethod
+    async def mark_message_deleted(cls, chat_id: int, message_ids: list[int]):
+        """
+        标记消息为已删除（逻辑删除）
+        """
+        if not message_ids:
+            return
+
+        sql = """
+        UPDATE tg_group_messages_raw
+        SET deleted_at = NOW()
+        WHERE chat_id = $1
+        AND message_id = ANY($2::bigint[])
+        """
+
+        async with cls.pool.acquire() as conn:
+            await conn.execute(sql, int(chat_id), message_ids)
+
+
 
     @classmethod
     async def fetch_hour_texts(cls, chat_id: int, stat_date, hour: int, thread_id: int = 0, min_len: int = 3):

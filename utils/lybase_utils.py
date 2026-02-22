@@ -137,6 +137,8 @@ import lz_var
 from lz_config import ENVIRONMENT, UPLOADER_BOT_NAME, PUBLISH_BOT_NAME
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from datetime import datetime
+
 
 
 import time
@@ -147,6 +149,7 @@ class LYBase:
     async def transaction_log(cls, transaction_data):
         conn, cur = await cls.get_conn_cursor()
         user_info_row = None
+        transaction_data_drangon_used = 0
 
         try:
             # ---------- 1) 入参校验与归一化（放进 try，避免泄漏） ----------
@@ -177,7 +180,7 @@ class LYBase:
 
             # 统一语义：sender_fee <= 0 表示扣款；receiver_fee >= 0 表示入账
             if sender_fee > 0:
-                sender_fee = -abs(sender_fee)
+                sender_fee = abs(sender_fee) * (-1)
             if receiver_fee < 0:
                 receiver_fee = abs(receiver_fee)
 
@@ -237,6 +240,17 @@ class LYBase:
                 )
                 user_info_row = await cur.fetchone()
 
+                stat_date = datetime.now().strftime("%Y-%m-%d")
+
+                await cur.execute(
+                    "SELECT drangon FROM contribute_today WHERE user_id=%s and stat_date=%s LIMIT 1 FOR UPDATE",
+                    (sender_id, stat_date),
+                )
+                drangon_row = await cur.fetchone()
+                drangon_point = 0
+                if (drangon_row) and int(drangon_row.get("drangon") or 0) > 0:
+                    drangon_point = int(drangon_row.get("drangon"))
+
                 need = abs(sender_fee)
                 if (not user_info_row) or int(user_info_row.get("point") or 0) < need:
                     await conn.rollback()
@@ -247,13 +261,35 @@ class LYBase:
                         "user_info": user_info_row,
                     }
 
+                actutal_pay = sender_fee
+                
+                if drangon_point > 0:
+                    if drangon_point >= need:
+                        actutal_pay = 0
+                        new_drangon = drangon_point - need
+                        transaction_data_drangon_used = need
+                    else:
+                        actutal_pay = sender_fee + drangon_point
+                        new_drangon = 0
+                        transaction_data_drangon_used = drangon_point
+
+                    await cur.execute(
+                        """
+                        UPDATE contribute_today
+                        SET drangon = %s
+                        WHERE user_id = %s and stat_date = %s
+                        """,
+                        (new_drangon, sender_id, stat_date),
+                    )
+
+
                 await cur.execute(
                     """
                     UPDATE user
                     SET point = point + %s
                     WHERE user_id = %s
                     """,
-                    (sender_fee, sender_id),
+                    (actutal_pay, sender_id),
                 )
 
                 # 更新后的 sender 信息（给上层提示用）
@@ -294,7 +330,7 @@ class LYBase:
             # ---------- 7) 提交 ----------
             await conn.commit()
 
-            return {"ok": "1", "status": "insert", "transaction_data": transaction_data, "user_info": user_info_row}
+            return {"ok": "1", "status": "insert", "transaction_data": transaction_data, "user_info": user_info_row, "drangon_used":transaction_data_drangon_used}
 
         except Exception as e:
             # 任何异常都回滚，避免半套账
@@ -374,8 +410,6 @@ class LYBase:
         """
         conn, cur = await cls.get_conn_cursor()
         try:
-            from datetime import datetime
-            import time
 
             stat_date = datetime.now().strftime("%Y-%m-%d")
             now = int(time.time())

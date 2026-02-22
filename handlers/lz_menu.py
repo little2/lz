@@ -3382,6 +3382,23 @@ async def build_collections_keyboard(user_id: int, page: int, mode: str) -> Inli
 
 # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
 
+
+@router.callback_query(F.data.regexp(r"^promote_clt:\d+$"))
+async def handle_promote_clt(callback: CallbackQuery,state: FSMContext):
+    _,  clt_id = callback.data.split(":")
+    await callback.answer()
+    text = "✨ 推广功能\n\n• 将你的资源以红包的形式推广给更多用户！\n\n 每次推广需要消耗积分！"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🚀 确认推广 ( 💎 34 )",
+            url=f"https://t.me/longyangbaobot?start=clt_{clt_id}"
+        )],
+    ])
+   
+    notify_msg = await callback.message.reply(text, reply_markup=kb)
+    
+
 @router.callback_query(F.data == "clt_my")
 async def handle_clt_my(callback: CallbackQuery,state: FSMContext):
     print(f"handle_clt_my: {callback.data}")
@@ -3665,22 +3682,25 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
         callback_function = 'clti:flist' 
 
     nav_row: list[InlineKeyboardButton] = []
-    nav_row.append(InlineKeyboardButton(text="🪟 显示资源橱窗内容", callback_data=f"{callback_function}:{cid}:0"))
+    nav_row.append(InlineKeyboardButton(text="🪟 内容", callback_data=f"{callback_function}:{cid}:0"))
 
     if mode == 'edit':
-        nav_row.append(InlineKeyboardButton(text="🔧 编辑资源橱窗", callback_data=f"clt:edit:{cid}:0:k"))
-    else:
-        
+        nav_row.append(InlineKeyboardButton(text="🔧 编辑", callback_data=f"clt:edit:{cid}:0:k"))
+    else: 
         fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
         nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
+
+    nav_row.append(InlineKeyboardButton(text="🚀 推广", callback_data=f"promote_clt:{cid}"))
+
+    
 
     if nav_row:
         kb_rows.append(nav_row)  
 
     shared_url = f"https://t.me/{lz_var.bot_username}?start=clt_{cid}"
     kb_rows.append([
-        InlineKeyboardButton(text="🔗 复制资源橱窗链结", copy_text=CopyTextButton(text=shared_url)),
-        InlineKeyboardButton(text="📤 上传到此橱窗", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upclt_{cid}")
+        InlineKeyboardButton(text="🔗 复制链结", copy_text=CopyTextButton(text=shared_url)),
+        InlineKeyboardButton(text="📤 上传橱窗", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upclt_{cid}")
         ])
 
   

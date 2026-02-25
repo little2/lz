@@ -1747,12 +1747,14 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         "from_chat_id": message.chat.id,
         "message_id": message.message_id
     }
-
-    await set_preview_thumb(user_id=user_id, phpto_profile=phpto_profile,state=state, content_id=content_id)
-
-
-
     photo_message = message
+    await photo_message.delete()
+    
+    await set_preview_thumb(user_id=user_id, phpto_profile=phpto_profile,state=state, content_id=content_id)
+    
+
+
+    
 
     file_unique_id = phpto_profile["file_unique_id"]
     file_id = phpto_profile["file_id"]
@@ -1772,7 +1774,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         )
         # print(f"Edit result: {edit_result}", flush=True)
         print(f"📸 7预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
-        await photo_message.delete()
+        
     except Exception as e:
         print(f"⚠️ 8更新预览图失败B：{e}", flush=True)
 
@@ -1846,11 +1848,12 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                 _tmp_chat_id = send_video_result.chat.id
                 _tmp_msg_id = send_video_result.message_id
                 
-                print(f"4.1.1 是视频,且有fuid, 送出的视频信息{send_video_result}")
+                print(f"4.1.1 是视频,且有fuid, 送出的视频信息")
                 buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
                 
                 if buf and pic:
                     try:
+                        await callback_query.answer("预览图更新中", show_alert=False)
                         newcover = await callback_query.message.edit_media(
                             media=InputMediaPhoto(
                                 media=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"),
@@ -1885,7 +1888,7 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                         #     content_id, thumb_file_unique_id, thumb_file_id, await get_bot_username()
                         # )
 
-                        await callback_query.answer("预览图更新中", show_alert=False)
+                        
                     except Exception as e:
                         if(str(e).find("message is not modified")>=0):
                             await callback_query.answer("⚠️ 这就是这个资源的默认预览图（无修改）", show_alert=True)
@@ -2247,8 +2250,14 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     ]
     preview_keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
-
-
+    result , error = await send_to_review_group(content_id, state)
+    if result:
+        await callback_query.answer("✅ 已提交审核", show_alert=False)
+    else:
+        if error:
+            await callback_query.answer(f"⚠️ 发送失败：{error}", show_alert=True)
+        else:
+            await callback_query.answer("⚠️ 发送失败：未知错误", show_alert=True)
 
 
     try:
@@ -2263,15 +2272,6 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
             await callback_query.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
-
-    result , error = await send_to_review_group(content_id, state)
-    if result:
-        await callback_query.answer("✅ 已提交审核", show_alert=False)
-    else:
-        if error:
-            await callback_query.answer(f"⚠️ 发送失败：{error}", show_alert=True)
-        else:
-            await callback_query.answer("⚠️ 发送失败：未知错误", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("cancel_publish:"))

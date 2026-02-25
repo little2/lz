@@ -4465,7 +4465,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     if( user_point + sender_fee < 0) and (int(owner_user_id or 0) != int(from_user_id)):
-        await callback.answer("⚠️ 你的积分余额不足，无法兑换此资源，请先赚取或充值积分。", show_alert=True)
+        await callback.answer("⚠️ 你的积分余额不足，无法兑换此资源，请先赚取积分。", show_alert=True)
         return
 
 

@@ -27,7 +27,7 @@ if ADMIN_IDS_RAW:
             ADMIN_IDS.add(int(part))
 
 RESULTS_PER_PAGE = 6
-CACHE_TTL = 3000  # 緩存時間，單位秒
+CACHE_TTL = 300  # 緩存時間，單位秒
 
 config = {}
 # 嘗試載入 JSON 並合併參數

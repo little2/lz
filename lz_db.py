@@ -454,6 +454,7 @@ class DB:
         cached = await self.cache.get(cache_key)
         if cached:
             print(f"\r\n\r\n173:Cache hit for {cache_key}")
+            self.cache.set(cache_key, cached, ttl=CACHE_TTL)
             return cached
         
         # print(f"\r\n\r\nCache miss for {cache_key}, querying database...")

@@ -1809,6 +1809,9 @@ class AnanBOTPool(LYBase):
                 VALUES (%s, %s, %s, %s)
             """, (content_id, status, operator_user_id, reason))
 
+
+
+
             await cur.execute(
                 """
                 UPDATE product

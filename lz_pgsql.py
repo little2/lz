@@ -2081,7 +2081,9 @@ class PGPool:
         if cls.cache:
             cached = await cls.cache.get(cache_key)
             if cached:
+                
                 print(f"🔹 PG MemoryCache hit for {cache_key}")
+                cls.cache.set(cache_key, cached, ttl=300)
                 return cached
 
         await cls.ensure_pool()
@@ -2269,6 +2271,7 @@ class PGPool:
             cached = await cls.cache.get(cache_key)
             if cached:
                 # print(f"🔹 PG MemoryCache hit for {cache_key}")
+                cls.cache.set(cache_key, cached, ttl=300)
                 return cached
 
         conn = None

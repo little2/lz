@@ -498,7 +498,7 @@ async def on_title_input(message: Message, state: FSMContext):
     anchor_msg_id  = data.get("anchor_msg_id")
     anchor_message = data.get("anchor_message")
 
-    print(f"197=>{anchor_chat_id} {anchor_msg_id}")
+    print(f"197=>{anchor_chat_id} {anchor_msg_id}",flush=True)
 
     text = (message.text or "").strip()
     if len(text) == 0 or len(text) > 255:
@@ -509,6 +509,7 @@ async def on_title_input(message: Message, state: FSMContext):
     # 1) 更新数据库
     await MySQLPool.update_user_collection(collection_id=cid, title=text)
 
+    print(f"✅ 标题已更新到数据库，正在同步到 PostgreSQL... collection_id={cid} title={text}", flush=True)
     await sync_table_by_pks("user_collection", "id", [cid])
 
     # 2) 删除用户输入的这条消息
@@ -1747,6 +1748,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     if content_id > 0:
                         db.cache.delete(f"sora_content_id:{content_id}")
                         await sync_sora(content_id)
+                        await sync_table_by_pks("product", "content_id", [content_id])
                 except Exception as e2:
                     print(f"❌ 解密失败D：{e2}", flush=True)
                 
@@ -2188,9 +2190,11 @@ async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext)
         return
 
     try:
+        # 退回编辑
         await _mysql_set_product_review_status_by_content_id(content_id, 1, operator_user_id=callback.from_user.id, reason="退回编辑")
         db.cache.delete(f"sora_content_id:{content_id}")
         await sync_sora(content_id)
+        await sync_table_by_pks("product", "content_id", [content_id])
         
         
     except Exception as e:
@@ -2255,6 +2259,7 @@ async def handle_sora_op_force_update(callback: CallbackQuery, state: FSMContext
     # 不强制权限也行（但管理页回上一页通常仍在 owner/admin 手里）
     db.cache.delete(f"sora_content_id:{content_id}")
     await sync_sora(int(content_id))
+    await sync_table_by_pks("product", "content_id", [content_id])
     await callback.answer("更新同步中，请在 1 分钟后再试", show_alert=False)
 
 @router.callback_query(F.data == "sora_op:cancel_unpublish")
@@ -2319,7 +2324,7 @@ async def handle_sora_op_unpublish_reason(message: Message, state: FSMContext):
         await _mysql_set_product_review_status_by_content_id(content_id, 20, operator_user_id=uid, reason=reason)
         db.cache.delete(f"sora_content_id:{content_id}")
         await sync_sora(content_id)
-       
+        await sync_table_by_pks("product", "content_id", [content_id])
         
     except Exception as e:
         print(f"❌ sora_op unpublish failed: {e}", flush=True)
@@ -3458,6 +3463,7 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
         pass
     elif refresh_mode == 'tk':
         collection_info  = await _build_clt_info(cid=cid, user_id=user_id, mode='edit', ops='handle_clt_my')
+        print(f"collection_info==>{collection_info}")
         if collection_info.get("success") is False:
             await callback.answer(collection_info.get("message"), show_alert=True)
             return
@@ -5316,6 +5322,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     else:
         db.cache.delete(f"sora_content_id:{content_id}")
         await sync_sora(content_id)
+        await sync_table_by_pks("product", "content_id", [content_id])
         warn = f"⚠️ 正在同步中，请稍后再试一次 ( ID : {content_id} )"
         empty_file_info = [None, None, None, None]
         empty_purchase_info = [None, 0, None]

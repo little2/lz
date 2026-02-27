@@ -1809,7 +1809,15 @@ class AnanBOTPool(LYBase):
                 VALUES (%s, %s, %s, %s)
             """, (content_id, status, operator_user_id, reason))
 
-
+            await cur.execute(
+                """
+                UPDATE sora_content 
+                   SET valid_state=%s,
+                       plan_updated_timestamp=NOW(), stage='pending'
+                 WHERE id=%s
+                """,
+                (status, content_id)
+            )
 
 
             await cur.execute(

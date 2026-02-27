@@ -2927,6 +2927,7 @@ async def _send_to_topic(content_id:int):
 async def _sync_pg(content_id:int):
     try:
         await sync_sora(content_id)
+        await sync_table_by_pks("product", "content_id", [content_id])
         print(f"🔍 已同步 content_id={content_id} 到 PG 数据库", flush=True)
     except Exception as e:
         logging.exception(f"同步 content_id={content_id} 到 PG 失败: {e}")
@@ -2934,6 +2935,7 @@ async def _sync_pg(content_id:int):
 async def refine_sync_send(content_id,product_row):
     # 为了要改善数据库还没更新，就被寄送到发布频道的问题
     await AnanBOTPool.refine_product_content(content_id)
+    
     await _sync_pg(content_id)
     await _approve_content(product_row)
 

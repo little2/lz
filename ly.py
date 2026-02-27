@@ -46,6 +46,7 @@ from ly_config import (
     STAT_FLUSH_INTERVAL,
     STAT_FLUSH_BATCH_SIZE,
     KEY_USER_ID,
+    SWITCHBOT_USERNAME,
     THUMB_DISPATCH_INTERVAL,
     THUMB_BOTS,
     THUMB_PREFIX,
@@ -78,6 +79,9 @@ async def notify_command_receivers_on_start():
     target = await client.get_entity(int(KEY_USER_ID))     
     me = await client.get_me()
     await client.send_message(target, f"[LYHB] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行 LY 任务！",parse_mode='html')  
+
+    if SWITCHBOT_USERNAME:
+        await client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')      
     return
    
 async def add_contact():
@@ -1568,7 +1572,7 @@ async def exec_notify_mass_delete_disable_points(client, task: dict, params: dic
     notice = (
         "我们理解，也尊重部分群友希望在网络上不留痕迹的想法。\n\n"
         "不过由于发言会产生积分奖励，为了避免机制被反复利用，\n"
-        "即日起，凡是出现批量发言后再集中删除内容的情况，\n"
+        "因此，凡是出现批量发言后再集中删除内容的情况，\n"
         "将取消其发言获得积分的资格。\n\n"
         "希望大家理解，这个调整只是为了维护机制的公平与长期稳定运行。\n\n"
         f"任何问题，可以联系教务处小助手 @lyjwcbot\n\n"

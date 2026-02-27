@@ -23,6 +23,8 @@ WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 10000))
 
 
 BOT_TOKEN = config.get('bot_token', os.getenv('BOT_TOKEN', ''))
+SWITCHBOT_TOKEN = os.getenv("SWITCHBOT_TOKEN", "")
+
 BOT_MODE        = os.getenv("BOT_MODE", "polling").lower()
 MYSQL_HOST = config.get('db_host', os.getenv('MYSQL_DB_HOST', 'localhost'))
 MYSQL_USER = config.get('db_user', os.getenv('MYSQL_DB_USER', ''))

@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE
+from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
 # from lz_db import db
 from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
@@ -273,7 +273,12 @@ async def say_hello():
         print(f"发送消息给 KeyMan 成功。",flush=True)
     except Exception as e:
         print(f"发送消息给 KeyMan 失败：{e}",flush=True)
-    
+
+    try:
+        await lz_var.user_client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')   
+        print(f"发送消息给 {SWITCHBOT_USERNAME} 成功。",flush=True)
+    except Exception as e:
+        print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
   
 
 

@@ -4,6 +4,7 @@ import json
 
 load_dotenv(dotenv_path='.lz.env')
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+SWITCHBOT_USERNAME = os.getenv("SWITCHBOT_USERNAME", "")
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 
 BOT_MODE = os.getenv("BOT_MODE", "polling").lower()

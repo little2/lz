@@ -80,6 +80,7 @@ PG_MIN_SIZE = 1
 PG_MAX_SIZE = 5 
 
 KEY_USER_ID = os.getenv("KEY_USER_ID")  
+SWITCHBOT_USERNAME = os.getenv("SWITCHBOT_USERNAME", "")
 raw = os.getenv("BOT_INIT", "")
 BOT_INIT = [x.strip() for x in raw.split(",") if x.strip()]
 
@@ -90,3 +91,4 @@ DEBUG_HB_GROUP_ID = -1001943193056  # 换成实际群 ID
 FORWARD_THUMB_USER =  os.getenv("FORWARD_THUMB_USER", "")
 
 VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))
+

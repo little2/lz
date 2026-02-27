@@ -11,6 +11,7 @@ import aiohttp
 
 from lz_mysql import MySQLPool
 
+import lz_var
 from pg_stats_db import PGStatsDB
 from group_stats_tracker import GroupStatsTracker
 
@@ -26,6 +27,8 @@ from typing import Optional, List, Any
 import importlib
 import inspect
 import time
+
+
 
 
 
@@ -1528,6 +1531,118 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                         flush=True,
                     )
 
+async def exec_notify_mass_delete_disable_points(client, task: dict, params: dict | None = None) -> None:
+    """
+    功能：
+    1) 查过去24小时内：tg_group_messages_raw 中 chat_id=-1001943193056 且 deleted_at IS NOT NULL 的记录数
+    2) 按 user_id group by，筛出 count > 10 的 user_id
+    3) 用 MySQLPool.set_media_auto_send 给这些 user_id 发私聊通知
+
+    可选 task_value / params（不传就用默认）：
+    {
+      "source_chat_id": -1001943193056,
+      "min_deleted_cnt": 10,
+      "bot": "xiaolongyang002bot"
+    }
+    """
+    from pg_stats_db import PGStatsDB
+    from lz_mysql import MySQLPool
+
+    # ---- 解析配置（对齐你现有 exec_* 风格）----
+    cfg = params or {}
+    if not cfg and task.get("task_value"):
+        task_value = task.get("task_value")
+        if isinstance(task_value, dict):
+            cfg = task_value
+        else:
+            try:
+                import json
+                cfg = json.loads(task_value)
+            except Exception:
+                cfg = {}
+
+    source_chat_id = int(cfg.get("source_chat_id", -1001943193056))
+    min_deleted_cnt = int(cfg.get("min_deleted_cnt", 10))
+    bot_name = (cfg.get("bot") or "xiaolongyang002bot").strip()
+
+    notice = (
+        "我们理解，也尊重部分群友希望在网络上不留痕迹的想法。\n\n"
+        "不过由于发言会产生积分奖励，为了避免机制被反复利用，\n"
+        "即日起，凡是出现批量发言后再集中删除内容的情况，\n"
+        "将取消其发言获得积分的资格。\n\n"
+        "希望大家理解，这个调整只是为了维护机制的公平与长期稳定运行。\n\n"
+        f"任何问题，可以联系教务处小助手 @lyjwcbot\n\n"
+    )
+
+    # ---- 时间窗口：过去 24 小时（用 msg_time_utc 更精确；stat_date 只是 date）----
+    # 这里按 UTC 计算窗口；若你希望按台北/新加坡时间，可改 now_taipei() 再转 UTC。
+    now_utc = datetime.now(timezone.utc)
+    since_utc = now_utc - timedelta(hours=24)
+
+    if PGStatsDB.pool is None:
+        print("⚠️ PGStatsDB 未初始化，无法执行 exec_notify_mass_delete_disable_points。", flush=True)
+        return
+
+    # ---- 查 PG：deleted_at 非空的删除记录，按 user_id 聚合 ----
+    async with PGStatsDB.pool.acquire() as conn_pg:
+        rows = await conn_pg.fetch(
+            """
+            SELECT
+                user_id,
+                COUNT(*)::int AS deleted_cnt
+            FROM tg_group_messages_raw
+            WHERE chat_id = $1
+              AND deleted_at IS NOT NULL
+              AND msg_time_utc >= $2
+            GROUP BY user_id
+            HAVING COUNT(*) > $3
+            ORDER BY deleted_cnt DESC
+            """,
+            source_chat_id,
+            since_utc,
+            min_deleted_cnt,
+        )
+
+    if not rows:
+        print(
+            f"ℹ️ [mass_delete_notice] no target users. chat_id={source_chat_id} "
+            f"since_utc={since_utc.isoformat()} min_deleted_cnt>{min_deleted_cnt}",
+            flush=True,
+        )
+        return
+
+    # ---- MySQL 发消息队列 ----
+    await MySQLPool.ensure_pool()
+
+    sent = 0
+    failed = 0
+
+    for r in rows:
+        uid = int(r["user_id"])
+        cnt = int(r["deleted_cnt"])
+
+        payload = {
+            "chat_id": uid,
+            "type": "text",
+            "text": notice,
+            "bot": bot_name,
+            "create_timestamp": int(time.time()),
+            "plan_send_timestamp": int(time.time()),
+        }
+
+        try:
+            await MySQLPool.set_media_auto_send(payload)
+            sent += 1
+            print(f"📨 [mass_delete_notice] queued uid={uid} deleted_cnt={cnt}", flush=True)
+        except Exception as e:
+            failed += 1
+            print(f"❌ [mass_delete_notice] queue failed uid={uid} deleted_cnt={cnt} err={e}", flush=True)
+
+    print(
+        f"✅ [mass_delete_notice] done. total={len(rows)} sent={sent} failed={failed} "
+        f"chat_id={source_chat_id} since_utc={since_utc.isoformat()}",
+        flush=True,
+    )
 
 async def run_taskrec_scheduler(client, poll_seconds: int = 180, stop_event: asyncio.Event | None = None):
     """

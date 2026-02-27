@@ -5245,6 +5245,20 @@ async def handle_jieba_export(message: Message):
     # )
 
 
+@dp.message(F.chat.type == "private", Command("reload"))
+async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
+    load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+    if(load_result.get("ok") == 1):
+        lz_var.skins = load_result.get("skins", {})
+        await set_default_thumb_file_id()
+    else:
+        from utils.handshake import HandshakeUtils
+        print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
+        HandshakeUtils.handshake(load_result.get('handshake'))
+
+
+    await message.answer("🔄 皮肤配置已重新加载。")
+
 @dp.message(F.chat.type == "private", Command("synonym"))
 async def handle_synonym_export(message: Message):
     """

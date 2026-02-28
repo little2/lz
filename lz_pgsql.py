@@ -43,6 +43,7 @@ class PGPool:
     _lock = asyncio.Lock()
     _cache_ready = False
     cache: Optional[MemoryCache] = None
+    _table_columns_cache: Dict[str, set] = {}
 
     # ========= 连接池生命周期 =========
     @classmethod
@@ -1077,6 +1078,33 @@ class PGPool:
             raise ValueError(f"invalid identifier: {name}")
         # always double-quote to preserve case/reserved words safety
         return f'"{name}"'
+
+    @classmethod
+    async def _get_table_columns(cls, table: str) -> set:
+        """获取当前 schema 下某表的列名集合（带进程内缓存）。"""
+        table = (table or "").strip()
+        if not table:
+            return set()
+
+        cached = cls._table_columns_cache.get(table)
+        if cached is not None:
+            return cached
+
+        await cls.ensure_pool()
+        async with cls._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT DISTINCT column_name
+                FROM information_schema.columns
+                WHERE table_name = $1
+                  AND table_schema = ANY(current_schemas(false))
+                """,
+                table,
+            )
+
+        cols = {str(r["column_name"]) for r in rows}
+        cls._table_columns_cache[table] = cols
+        return cols
 
     
 @classmethod
@@ -2575,6 +2603,30 @@ class PGPool:
         for f in pk_fields:
             if f not in columns:
                 raise ValueError(f"pk_field '{f}' not in row keys")
+
+        # 对齐 PG 实际表结构，忽略 MySQL 独有列（如 stage）
+        pg_columns = await cls._get_table_columns(table)
+        if not pg_columns:
+            raise ValueError(f"table '{table}' not found or has no columns in PostgreSQL")
+
+        original_columns = columns
+        columns = [c for c in original_columns if c in pg_columns]
+        dropped_columns = [c for c in original_columns if c not in pg_columns]
+
+        if dropped_columns:
+            print(
+                f"[PG upsert_records_generic] table={table} 忽略 PG 不存在字段: {', '.join(dropped_columns)}",
+                flush=True,
+            )
+
+        for f in pk_fields:
+            if f not in columns:
+                raise ValueError(
+                    f"pk_field '{f}' not found in PostgreSQL table '{table}' columns"
+                )
+
+        if not columns:
+            raise ValueError(f"no valid columns to upsert for table '{table}'")
 
         col_sql = ", ".join(cls._safe_ident_pg(c) for c in columns)
         values_sql = ", ".join(f"${i}" for i in range(1, len(columns) + 1))

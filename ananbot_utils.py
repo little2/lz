@@ -1813,7 +1813,7 @@ class AnanBOTPool(LYBase):
                 """
                 UPDATE sora_content 
                    SET valid_state=%s,
-                       plan_updated_timestamp=NOW(), stage='pending'
+                       stage='pending'
                  WHERE id=%s
                 """,
                 (status, content_id)

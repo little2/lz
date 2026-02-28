@@ -1248,7 +1248,7 @@ async def receive_album_media(message: Message, state: FSMContext):
 
     data = await state.get_data()
     content_id = int(data["content_id"])
-    user_id = str(message.from_user.id)
+    user_id = int(message.from_user.id)
     chat_id = message.chat.id
 
     try:
@@ -5454,7 +5454,7 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
     file_type_short = type_map.get(meta['file_type'], "v")
 
     bot_username = await get_bot_username()
-    user_id = str(message.from_user.id)
+    user_id = int(message.from_user.id)
 
     
     row = await AnanBOTPool.insert_sora_content_media(

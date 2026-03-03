@@ -405,7 +405,7 @@ async def main():
             else:
                 from utils.handshake import HandshakeUtils
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-                HandshakeUtils.handshake(load_result.get('handshake'))
+                await HandshakeUtils.handshake(load_result.get('handshake'))
 
             await say_hello()
             # print(f"Skin {lz_var.skins}")
@@ -422,7 +422,7 @@ async def main():
             else:
                 from utils.handshake import HandshakeUtils
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-                HandshakeUtils.handshake(load_result.get('handshake'))
+                await HandshakeUtils.handshake(load_result.get('handshake'))
 
             # print(f"Skin {lz_var.skins}")
             await say_hello()

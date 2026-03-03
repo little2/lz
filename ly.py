@@ -684,7 +684,8 @@ async def ping_keepalive_task():
         "https://lz-6q45.onrender.com",     # 布施 yaoqiang648
         "https://tgone-ah13.onrender.com",  # Rely
         "https://hb-lp3a.onrender.com",     # HB  
-        "https://lz-upload.onrender.com"    # LZ-No2
+        "https://lz-upload.onrender.com",   # LZ-No2
+        "https://lz-pbtb.onrender.com"      # LZ-1002
     ]
 
     timeout = aiohttp.ClientTimeout(total=10)

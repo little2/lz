@@ -1367,7 +1367,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
     else:
         from utils.handshake import HandshakeUtils
         print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-        HandshakeUtils.handshake(load_result.get('handshake'))
+        await HandshakeUtils.handshake(load_result.get('handshake'))
 
 
     await message.answer("🔄 皮肤配置已重新加载。")

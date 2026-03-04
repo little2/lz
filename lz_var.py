@@ -21,7 +21,7 @@ x_man_bot_username: str = x_conf["x_man_bot_username"]
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
 
 helper_bot_name = 'lyjwcbot'
-guider_bot_name = 'xiaolongyang002bot'
+guider_bot_name = 'xiaolongyang003bot'
 publish_bot_name: str = None 
 default_thumb_unique_file_ids: list[str] = [
     "AQADMK0xG4g4QEV-",

@@ -206,8 +206,8 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
 
         tpl_data["text"] = content
-        tpl_data["button_str"] = f"💎 兑换 ( {fee} ) - https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
-        tpl_data["bot_name"] = 'luzai06bot'
+        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
+        tpl_data["bot_name"] = 'luzai4001bot'
         tpl_data["business_type"] = 'salai'
         tpl_data["content_id"] = tpl_data.get("id")
         r = await MySQLPool.upsert_news_content(tpl_data)

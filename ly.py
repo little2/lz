@@ -1517,7 +1517,7 @@ async def exec_pay_board_manager_salary(client, task: dict, params: dict | None 
                     "chat_id": manager_id,
                     "type": "text",
                     "text": notice,
-                    "bot": "xiaolongyang002bot",
+                    "bot": "xiaolongyang003bot",
                     "create_timestamp": int(time.time()),
                     "plan_send_timestamp": int(time.time()),  # 一小时后
                 })
@@ -1568,7 +1568,7 @@ async def exec_notify_mass_delete_disable_points(client, task: dict, params: dic
 
     source_chat_id = int(cfg.get("source_chat_id", -1001943193056))
     min_deleted_cnt = int(cfg.get("min_deleted_cnt", 10))
-    bot_name = (cfg.get("bot") or "xiaolongyang002bot").strip()
+    bot_name = (cfg.get("bot") or "xiaolongyang003bot").strip()
 
     notice = (
         "我们理解，也尊重部分群友希望在网络上不留痕迹的想法。\n\n"

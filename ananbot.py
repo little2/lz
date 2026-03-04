@@ -2700,10 +2700,12 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
                 # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
 
         # await _send_to_topic(content_id)
+    elif review_status == 0:
+        spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_today_contribute(callback_query.from_user.id, 5, 1))
     # await _reset_review_bot_button(callback_query,content_id,button_str)
     
     spawn_once(f"_reset_review_bot_button:{content_id}",lambda:_reset_review_bot_button(callback_query,content_id,button_str) )
-    spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3))
+    
      # 处理审核区的按钮  
     # await _reset_review_zone_button(button_str,ret_chat,ret_msg) 
     spawn_once(f"_reset_review_zone_button:{content_id}", lambda:_reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info) )

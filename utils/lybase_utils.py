@@ -402,7 +402,7 @@ class LYBase:
             await cls.release(conn, cur)
 
     @classmethod
-    async def update_today_contribute(cls, user_id: int, contribute: int = 1):
+    async def update_today_contribute(cls, user_id: int, contribute: int = 1, decent: int = 0):
         """
         更新用户今日发言贡献数:
         - 如果不存在记录则插入
@@ -415,14 +415,15 @@ class LYBase:
             now = int(time.time())
 
             sql = """
-                INSERT INTO `contribute_today` (`user_id`, `stat_date`, `count`, `update_timestamp`)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO `contribute_today` (`user_id`, `stat_date`, `count`, `update_timestamp`, `decent`)
+                VALUES (%s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     `count` = `count` + %s,
+                    `decent` = `decent` + %s,
                     `update_timestamp` = VALUES(`update_timestamp`)
             """
 
-            params = [user_id, stat_date, contribute, now, contribute]
+            params = [user_id, stat_date, contribute, now, decent, contribute, decent]
             await cur.execute(sql, params)
             await conn.commit()
 

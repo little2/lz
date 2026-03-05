@@ -553,7 +553,8 @@ class DB:
             # print(f"\r\n\r\nFinal result for content_id {content_id}: {result}")
 
             # self.cache.set(cache_key, result, ttl=3600)
-            self.cache.set(cache_key, result, ttl=CACHE_TTL)
+            if(thumb_file_id and file_id):
+                self.cache.set(cache_key, result, ttl=CACHE_TTL)
             # print(f"Cache set for {cache_key}")
             return result
 

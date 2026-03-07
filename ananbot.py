@@ -459,9 +459,9 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
 
         # 5) UI 反馈
         await callback_query.message.delete()
-        print(f"album_content_id=>{album_content_id}")
+        # print(f"album_content_id=>{album_content_id}")
         thumb_file_id,preview_text,preview_keyboard = await get_product_tpl(album_content_id)
-        print(f"443:thumb_file_id={thumb_file_id}", flush=True)
+        # print(f"443:thumb_file_id={thumb_file_id}", flush=True)
         new_msg = await callback_query.message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
         await update_product_preview(album_content_id, thumb_file_id, state, message=new_msg)
         _BATCH_BY_CHAT = {} 
@@ -1732,7 +1732,11 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     message_id = data["message_id"]
 
     # print(f"📸 1开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
-    
+
+    spawn_once(
+        f"copy_message:{message.message_id}",
+        lambda: safe_copy_message(message)
+    )  
 
     message_photo = message.photo[-1]
     user_id = int(message.from_user.id)
@@ -1752,10 +1756,6 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     
     await set_preview_thumb(user_id=user_id, phpto_profile=phpto_profile,state=state, content_id=content_id)
     
-
-
-    
-
     file_unique_id = phpto_profile["file_unique_id"]
     file_id = phpto_profile["file_id"]
     thumb_file_id = file_id
@@ -1811,9 +1811,9 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
        
         thumb_row = await AnanBOTPool.get_bid_thumbnail_by_source_id(source_id)
         if thumb_row is None:
-            print(f"...🔍 2 从bid_thumbnail 没有缩图记录 for source_id: {source_id}", flush=True)
+            print(f"...🔍 2.1 从bid_thumbnail 没有缩图记录 for source_id: {source_id}", flush=True)
         else:
-            print(f"...🔍 2 从bid_thumbnail取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
+            print(f"...🔍 2.2 从bid_thumbnail取得缩图记录: {thumb_row} for source_id: {source_id}", flush=True)
         
         # 遍寻 thumb_row
         if thumb_row:
@@ -1841,8 +1841,9 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                         print(f"4.1.0 ⚠️ 无法取得 m_file_id，因为 source_id 也没值 for content_id: {content_id}", flush=True)
                         await callback_query.answer("⚠️ 无法取得资源的媒体文件", show_alert=True)
                         return
-
-                send_video_result = await lz_var.bot.send_video(chat_id=callback_query.message.chat.id, video=m_file_id)
+                print(f"{lz_var.x_man_bot_id}")
+                send_video_result = await lz_var.bot.send_video(chat_id=lz_var.x_man_bot_id, video=m_file_id)
+                # send_video_result = await lz_var.bot.send_video(chat_id=callback_query.message.chat.id, video=m_file_id)
                 
                 # 记录临时消息 id，便于无论成功/失败都删除
                 _tmp_chat_id = send_video_result.chat.id
@@ -1900,12 +1901,12 @@ async def handle_auto_update_thumb(callback_query: CallbackQuery, state: FSMCont
                     print(f"...⚠️ 提取缩图失败 for source_id: {source_id}", flush=True)
                     await callback_query.answer("⚠️ 目前还没有这个资源的缩略图，也没预设的预览图，需要手动上传或是机器人排程生成", show_alert=True)
                 
-                # 3) 不论成败，尽力删除临时视频（如果之前已删，会静默忽略异常）
-                try:
-                    await lz_var.bot.delete_message(chat_id=_tmp_chat_id, message_id=_tmp_msg_id)
+                # 3) 不再需要刻意删，不会出现在用户端
+                # try:
+                #     await lz_var.bot.delete_message(chat_id=_tmp_chat_id, message_id=_tmp_msg_id)
                     
-                except Exception as _e_del:
-                    print(f"ℹ️ 临时视频可能已被删除: {_e_del}", flush=True)
+                # except Exception as _e_del:
+                #     print(f"ℹ️ 临时视频可能已被删除: {_e_del}", flush=True)
                 
                 
                 return
@@ -5629,11 +5630,13 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
                 # 先小睡一下，避免贴脸输出
                 await asyncio.sleep(1)
 
-                return await lz_var.bot.copy_message(
+                ret =  await lz_var.bot.copy_message(
                     chat_id=lz_var.x_man_bot_id,
                     from_chat_id=message.chat.id,
                     message_id=message.message_id
                 )
+               
+                return ret
 
             except TelegramRetryAfter as e:
                 wait_s = int(getattr(e, "retry_after", 5))
@@ -5919,7 +5922,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     global bot_username, publish_bot, PUBLISH_BOT_USERNAME
     bot_username = await get_bot_username()
-    print(f"🤖 当前 bot 用户名：@{bot_username}")
+    print(f"\r\n===================================\r\n🤖 当前 bot 用户名：@{bot_username}")
     
     me = await publish_bot.get_me()
     PUBLISH_BOT_USERNAME = me.username

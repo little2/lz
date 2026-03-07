@@ -1644,7 +1644,7 @@ class AnanBOTPool(LYBase):
         }
 
         try:
-            cls.init_pool()
+            await cls.init_pool()
             async with cls._pool.acquire() as conn:
                 async with conn.cursor() as cur:
                     timer.lap("acquire_conn_and_cursor")

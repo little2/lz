@@ -1662,19 +1662,34 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     # current_message = state_data.get("current_message") if state_data else None
                     current_message = None
                 except Exception as e:
+                    MESSAGES = [
+                        "😼 系统检测到该资源在读取或传输过程中出现异常，已自动通知维护人员进行检查与修复。在问题修复完成之前，该资源将无法正常观看，请稍后再尝试访问。",
+                        "😼 很抱歉，该资源目前暂时无法观看。\r\n系统在调取该资源时发现文件状态异常，为避免播放失败或数据错误，已暂停对该资源的访问。\r\n维护人员已经收到通知并正在进行检查与修复，请稍后再尝试访问该资源。",
+                        "😼 系统在加载该资源时检测到异常，为避免出现播放错误或不完整内容，系统已暂时停止提供该资源。\r\n相关问题已经提交给维护人员处理，请稍后再访问。"
+                    ]
+
+                    msg = random.choice(MESSAGES)
                     # tb = traceback.format_exc()
-                    notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+                    notify_msg=await message.answer(msg)
                     # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                     spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
                     print(f"❌ 解密失败A：{e}", flush=True)
+                    
+                    # 私信给Key Man
+                    await lz_var.bot.send_message(
+                        chat_id=KEY_USER_ID,
+                        text=message.text,
+                        parse_mode="HTML"
+                    )
+                    return
+                    
 
 
-
+            print(f"\r\n\r\n✴️ 收到一个新的请求任务 content_id: {content_id}", flush=True)
             try:
                 caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤ." 
                 if parts[0]!="f" and current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
-                    try:
-                        
+                    try:                     
                         # print(f"clti_message={current_message}",flush=True)
                         current_message = await lz_var.bot.edit_message_media(
                             chat_id=current_message.chat.id,
@@ -1728,11 +1743,9 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             product_info = None
             try:
                 if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
-                    
                     if parts[0] == "f" and content_id == 0:
                         print(f"encoded==>{encoded} {content_id}")
                         product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
-                        
                     else:
                         viewer_user_id=int(message.from_user.id)
                         product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0], viewer_user_id=viewer_user_id)
@@ -1740,8 +1753,19 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
             except Exception as e:
                
                 # tb = traceback.format_exc()
+
+                MESSAGES = [
+                    "📦 资源正在为您准备中。\r\n系统正在将该资源从龙阳库传输并上传至 Telegram 端，此过程可能需要一些时间。\r\n在资源成功上传之前，系统不会进行任何扣款，请您放心。\r\n请稍候片刻，稍后需要再次点选该资源以继续观看。",
+                    "📦 资源正在调取与上传中。\r\n系统需要先将资源从龙阳库存储节点传输至 Telegram 平台，因此可能需要短暂等待。\r\n在资源成功上传并确认可用之前，系统不会扣除您的积分或费用。\r\n请稍候片刻，之后请再次点选该资源。",
+                    "📦 系统正在为您准备该资源。\r\n当前资源正从龙阳库调取并上传至 Telegram 端，传输过程可能需要一些时间。\r\n在资源完成上传之前，系统不会扣款。\r\n请稍候片刻，稍后请重新点选该资源以继续操作。",
+                    "📦 资源正在传输中，请稍候。\r\n系统正在将该资源从龙阳库上传到 Telegram 平台，此过程可能需要一点时间。\r\n目前尚未进行扣款，请放心。\r\n请稍候片刻，完成后请再次点选该资源。",
+                    "📦 当前资源正在准备与上传中。\r\n系统正在从龙阳库调取该资源并上传至 Telegram 端，完成后即可正常使用。\r\n在资源成功上传之前不会扣款。\r\n请稍候片刻，稍后请重新点选该资源。"
+                ]
+
+                msg = random.choice(MESSAGES)
+
                 notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
-                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
+                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 15))
                 print(f"❌ 解密失败C：{e}", flush=True)
                 # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
                 try:
@@ -1762,7 +1786,6 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                         # clti_message = date.get("menu_message")
                         try:
                             if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
-                               
                                 current_message =  await _edit_caption_or_text(
                                     photo=product_info['cover_file_id'],
                                     msg =current_message,
@@ -1770,9 +1793,6 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                                     reply_markup=product_info['reply_markup'],
                                     state= state
                                 )
-
-
-
                                 return
                             else:
                                 print(f"⚠️ 无法编辑消息，clti_message 不存在或无效", flush=True)
@@ -1918,7 +1938,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         return {"ok": False, "msg": ret_content}
     
     
-    print(f"current_pos1={current_pos}")
+    # print(f"current_pos1={current_pos}")
     if int(search_key_index)>0:
         
         if stag == "f":
@@ -1955,7 +1975,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     else:
         resource_icon = "🔄"
 
-    print(f"current_pos2={current_pos}")
+    # print(f"current_pos2={current_pos}")
 
     discount_amount = int(fee * lz_var.xlj_discount_rate)
     xlj_final_price = fee - discount_amount
@@ -1968,7 +1988,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     has_prev = current_pos > 0
     has_next = current_pos < total - 1
 
-    print(f"{current_pos} / {total} | has_prev={has_prev} | has_next={has_next}", flush=True)
+    # print(f"{current_pos} / {total} | has_prev={has_prev} | has_next={has_next}", flush=True)
 
     nav_row = []
 
@@ -4241,14 +4261,6 @@ TZ_UTC8 = timezone(timedelta(hours=8))
 def _today_ymd() -> str:
     return datetime.now(TZ_UTC8).strftime("%Y-%m-%d")
 
-
-
-
-
-
-
-
-
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
@@ -4387,7 +4399,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             await callback.answer()
             return
 
-    
+    # 如果没有资源的 file_id 且不是相册性质
     if not file_id and (file_type != 'a' and file_type !='album') :
         timer.lap("没有找到匹配记录")
         print("❌ 没有找到匹配记录 source_id")
@@ -4433,10 +4445,6 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         xlj_final_price = fee - discount_amount
         sender_fee = xlj_final_price * (-1)
 
-
-    
-    
-    
 
     # 6) credit / author 这些“购买前门槛”建议也在交易前挡住（对齐你 PHP 逻辑）
     #    （只有当资源有价格/会扣分时才做）
@@ -4542,6 +4550,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
     timer.lap("2771 开始交易记录")
+
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': receiver_id,
@@ -4550,6 +4559,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         'sender_fee': sender_fee,
         'receiver_fee': receiver_fee
     })
+
     timer.lap("2780 结束")
 
     # print(f"🔍 交易记录结果: {result}", flush=True)    
@@ -4579,8 +4589,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 reply_text += f"，当前积分余额: {(user_point+sender_fee+drangon_used)}。"
 
             available_content_length = 20
-            content_preview = ret_content[:available_content_length]
-            if len(ret_content) > available_content_length:
+            # 去除一些未审核的提示信息
+            new_ret_content = re.sub(r'<b>.*?</b>', '', ret_content)
+            new_ret_content = new_ret_content.strip()
+            content_preview = new_ret_content[:available_content_length]
+            if len(new_ret_content) > available_content_length:
                 content_preview += "..."
 
             aes = AESCrypto(AES_KEY)
@@ -4593,10 +4606,16 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 receiver_fullname = await MySQLPool.get_user_name(receiver_id)
                 sender_fullname = await MySQLPool.get_user_name(from_user_id)
                 share_url = f"https://t.me/{lz_var.bot_username}?start=f_-1_{encoded}"
-                owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname}</a>"
-                sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname}</a>"
-                notice_text_author = f"🔔 你分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户兑换，获得 {receiver_fee} 积分分成！"
-                notice_text_manager = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
+                
+                # HTML 转义以防止标签冲突
+                receiver_fullname_escaped = html_escape(receiver_fullname)
+                sender_fullname_escaped = html_escape(sender_fullname)
+                content_preview_escaped = html_escape(content_preview)
+                
+                owner_html = f"<a href='tg://user?id={receiver_id}'>{receiver_fullname_escaped}</a>"
+                sender_html = f"<a href='tg://user?id={from_user_id}'>{sender_fullname_escaped}</a>"
+                notice_text_author = f"🔔 你分享的资源<a href='{share_url}'>「{content_preview_escaped}」</a> 已被用户兑换，获得 {receiver_fee} 积分分成！"
+                notice_text_manager = f"🔔 {owner_html} 分享的资源<a href='{share_url}'>「{content_preview_escaped}」</a> 已被用户 {sender_html} 兑换，获得 {receiver_fee} 积分分成！"
 
                
 
@@ -5086,48 +5105,40 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             product_type = file_type  # 默认付费
 
         purchase_condition = record.get('purchase_condition', '')  
-        # print(f"{record}")
-
-        # print(f"🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
 
         # ✅ 若 thumb_file_id 为空，则给默认值
         if not thumb_file_id and thumb_file_unique_id != None:
-            print(f"🔍 没有找到 thumb_file_id，背景尝试从 thumb_file_unique_id( {thumb_file_unique_id} )获取")
+            print(f"-- 没有找到 thumb_file_id，背景尝试从 thumb_file_unique_id( {thumb_file_unique_id} )获取")
             spawn_once(
                 f"thumb_file_id:{thumb_file_unique_id}",
-                lambda: Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 10)
+                lambda: Media.fetch_file_by_file_uid_from_x(state, thumb_file_unique_id, 30)
             )
-
-           
+            
             # 设置当下要获取的 thumb 是什么,若从背景取得图片时，可以直接更新 (fetch_thumb_file_unique_id 且 menu_message 存在)
             # state_data = await state.get_data()
             # menu_message = state_data.get("menu_message")
             state_data = await MenuBase.get_menu_status(state)
      
             if state_data.get("current_message"):
-                print(f"🔍 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
+                print(f"--- 设置 fetch_thumb_file_unique_id: {thumb_file_unique_id}，并丢到后台获取")
                
                 await MenuBase.set_menu_status(state, {
                     "fetch_thumb_file_unique_id": f"{thumb_file_unique_id}"
                 })
             else:
                 print("❌ menu_message 不存在，无法设置 fetch_thumb_file_unique_id")
-            
+        elif file_id and not thumb_file_unique_id and (file_type == "video" or file_type == "v"):
+            print(f"-- 这是视频，有file_id，试著取它的默认封面图")
+            spawn_once(
+                f"create_thumb_file_id:{file_id}",
+                lambda: handle_update_thumb(content_id, file_id ,state)
+            )   
     
+        '''
+        若此时还没有预览图，将使用默认的预览图。若连默认的预览图都没有，则从仓库取
+        '''
         if not thumb_file_id:
-            print("❌ 在延展库没有封面图，先用预设图")
-            
-
-
-
-            if file_id and not thumb_file_unique_id and (file_type == "video" or file_type == "v"):
-                print(f"这是视频，有file_id，试著取它的默认封面图")
-                spawn_once(
-                    f"create_thumb_file_id:{file_id}",
-                    lambda: handle_update_thumb(content_id, file_id ,state)
-                )
-
-            # default_thumb_file_id: list[str] | None = None  # Python 3.10+
+            print("-- 在延展库没有封面图，先用预设图")
             if lz_var.default_thumb_file_id:
                 # 令 thumb_file_id = lz_var.default_thumb_file_id 中的随机值
                 thumb_file_id = random.choice(lz_var.default_thumb_file_id)
@@ -5144,16 +5155,19 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                     # lz_var.default_thumb_file_id = file_id_list
                     thumb_file_id = random.choice(file_id_list)
                 else:
-                    print("❌ 没有找到 default_thumb_unique_file_ids,增加扩展库中")
+                    print("--- 没有找到 default_thumb_unique_file_ids,增加扩展库中")
                     # 遍历 lz_var.default_thumb_unique_file_ids
                     for unique_id in lz_var.default_thumb_unique_file_ids:
                         
                         # 进入等待态（最多 10 秒）
-                        thumb_file_id = await Media.fetch_file_by_file_uid_from_x(state, unique_id, 10)
+                        thumb_file_id = await Media.fetch_file_by_file_uid_from_x(state, unique_id, 30)
                         print(f"✅ 取到的 thumb_file_id: {thumb_file_id}")
                     # 处理找不到的情况
                     
-       
+        '''
+        处理内容和标签：
+        '''
+
         list_text = ''
 
         if content:
@@ -5227,36 +5241,28 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if ret_content:
             tag_length = len(ret_content)
     
-        # print(F"标签长度 {tag_length}", flush=True)
-        if not file_id and source_id and (file_type != 'a' and file_type !='album') :
-            # 不阻塞：丢到后台做补拉
-       
+        '''
+        补资源内容
+        为了避免太多请求，优先补预览图，在预览图有的前提下，再补资源内容
+        '''
+        if thumb_file_id and not file_id and source_id and (file_type != 'a' and file_type !='album') :
+            print(f"-- 先补预览图，file_id 还没有，source_id 有，且不是相册，先补预览图")
             spawn_once(
                 f"fild_id:{source_id}",
-                lambda: Media.fetch_file_by_file_uid_from_x(state, source_id, 10 )
+                lambda: Media.fetch_file_by_file_uid_from_x(state, source_id, 30 )
             ) 
             await MenuBase.set_menu_status(state, {
                 "fetch_file_unique_id": f"{source_id}"
             })
         
-
-        
-        # print(f"tag_length {tag_length}")
-
         # 计算可用空间
         available_content_length = max_total_length - tag_length - 50  # 预留额外描述字符
         
-        # print(f"长度 {available_content_length}", flush=True)
-        # print(f"长度 {available_content_length}")
-
-
         # 裁切内容
         if content is None:
             content_preview = ""
         else:
-
-
-            # print(f"原始内容长度 {len(content)}，可用长度 {available_content_length}") 
+            
             content_preview = content[:available_content_length]
             if len(content) > available_content_length:
                 content_preview += "..."
@@ -5267,18 +5273,13 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         else:
             ret_content = content_preview
         
-        # print(f"1847:🔍 载入 ID: {record_id}, Source ID: {source_id}, thumb_file_id:{thumb_file_id}, File Type: {file_type}\r\n")
-        # ✅ 返回三个值
 
         if (file_type == "document" or file_type == "d") and LZString.contains_multi_volume_archive(content):
             print("这是分卷压缩文件")
             ret_content = f"<b>⚠️ 这是个分卷压缩文件，全部收齐才能解压 ⚠️ </b>\n\n{ret_content}"
-        else:
-         
-            print(f"content=>{content}|||",flush=True)
+    
 
         '''
-    
         审核状态
         0   编辑中(投稿者) o
         1   未通过审核(投稿者) v
@@ -5292,18 +5293,14 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         11  文件同步失败
         12 投稿重复-给出原投稿的跳转链接
         20  上传者自行下架
-
-
-
-
         '''
       
-        print(f"valid_state:{valid_state}, review_status:{review_status}")
+        # print(f"valid_state:{valid_state}, review_status:{review_status}")
         
         if review_status == 4:
-            ret_content = f"<b>⚠️ 这个资源已被举报，正在审核中，请慎重兑换 ⚠️ </b>\n\n{ret_content}"
+            ret_content = f"<b>⚠️ 这个资源已被举报，正在审核中，欲兑换请考虑 ⚠️ </b>\n\n{ret_content}"
         if review_status in [2] or review_status is None:
-            ret_content = f"<b>⚠️ 这个资源尚未审核通过，若要兑换请谨慎考虑 ⚠️ </b>\n\n{ret_content}"
+            ret_content = f"<b>⚠️ 这个资源尚未审核通过，欲兑换请考虑 ⚠️ </b>\n\n{ret_content}"
 
         elif valid_state==20 or review_status in [0, 1,20]:
             if review_status==1:
@@ -5320,6 +5317,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
         
     else:
+        # 找不到此数据
         db.cache.delete(f"sora_content_id:{content_id}")
         await sync_sora(content_id)
         await sync_table_by_pks("product", "content_id", [content_id])

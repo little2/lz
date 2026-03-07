@@ -260,13 +260,11 @@ class Media:
                 # file = FSInputFile(path_to_file)
                 # await lz_var.bot.send_document(chat_id=target_user_id, document=file)
 
-                print(f"✅ 已向 {lz_var.x_man_bot_id} 请求文件 {ask_file_unique_id}", flush=True)
+                print(f"--->  🏚 已向仓库 ( {lz_var.x_man_bot_id} ) 请求文件 {ask_file_unique_id}", flush=True)
 
             except Exception as e:
                 if "Bad Request: chat not found" in str(e):
                     print(f"❌ 发送 ask_file_unique_id 给用户失败：Bot 未与用户建立对话，请先让 {lz_var.x_man_bot_id} 给 {lz_var.bot_username} 发一条消息再试。 |_kick_|{lz_var.bot_username}", flush=True)
-                   
-                  
                 else:
                     print(f"❌ 发送 ask_file_unique_id 给用户失败: {e}", flush=True)
         

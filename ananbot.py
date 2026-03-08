@@ -1753,7 +1753,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
         "message_id": message.message_id
     }
     photo_message = message
-    await photo_message.delete()
+    
     
     await set_preview_thumb(user_id=user_id, phpto_profile=phpto_profile,state=state, content_id=content_id)
     
@@ -1788,6 +1788,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     
     # invalidate_cached_product(content_id) 在 set_preview_thumb 已调用
     print(f"📸 9预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
+    await photo_message.delete()
 
 
 @dp.callback_query(F.data.startswith("auto_update_thumb:"))

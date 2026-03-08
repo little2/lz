@@ -202,7 +202,7 @@ async def handle_media_message(message: Message, state: FSMContext):
     current_state = await state.get_state()
     
 
-    if current_state is None and user_id != lz_var.x_man_bot_id:
+    if current_state is None and user_id != lz_var.x_man_bot_id and message.chat.type == "private":
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🤖 鲁仔三号", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")]

@@ -280,9 +280,6 @@ async def say_hello():
     except Exception as e:
         print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
   
-
-
-
 async def main():
     global PUBLISH_BOT_NAME
     # 10.2 并行运行 Telethon 与 Aiogram
@@ -328,11 +325,8 @@ async def main():
     await user_client.start(PHONE_NUMBER)
     task_telethon = asyncio.create_task(user_client.run_until_disconnected())
 
-    
-
-
-    
     try:
+        # TODO -- 人类账号可能也不再需要
         man_me = await user_client.get_me()
         lz_var.man_bot_id = man_me.id
         print(f"✅ 【Telethon】人类账号 {man_me.id} {man_me.username} 已启动。", flush=True)

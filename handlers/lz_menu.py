@@ -248,11 +248,11 @@ async def _edit_caption_or_text(
 
 @debug
 async def handle_update_thumb(content_id, file_id,state):
-    print(f"🏃🖼 开始取得视频的默认封面图，正在处理...{lz_var.man_bot_id}", flush=True)
+    print(f"🏃🖼 开始取得视频的默认封面图，正在处理...{lz_var.x_man_bot_id}", flush=True)
     await MySQLPool.init_pool()
     await PGPool.init_pool()
     try:
-        send_video_result = await lz_var.bot.send_video(chat_id=lz_var.man_bot_id, video=file_id)
+        send_video_result = await lz_var.bot.send_video(chat_id=lz_var.x_man_bot_id, video=file_id)
         buf,pic = await Media.extract_preview_photo_buffer(send_video_result, prefer_cover=True, delete_sent=True)
         if buf and pic:
             try:
@@ -263,7 +263,7 @@ async def handle_update_thumb(content_id, file_id,state):
                 await PGPool.ensure_pool()
 
                 # 上传给仓库机器人，获取新的 file_id 和 file_unique_id
-                print(f"🏃🖼 上传给 {lz_var.man_bot_id} 以取得封面图的file_id", flush=True)
+                print(f"🏃🖼 上传给 {lz_var.x_man_bot_id} 以取得封面图的file_id", flush=True)
                 newcover = await lz_var.bot.send_photo(
                     chat_id=lz_var.x_man_bot_id,
                     photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg")
@@ -706,7 +706,9 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
 
     await state.clear()
 
+async def handle_clt_cover_cancel(callback: CallbackQuery,state: FSMContext):
 
+    await handle_clt_edit(callback=callback,state=state)
 
 # ========= 资源橱窗:是否公开 =========
 
@@ -1321,44 +1323,6 @@ def upload_menu_keyboard():
     ])
 
 
-# == 启动指令 == # /id 360242
-@router.message(Command("id"))
-async def handle_search_by_id(message: Message, state: FSMContext, command: Command = Command("id")):
-    args = message.text.split(maxsplit=1)
-    if len(args) > 1:
-        # ✅ 调用并解包返回的三个值
-        result = await load_sora_content_by_id(int(args[1]), state)
-        
-
-        ret_content, file_info, purchase_info = result
-        source_id = file_info[0] if len(file_info) > 0 else None
-        file_type = file_info[1] if len(file_info) > 1 else None
-        file_id = file_info[2] if len(file_info) > 2 else None
-        thumb_file_id = file_info[3] if len(file_info) > 3 else None
-        owner_user_id = purchase_info[0] if purchase_info[0] else None
-        fee = purchase_info[1] if purchase_info[1] else None
-
-
-        # ✅ 检查是否找不到资源（根据返回第一个值）
-        if ret_content.startswith("⚠️"):
-            await message.answer(ret_content, parse_mode="HTML")
-            return
-
-        # ✅ 发送带封面图的消息
-        await message.answer_photo(
-            photo=thumb_file_id,
-            caption=ret_content,
-            parse_mode="HTML"
-            
-        )
-
-        print(f"🔍 完成，file_id: {file_id}, thumb_file_id: {thumb_file_id}, owner_user_id: {owner_user_id}",flush=True)
-        if not file_id and source_id:
-            print("❌ 没有找到 file_id",flush=True)
-            await MySQLPool.fetch_file_by_file_uid(source_id)
-            print(f"🔍 完成",flush=True)
-
-
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
     load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
@@ -1557,6 +1521,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
     user_id = message.from_user.id
 
+    state.clear
 
     # 获取 start 后面的参数（如果有）
     args = message.text.split(maxsplit=1)
@@ -3513,6 +3478,7 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
 #编辑资源橱窗详情
 @router.callback_query(F.data.regexp(r"^clt:edit:\d+:\d+(?::([A-Za-z]+))?$"))
 async def handle_clt_edit(callback: CallbackQuery,state: FSMContext):
+    
     # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_edit: {callback.data}")
     _, _, cid_str, page_str, refresh_mode = callback.data.split(":")

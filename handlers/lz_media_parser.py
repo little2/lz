@@ -14,6 +14,7 @@ from aiogram.fsm.context import FSMContext
 from utils.media_utils import ProductPreviewFSM  # ⬅️ 新增
 import json
 from lz_db import db
+from lz_config import UPLOADER_BOT_NAME
 
 import lz_var
 router = Router()
@@ -186,55 +187,40 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
     # await state.update_data({"x_file_unique_id": file_unique_id, "x_file_id": file_id})
     
 
-@router.message(F.photo)
-async def handle_photo_message(message: Message):
-    print(f"Received photo message: {message.photo}")
+@router.message(F.photo | F.video | F.document)
+async def handle_media_message(message: Message, state: FSMContext):
 
+    meta = await Media.extract_metadata_from_message(message)
 
+    if not meta:
+        return
 
-    largest_photo = message.photo[-1]
-    file_id = largest_photo.file_id
-    file_unique_id = largest_photo.file_unique_id
+    print(f"Received {meta['file_type']} message: {meta}", flush=True)
+
     user_id = str(message.from_user.id) if message.from_user else None
-    print(f"{lz_var.bot_username}")
+
+    current_state = await state.get_state()
+    
+
+    if current_state is None and user_id != lz_var.x_man_bot_id:
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🤖 鲁仔三号", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")]
+            ])
+
+        await message.reply(f"为了让机器人的效率最高，上传资源请找鲁仔三号 @{UPLOADER_BOT_NAME}",parse_mode="HTML", reply_markup=kb)
+        print(
+            f"[MEDIA] 普通媒体进入 handle_media_message | "
+            f"user={user_id} state={current_state}",
+            flush=True
+        )
+
     await db.upsert_file_extension(
-        file_type='photo',
-        file_unique_id=file_unique_id,
-        file_id=file_id,
+        file_type=meta["file_type"],
+        file_unique_id=meta["file_unique_id"],
+        file_id=meta["file_id"],
         bot=lz_var.bot_username,
         user_id=user_id
     )
-    raise SkipHandler
-
-@router.message(F.video)
-async def handle_video(message: Message):
-    print(f"Received video message: {message.video}")
-    file_id = message.video.file_id
-    file_unique_id = message.video.file_unique_id
-    user_id = str(message.from_user.id) if message.from_user else None
 
 
-    await db.upsert_file_extension(
-        file_type='video',
-        file_unique_id=file_unique_id,
-        file_id=file_id,
-        bot=lz_var.bot_username,
-        user_id=user_id
-    )
-    raise SkipHandler
-
-@router.message(F.document)
-async def handle_document(message: Message):
-    print(f"Received document message: {message.document}")
-    file_id = message.document.file_id
-    file_unique_id = message.document.file_unique_id
-    user_id = str(message.from_user.id) if message.from_user else None
-
-    await db.upsert_file_extension(
-        file_type='document',
-        file_unique_id=file_unique_id,
-        file_id=file_id,
-        bot=lz_var.bot_username,
-        user_id=user_id
-    )
-    raise SkipHandler

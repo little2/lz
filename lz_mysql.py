@@ -435,47 +435,7 @@ class MySQLPool(LYBase):
         finally:
             await cls.release(conn, cursor)
 
-    @classmethod
-    async def fetch_file_by_file_uid(cls, source_id: str):
-        conn, cursor = await cls.get_conn_cursor()
-        try:
-            await cursor.execute("""
-                SELECT f.file_type, f.file_id, f.bot, b.bot_id, b.bot_token
-                FROM file_extension f
-                LEFT JOIN bot b ON f.bot = b.bot_name
-                WHERE f.file_unique_id = %s
-                LIMIT 0, 1
-            """, (source_id,))
-            row = await cursor.fetchone()
-        except Exception as e:
-            print(f"⚠️ 数据库执行出错: {e}")
-            row = None
-        finally:
-            await cls.release(conn, cursor)
-
-        if not row:
-            print("❌ 没有找到匹配记录 file_id")
-            return None
-
-        chat_id = lz_var.man_bot_id
-        if chat_id:
-            retSend = None
-            from aiogram import Bot
-            mybot = Bot(token=f"{row['bot_id']}:{row['bot_token']}")
-            try:
-                if row["file_type"] == "photo":
-                    retSend = await mybot.send_photo(chat_id=chat_id, photo=row["file_id"])
-                elif row["file_type"] == "video":
-                    retSend = await mybot.send_video(chat_id=chat_id, video=row["file_id"])
-                elif row["file_type"] == "document":
-                    retSend = await mybot.send_document(chat_id=chat_id, document=row["file_id"])
-            except Exception as e:
-                print(f"❌ 目标 chat 不存在或无法访问(288): {e}")
-            finally:
-                await mybot.session.close()
-                return retSend
-
-        return None
+   
 
     @classmethod
     async def set_product_review_status(cls, content_id: int, review_status: int, operator_user_id: int = 0, reason: str = ""):

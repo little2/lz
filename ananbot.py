@@ -1254,6 +1254,7 @@ async def receive_album_media(message: Message, state: FSMContext):
     try:
         #这一步是放入内存缓冲区，而不是立即写数据库。
         meta = await Media.extract_metadata_from_message(message)
+       
         _buffer_meta_for_batch(message, meta)
         
     except Exception as e:
@@ -2046,7 +2047,6 @@ async def build_main_data(phpto_profile, user_id: int, state: FSMContext):
     await AnanBOTPool.insert_file_extension("photo", file_unique_id, file_id, bot_username, user_id)
 
     pass
-
 
 async def set_preview_thumb(user_id: int, phpto_profile, state: FSMContext, content_id: int):
     file_unique_id = phpto_profile['file_unique_id']
@@ -5374,10 +5374,15 @@ def _buffer_meta_for_batch(message, meta):
     
     rec = _BATCH_BY_CHAT.get(message.chat.id)
     if not rec or now > rec.get("expires", 0):
-        _BATCH_BY_CHAT[message.chat.id] = {"items": [meta], "expires": now + _DEBOUNCE_SECS}
+        _BATCH_BY_CHAT[message.chat.id] = {
+            "items": [meta], 
+            "expires": now + _DEBOUNCE_SECS,
+            "first_meta": meta
+        }
     else:
         rec["items"].append(meta)
         rec["expires"] = now + _DEBOUNCE_SECS
+        
 
 def _collect_batch_results(message, meta):
     
@@ -5393,7 +5398,6 @@ def _collect_batch_results(message, meta):
             "width": m.get("width", 0),
             "height": m.get("height", 0),
             "mime_type": m.get("mime_type", ""),
-
             "create_time": datetime.now()
         }
    
@@ -5449,7 +5453,7 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
     except Exception:
         pass
 
-    
+    print(f"{meta}")
 
     table = meta['file_type']
     file_unique_id = meta['file_unique_id']
@@ -5507,6 +5511,8 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
 
     # 收集这一窗口的批量结果
     try:
+       
+        # meta = _BATCH_BY_CHAT.get(message.chat.id, {}).get("first_meta", meta)  # 取第一条的 meta 作为代表，补齐 content_id 等字段
         meta['batch_results'] = _collect_batch_results(message, meta)  # 会 pop 掉 _BATCH_BY_CHAT[chat_id]
     except Exception:
         meta['batch_results'] = None
@@ -5528,7 +5534,7 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
             markup = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text=f"📂 创建资源夹",
+                        text=f"📂 创建合集",
                         callback_data=f"make_product_folder:{content_id}:{table}:{file_unique_id}:{user_id}"
                     ),
                     InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
@@ -5551,32 +5557,38 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
 
         # ===== 按占位消息类型编辑（保持你现有的兼容分支）=====
         try:
+            # print(f"\r\n==>{meta} {table}", flush=True)
 
-            if meta['thumb_file_unique_id'] is None and table == "video":
+            if meta['file_type'] == "video":
                 print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
                 buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
                 # photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
                 
-                photo_msg = await lz_var.bot.edit_message_media(
-                    chat_id=message.chat.id,
-                    message_id=placeholder_msg_id,
-                    media=InputMediaPhoto(media=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, parse_mode="HTML"),
-                    reply_markup=markup
-                )    
-
-                spawn_once(
-                    f"_process_update_default_preview_async:{message.message_id}",
-                    lambda:_process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
-                )
+                if(pic.file_unique_id):
+                   
+                    photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
+                    spawn_once(
+                        f"_process_update_default_preview_async:{message.message_id}",
+                        lambda:_process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
+                    )
+                else:
+                    print(f"2=>⚠️ 提取预览图失败，file_unique_id 为空", flush=True)
+                    await lz_var.bot.edit_message_caption(
+                        chat_id=message.chat.id,
+                        message_id=placeholder_msg_id,
+                        caption=caption_text,
+                        reply_markup=markup,
+                        parse_mode="HTML"
+                    )
             else:
-                await lz_var.bot.edit_message_caption(
+                await lz_var.bot.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=placeholder_msg_id,
-                    caption=caption_text,
-                    reply_markup=markup,
-                    parse_mode="HTML"
+                    text=caption_text,
+                    reply_markup=markup
                 )
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ 编辑占位消息失败，尝试编辑文本+按钮: {e}", flush=True)
             await lz_var.bot.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=placeholder_msg_id,
@@ -5651,6 +5663,15 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
         return None
 
 
+async def premark_thumb(meta):
+    print(f"{lz_var.m_man_bot_id}")
+    if lz_var.m_man_bot_id!=0:
+        await lz_var.bot.send_video(
+            chat_id=lz_var.m_man_bot_id,
+            video=meta.get("file_id"),
+            caption=f"|_thumb_|{meta.get('file_unique_id')}",
+        )
+        print(f"Premark==>{meta}", flush=True)
 
 @dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO, ContentType.ANIMATION}))
 async def handle_media(message: Message, state: FSMContext):
@@ -5661,6 +5682,7 @@ async def handle_media(message: Message, state: FSMContext):
     # 1) 抽 meta + 入缓冲
     try:
         meta = await Media.extract_metadata_from_message(message)
+        # print(f"提取到媒体元信息: {meta}", flush=True)
         _buffer_meta_for_batch(message, meta)
     except Exception as e:
         print(f"❌ 处理媒体信息失败(handle_media): {e}", flush=True)
@@ -5671,6 +5693,16 @@ async def handle_media(message: Message, state: FSMContext):
         lambda: safe_copy_message(message)
     )
 
+
+    first_meta = _BATCH_BY_CHAT.get(message.chat.id, {}).get("first_meta")  # 取第一条的 meta 作为代表，补齐 content_id 等字段
+    if first_meta.get("file_unique_id") == meta.get("file_unique_id"):
+        spawn_once(
+            f"premark_thumb:{message.message_id}",
+            lambda: premark_thumb(meta)
+        )
+    else:
+        print(f"A5697===>{first_meta} {meta}",flush=True)
+        
 
     # 2) 第一个媒体就立刻发 placeholder（ensure_placeholder 会复用，不会重复发）
     placeholder = await ensure_placeholder(message, state=state, bot=bot)
@@ -5689,11 +5721,6 @@ async def handle_media(message: Message, state: FSMContext):
             placeholder_msg_id=placeholder_msg_id
         )
     )
-
-
-
-
-
 
 async def handle_media_old(message: Message, state: FSMContext):
 
@@ -5735,12 +5762,6 @@ async def handle_media_old(message: Message, state: FSMContext):
         )
     )
 
-
-
-
-
-
-
 @dp.callback_query(F.data == "cancel_product")
 async def handle_cancel_product(callback: CallbackQuery):
     try:
@@ -5757,8 +5778,6 @@ async def handle_cancel_product(callback: CallbackQuery):
         await callback.answer("❎ 已取消", show_alert=False)
     except Exception:
         pass
-
-
 
 async def update_product_preview(content_id, thumb_file_id, state, message: Message | None = None, *,
                                  chat_id: int | None = None, message_id: int | None = None):

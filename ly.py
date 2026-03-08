@@ -1771,6 +1771,14 @@ target_chat_id = int(cfg.get("target_chat_id"))
 target_thread_id = int(cfg.get("target_thread_id", 0))
 '''
 
+
+async def say_hello():
+    pass
+    # 使用 notify_command_receivers_on_start
+   
+  
+
+
 # ==================================================================
 # 启动 bot
 # ==================================================================

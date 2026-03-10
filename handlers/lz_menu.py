@@ -614,14 +614,20 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
     
     # 如果是 video, photo, document, animation 中的任意一种，才继续；否则提示错误并返回。
     if not (message.photo or message.video or message.document or message.animation):
-        await message.reply("⚠️ 只支持照片或视频作为封面图，请重新上传。")
+        await message.reply(
+            "⚠️ 只支持照片或视频作为封面图，请您重新上传。[617]",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🧹 取消封面上传", callback_data="clt:cover:cancel")]
+            ])
+        )
         return
     else:
+        print(f"✅ 收到封面图输入1，正在处理... message_id={message.message_id} chat_id={message.chat.id}", flush=True   )
         meta = await Media.extract_metadata_from_message(message)
         meta['bot'] = lz_var.bot_username
         await MySQLPool.upsert_media(metadata=meta)
     
-    print(f"✅ 收到封面图输入，正在处理... message_id={message.message_id} chat_id={message.chat.id}", flush=True)
+    print(f"✅ 收到封面图输入2，正在处理... message_id={message.message_id} chat_id={message.chat.id}", flush=True)
 
     # 提取媒体的 file_id 和 file_unique_id, 只支持照片或video作为封面图
     cover_file_id = None
@@ -636,10 +642,13 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
         cover_file_unique_id = message.video.file_unique_id
         cover_type = "video"    
     else:
-        await message.reply("⚠️ 只支持照片或视频作为封面图，请重新上传。")
+        await message.reply("⚠️ 只支持照片或视频作为封面图，请重新上传。[639]")
         return
 
-    print(f"提取到封面图 file_id={cover_file_id} unique_id={cover_file_unique_id} type={cover_type}", flush=True)
+    # 收到有效封面后立即清理等待态，避免后续任一步骤失败导致卡状态
+    await state.clear()
+
+    print(f"3提取到封面图 file_id={cover_file_id} unique_id={cover_file_unique_id} type={cover_type}", flush=True)
 
     # 1) 删除用户输入消息
     try:
@@ -704,11 +713,15 @@ async def on_clt_cover_input(message: Message, state: FSMContext):
             await message.answer("✅ 封面图已更新，但消息刷新失败，请返回重新查看。")
 
 
-    await state.clear()
-
+@router.callback_query(F.data == "clt:cover:cancel")
 async def handle_clt_cover_cancel(callback: CallbackQuery,state: FSMContext):
-
-    await handle_clt_edit(callback=callback,state=state)
+    data = await state.get_data()
+    cid = data.get("collection_id")
+    await state.clear()
+    if cid:
+        await _build_clt_edit(int(cid), callback.message, state=state)
+    else:
+        await callback.answer("✅ 已取消封面上传", show_alert=False)
 
 # ========= 资源橱窗:是否公开 =========
 
@@ -1521,7 +1534,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
     user_id = message.from_user.id
 
-    state.clear
+    await state.clear()
 
     # 获取 start 后面的参数（如果有）
     args = message.text.split(maxsplit=1)
@@ -3482,6 +3495,8 @@ async def handle_clt_edit(callback: CallbackQuery,state: FSMContext):
     # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
     print(f"handle_clt_edit: {callback.data}")
     _, _, cid_str, page_str, refresh_mode = callback.data.split(":")
+    if await state.get_state() == LZFSM.waiting_for_clt_cover.state:
+        await state.clear()
     cid = int(cid_str)
     print(f"{callback.message.chat.id} {callback.message.message_id}")
     if refresh_mode == 'k':

@@ -201,6 +201,20 @@ async def handle_media_message(message: Message, state: FSMContext):
 
     current_state = await state.get_state()
     
+    # 更新 Postgresql
+    await db.upsert_file_extension(
+        file_type=meta["file_type"],
+        file_unique_id=meta["file_unique_id"],
+        file_id=meta["file_id"],
+        bot=lz_var.bot_username,
+        user_id=user_id
+    )
+
+    # 若目前正在等待封面图输入，交给 on_clt_cover_input 处理
+    from handlers.lz_menu import LZFSM
+    if current_state == LZFSM.waiting_for_clt_cover.state:
+        raise SkipHandler()
+
 
     if current_state is None and user_id != lz_var.x_man_bot_id and message.chat.type == "private":
 
@@ -214,13 +228,4 @@ async def handle_media_message(message: Message, state: FSMContext):
             f"user={user_id} state={current_state}",
             flush=True
         )
-
-    await db.upsert_file_extension(
-        file_type=meta["file_type"],
-        file_unique_id=meta["file_unique_id"],
-        file_id=meta["file_id"],
-        bot=lz_var.bot_username,
-        user_id=user_id
-    )
-
 

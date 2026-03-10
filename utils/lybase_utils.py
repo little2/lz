@@ -422,7 +422,7 @@ class LYBase:
                     `decent` = `decent` + %s,
                     `update_timestamp` = VALUES(`update_timestamp`)
             """
-
+            print(f"✅ [update_today_contribute] 执行 SQL: {sql} with user_id={user_id} stat_date={stat_date} contribute={contribute} decent={decent}", flush=True)
             params = [user_id, stat_date, contribute, now, decent, contribute, decent]
             await cur.execute(sql, params)
             await conn.commit()

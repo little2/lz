@@ -2566,6 +2566,7 @@ async def handle_reject_product_reason_input(message: Message, state: FSMContext
 @dp.callback_query(F.data.startswith("approve_product:"))
 async def handle_approve_product(callback_query: CallbackQuery, state: FSMContext):
     ret_chat = ret_thread = ret_msg = None
+    if_update_today_contribute = False
     judge_string = ''
     try:
         # print(f"callback_query={callback_query.data=}", flush=True)
@@ -2587,7 +2588,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         return await callback_query.answer("⚠️ 提交失败：content_id 异常", show_alert=True)
 
    
-    
+   
     reviewer =  callback_query.from_user.full_name or callback_query.from_user.username
 
 
@@ -2657,6 +2658,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     if review_status == 6:
         await callback_query.answer(f"✅ 已审核{judge_string}，审核人 +3 活跃值", show_alert=True)
+        if_update_today_contribute = True
         
 
         if judge_string == "'N'":
@@ -2668,6 +2670,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
     elif review_status == 3:
         await callback_query.answer("✅ 已通过审核，审核人 +3 活跃值", show_alert=True)
+        if_update_today_contribute = True
         button_str = f"✅ {reviewer} 已通过审核"
         
 
@@ -2675,6 +2678,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         print(f"🔍 审核拒绝，准备执行拒绝逻辑: content_id={content_id}", flush=True)
         button_str = f"❌ {reviewer} 已拒绝审核"
         await callback_query.answer("❌ 已拒绝审核，审核人 +3 活跃值", show_alert=True)
+        if_update_today_contribute = True
         spawn_once(f"_reject_content:{content_id}", lambda:_reject_content(product_row, reject_reason=reject_reason_full))
         
 
@@ -2703,6 +2707,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
         # await _send_to_topic(content_id)
     elif review_status == 0:
+        print(f"update_today_contribute for content_id={content_id}", flush=True)
+    
+    if if_update_today_contribute == True:
         spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_today_contribute(callback_query.from_user.id, 5, 1))
     # await _reset_review_bot_button(callback_query,content_id,button_str)
     

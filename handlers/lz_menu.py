@@ -5247,8 +5247,17 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         duration = record.get('duration', '')
         source_id = record.get('source_id', '')
         file_type = record.get('file_type', '')
-        content = record.get('content', '')
+
+        print(f"record ==> {record}")
+
+        if record.get('product_content'):
+            content = record.get('product_content', '')
+        else:
+            content = record.get('content', '')
+        
+        
         content = html_escape(content)
+        
         file_id = record.get('file_id', '')
         thumb_file_unique_id = record.get('thumb_file_unique_id', '')
         thumb_file_id = record.get('thumb_file_id', '')

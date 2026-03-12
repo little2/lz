@@ -66,7 +66,7 @@ from utils.tpl import Tplate
 from utils.string_utils import LZString
 from utils.product_utils import build_product_material,sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
-from utils.product_utils import sync_table_by_pks
+from utils.product_utils import sync_table_by_pks,sync_album_items
 from utils.action_gate import ActionGate
 
 
@@ -5339,9 +5339,15 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if product_type == "album" or product_type == "a":
             
             try:
+               
                 results = await db.get_album_list(content_id, lz_var.bot_username)
+                if(results == []):
+                    await sync_album_items(content_id)
+                    results = await db.get_album_list(content_id, lz_var.bot_username)
+                
                 
                 list_text = await Tplate.list_template(results)
+               
                 content = content +  "\r\n" + list_text['opt_text'] 
             except Exception as e:
                 print(f"❌ 载入相册列表内容失败: {e}")
@@ -5435,6 +5441,26 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         else:
             ret_content = content_preview
         
+        if purchase_condition:
+            # 1) parse json
+            try:
+                if isinstance(purchase_condition, (dict, list)):
+                    # 有些链路可能已经是 dict（防御性处理）
+                    condition = purchase_condition if isinstance(purchase_condition, dict) else {}
+                else:
+                    condition = json.loads(str(purchase_condition))
+                    if not isinstance(condition, dict):
+                        condition = {}
+            except Exception:
+                condition = {}
+
+            # 2) protect 标记（后面发货要用）
+            is_protect_content = str(condition.get("protect", "")).strip() == "1"
+            print(f"购买条件解析结果: {condition}, is_protect_content={is_protect_content}", flush=True)
+            required_talking_task = int(condition.get("talking_task") or 0)
+            if required_talking_task > 0:
+                ret_content += f"\n\n<i>*可以积分兑换，但需要先念咒语</i>"
+              
 
         if (file_type == "document" or file_type == "d") and LZString.contains_multi_volume_archive(content):
             print("这是分卷压缩文件")

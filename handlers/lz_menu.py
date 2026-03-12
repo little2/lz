@@ -497,6 +497,7 @@ async def on_title_input(message: Message, state: FSMContext):
     anchor_chat_id = data.get("anchor_chat_id")
     anchor_msg_id  = data.get("anchor_msg_id")
     anchor_message = data.get("anchor_message")
+    user_id = str(message.from_user.id) if message.from_user else None
 
     print(f"197=>{anchor_chat_id} {anchor_msg_id}",flush=True)
 
@@ -518,6 +519,9 @@ async def on_title_input(message: Message, state: FSMContext):
     except Exception as e:
         print(f"⚠️ 删除用户输入失败: {e}", flush=True)
 
+
+    cache_key = f"user:clt:{user_id}:50:0"
+    await PGPool.delete_cache(cache_key)
 
     # 3) 刷新锚点消息的文本与按钮
     await _build_clt_edit(cid, anchor_message,state)
@@ -1661,153 +1665,151 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                     )
                     return
                     
+            await _load_content(message, state, content_id, parts)
 
 
-            print(f"\r\n\r\n✴️ 收到一个新的请求任务 content_id: {content_id}", flush=True)
-            try:
-                caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤ." 
-                if parts[0]!="f" and current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
-                    try:                     
-                        # print(f"clti_message={current_message}",flush=True)
-                        current_message = await lz_var.bot.edit_message_media(
-                            chat_id=current_message.chat.id,
-                            message_id=current_message.message_id,
-                            media=InputMediaAnimation(
-                                media=lz_var.skins["loading"]["file_id"],
-                                caption=caption_txt,
-                                parse_mode="HTML"
-                            )
-                        )
+            # print(f"\r\n\r\n✴️ 收到一个新的请求任务 content_id: {content_id}", flush=True)
+            # try:
+            #     caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤ." 
+            #     if parts[0]!="f" and current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+            #         try:                     
+            #             # print(f"clti_message={current_message}",flush=True)
+            #             current_message = await lz_var.bot.edit_message_media(
+            #                 chat_id=current_message.chat.id,
+            #                 message_id=current_message.message_id,
+            #                 media=InputMediaAnimation(
+            #                     media=lz_var.skins["loading"]["file_id"],
+            #                     caption=caption_txt,
+            #                     parse_mode="HTML"
+            #                 )
+            #             )
                         
                             
-                        # return
-                    except Exception as e:
-                        print(f"❌ 编辑消息失败d: {e}", flush=True)
-                        current_message = await message.answer_animation(
-                            animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
-                            caption=caption_txt,
-                            parse_mode="HTML",
-                            protect_content=True
-                        )
-                else:   
-                    current_message = await message.answer_animation(
-                        animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
-                        caption=caption_txt,
-                        parse_mode="HTML",
-                        protect_content=True
-                    )
+            #             # return
+            #         except Exception as e:
+            #             print(f"❌ 编辑消息失败d: {e}", flush=True)
+            #             current_message = await message.answer_animation(
+            #                 animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
+            #                 caption=caption_txt,
+            #                 parse_mode="HTML",
+            #                 protect_content=True
+            #             )
+            #     else:   
+            #         current_message = await message.answer_animation(
+            #             animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
+            #             caption=caption_txt,
+            #             parse_mode="HTML",
+            #             protect_content=True
+            #         )
 
-                    # print(f"clti_message={clti_message}",flush=True)
+            #         # print(f"clti_message={clti_message}",flush=True)
                 
-                await MenuBase.set_menu_status(state, {
-                    "current_message": current_message,
-                    "current_chat_id": current_message.chat.id,
-                    "current_message_id": current_message.message_id
-                })
+            #     await MenuBase.set_menu_status(state, {
+            #         "current_message": current_message,
+            #         "current_chat_id": current_message.chat.id,
+            #         "current_message_id": current_message.message_id
+            #     })
 
-            except Exception as e:
-                # tb = traceback.format_exc()
-                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
-                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
-                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
-                print(f"❌ 解密失败B：{e}", flush=True)
+            # except Exception as e:
+            #     # tb = traceback.format_exc()
+            #     notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+            #     spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
+            #     # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+            #     print(f"❌ 解密失败B：{e}", flush=True)
 
 
-                # //
-  
-
-           
-            
-            product_info = None
-            try:
-                if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
-                    if parts[0] == "f" and content_id == 0:
-                        print(f"encoded==>{encoded} {content_id}")
-                        product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
-                    else:
-                        viewer_user_id=int(message.from_user.id)
-                        product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0], viewer_user_id=viewer_user_id)
+            #     # //
+              
+            # product_info = None
+            # try:
+            #     if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
+            #         if parts[0] == "f" and content_id == 0:
+            #             print(f"encoded==>{encoded} {content_id}")
+            #             product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
+            #         else:
+            #             viewer_user_id=int(message.from_user.id)
+            #             product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0], viewer_user_id=viewer_user_id)
                    
-            except Exception as e:
+            # except Exception as e:
                
-                # tb = traceback.format_exc()
+            #     # tb = traceback.format_exc()
 
-                MESSAGES = [
-                    "📦 资源正在为您准备中。\r\n系统正在将该资源从龙阳库传输并上传至 Telegram 端，此过程可能需要一些时间。\r\n在资源成功上传之前，系统不会进行任何扣款，请您放心。\r\n请稍候片刻，稍后需要再次点选该资源以继续观看。",
-                    "📦 资源正在调取与上传中。\r\n系统需要先将资源从龙阳库存储节点传输至 Telegram 平台，因此可能需要短暂等待。\r\n在资源成功上传并确认可用之前，系统不会扣除您的积分或费用。\r\n请稍候片刻，之后请再次点选该资源。",
-                    "📦 系统正在为您准备该资源。\r\n当前资源正从龙阳库调取并上传至 Telegram 端，传输过程可能需要一些时间。\r\n在资源完成上传之前，系统不会扣款。\r\n请稍候片刻，稍后请重新点选该资源以继续操作。",
-                    "📦 资源正在传输中，请稍候。\r\n系统正在将该资源从龙阳库上传到 Telegram 平台，此过程可能需要一点时间。\r\n目前尚未进行扣款，请放心。\r\n请稍候片刻，完成后请再次点选该资源。",
-                    "📦 当前资源正在准备与上传中。\r\n系统正在从龙阳库调取该资源并上传至 Telegram 端，完成后即可正常使用。\r\n在资源成功上传之前不会扣款。\r\n请稍候片刻，稍后请重新点选该资源。"
-                ]
+            #     MESSAGES = [
+            #         "📦 资源正在为您准备中。\r\n系统正在将该资源从龙阳库传输并上传至 Telegram 端，此过程可能需要一些时间。\r\n在资源成功上传之前，系统不会进行任何扣款，请您放心。\r\n请稍候片刻，稍后需要再次点选该资源以继续观看。",
+            #         "📦 资源正在调取与上传中。\r\n系统需要先将资源从龙阳库存储节点传输至 Telegram 平台，因此可能需要短暂等待。\r\n在资源成功上传并确认可用之前，系统不会扣除您的积分或费用。\r\n请稍候片刻，之后请再次点选该资源。",
+            #         "📦 系统正在为您准备该资源。\r\n当前资源正从龙阳库调取并上传至 Telegram 端，传输过程可能需要一些时间。\r\n在资源完成上传之前，系统不会扣款。\r\n请稍候片刻，稍后请重新点选该资源以继续操作。",
+            #         "📦 资源正在传输中，请稍候。\r\n系统正在将该资源从龙阳库上传到 Telegram 平台，此过程可能需要一点时间。\r\n目前尚未进行扣款，请放心。\r\n请稍候片刻，完成后请再次点选该资源。",
+            #         "📦 当前资源正在准备与上传中。\r\n系统正在从龙阳库调取该资源并上传至 Telegram 端，完成后即可正常使用。\r\n在资源成功上传之前不会扣款。\r\n请稍候片刻，稍后请重新点选该资源。"
+            #     ]
 
-                msg = random.choice(MESSAGES)
+            #     msg = random.choice(MESSAGES)
 
-                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
-                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 15))
-                print(f"❌ 解密失败C：{e}", flush=True)
-                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
-                try:
-                    if content_id > 0:
-                        db.cache.delete(f"sora_content_id:{content_id}")
-                        await sync_sora(content_id)
-                        await sync_table_by_pks("product", "content_id", [content_id])
-                except Exception as e2:
-                    print(f"❌ 解密失败D：{e2}", flush=True)
+            #     notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+            #     spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 15))
+            #     print(f"❌ 解密失败C：{e}", flush=True)
+            #     # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+            #     try:
+            #         if content_id > 0:
+            #             db.cache.delete(f"sora_content_id:{content_id}")
+            #             await sync_sora(content_id)
+            #             await sync_table_by_pks("product", "content_id", [content_id])
+            #     except Exception as e2:
+            #         print(f"❌ 解密失败D：{e2}", flush=True)
                 
-                return
+            #     return
 
-            try:
-                print(f"688:Product Info", flush=True)
-                if product_info and product_info['ok']:
-                    if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
-                        # date = await state.get_data()
-                        # clti_message = date.get("menu_message")
-                        try:
-                            if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
-                                current_message =  await _edit_caption_or_text(
-                                    photo=product_info['cover_file_id'],
-                                    msg =current_message,
-                                    text= product_info['caption'],
-                                    reply_markup=product_info['reply_markup'],
-                                    state= state
-                                )
-                                return
-                            else:
-                                print(f"⚠️ 无法编辑消息，clti_message 不存在或无效", flush=True)
+            # try:
+            #     print(f"688:Product Info", flush=True)
+            #     if product_info and product_info['ok']:
+            #         if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
+            #             # date = await state.get_data()
+            #             # clti_message = date.get("menu_message")
+            #             try:
+            #                 if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+            #                     current_message =  await _edit_caption_or_text(
+            #                         photo=product_info['cover_file_id'],
+            #                         msg =current_message,
+            #                         text= product_info['caption'],
+            #                         reply_markup=product_info['reply_markup'],
+            #                         state= state
+            #                     )
+            #                     return
+            #                 else:
+            #                     print(f"⚠️ 无法编辑消息，clti_message 不存在或无效", flush=True)
                                
-                        except Exception as e:
-                            print(f"❌ 编辑消息失败e: {e}", flush=True)
+            #             except Exception as e:
+            #                 print(f"❌ 编辑消息失败e: {e}", flush=True)
                     
 
-                    print(f"‼️ 不应该执行到这段，要查",flush=True)
-                    product_message = await message.answer_photo(
-                        photo=product_info['cover_file_id'],
-                        caption=product_info['caption'],
-                        parse_mode="HTML",
-                        reply_markup=product_info['reply_markup'])
+            #         print(f"‼️ 不应该执行到这段，要查",flush=True)
+            #         product_message = await message.answer_photo(
+            #             photo=product_info['cover_file_id'],
+            #             caption=product_info['caption'],
+            #             parse_mode="HTML",
+            #             reply_markup=product_info['reply_markup'])
                 
-                    # storage = state.storage
-                    # key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
-                    # storage_data = await storage.get_data(key)
-                    # storage_data["menu_message"] = product_message
-                    # await storage.set_data(key, storage_data)
+            #         # storage = state.storage
+            #         # key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
+            #         # storage_data = await storage.get_data(key)
+            #         # storage_data["menu_message"] = product_message
+            #         # await storage.set_data(key, storage_data)
 
-                    await MenuBase.set_menu_status(state, {
-                        "current_message": product_message,
-                        "current_chat_id": product_message.chat.id,
-                        "current_message_id": product_message.message_id
-                    })
+            #         await MenuBase.set_menu_status(state, {
+            #             "current_message": product_message,
+            #             "current_chat_id": product_message.chat.id,
+            #             "current_message_id": product_message.message_id
+            #         })
 
 
-                else:
-                    await message.answer(product_info['msg'], parse_mode="HTML")
-                    return
-            except Exception as e:
-                # tb = traceback.format_exc()
-                notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
-                spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
-                # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
-                print(f"❌ 解密失败D：{e}", flush=True)
+            #     else:
+            #         await message.answer(product_info['msg'], parse_mode="HTML")
+            #         return
+            # except Exception as e:
+            #     # tb = traceback.format_exc()
+            #     notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+            #     spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
+            #     # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+            #     print(f"❌ 解密失败D：{e}", flush=True)
 
         elif parts[0] == "post":
             await _submit_to_lg()
@@ -2075,6 +2077,170 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     return {'ok': True, 'caption': ret_content, 'file_type':'photo','cover_file_id': thumb_file_id, 'reply_markup': reply_markup}
 
+
+
+@router.message(Command("load"))
+async def handle_post(message: Message, state: FSMContext, command: Command = Command("post")):
+    # 删除 /post 这个消息
+    try:
+        await message.delete()
+    except (TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter) as e:
+        print(f"❌ 删除 /load 消息失败: {e}", flush=True)
+
+    # 获取 start 后面的参数（如果有）
+    args = message.text.split(maxsplit=1)
+    if len(args) > 1:
+        print(f"load command args: {args}", flush=True )
+        await _load_content(message, state, int(args[1]), ["f", -1])  # 这里的 parts 参数需要根据实际情况构造
+        
+
+
+async def _load_content(message:Message, state:FSMContext ,content_id, parts):
+    current_message = None
+    search_key_index = parts[1] or -1
+   
+    print(f"\r\n\r\n✴️ 收到一个新的请求任务 content_id: {content_id}", flush=True)
+    try:
+        caption_txt = "🔍 正在从院长的硬盘搜索这个资源，请稍等片刻...ㅤㅤㅤㅤㅤㅤㅤ." 
+        if parts[0]!="f" and current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+            try:                     
+                # print(f"clti_message={current_message}",flush=True)
+                current_message = await lz_var.bot.edit_message_media(
+                    chat_id=current_message.chat.id,
+                    message_id=current_message.message_id,
+                    media=InputMediaAnimation(
+                        media=lz_var.skins["loading"]["file_id"],
+                        caption=caption_txt,
+                        parse_mode="HTML"
+                    )
+                )
+                
+                    
+                # return
+            except Exception as e:
+                print(f"❌ 编辑消息失败d: {e}", flush=True)
+                current_message = await message.answer_animation(
+                    animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
+                    caption=caption_txt,
+                    parse_mode="HTML",
+                    protect_content=True
+                )
+        else:   
+            current_message = await message.answer_animation(
+                animation=lz_var.skins["loading"]["file_id"],  # 你的 GIF file_id 或 URL
+                caption=caption_txt,
+                parse_mode="HTML",
+                protect_content=True
+            )
+
+            # print(f"clti_message={clti_message}",flush=True)
+        
+        await MenuBase.set_menu_status(state, {
+            "current_message": current_message,
+            "current_chat_id": current_message.chat.id,
+            "current_message_id": current_message.message_id
+        })
+
+    except Exception as e:
+        # tb = traceback.format_exc()
+        notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+        spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
+        # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+        print(f"❌ 解密失败B：{e}", flush=True)
+
+
+        # //
+        
+    product_info = None
+    try:
+        if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
+            if parts[0] == "f" and content_id == 0:
+                print(f"{content_id}")
+                product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
+            else:
+                viewer_user_id=int(message.from_user.id)
+                product_info = await _build_product_info(content_id, search_key_index, state=state, message=message, search_from=parts[0], viewer_user_id=viewer_user_id)
+            
+    except Exception as e:
+        
+        # tb = traceback.format_exc()
+
+        MESSAGES = [
+            "📦 资源正在为您准备中。\r\n系统正在将该资源从龙阳库传输并上传至 Telegram 端，此过程可能需要一些时间。\r\n在资源成功上传之前，系统不会进行任何扣款，请您放心。\r\n请稍候片刻，稍后需要再次点选该资源以继续观看。",
+            "📦 资源正在调取与上传中。\r\n系统需要先将资源从龙阳库存储节点传输至 Telegram 平台，因此可能需要短暂等待。\r\n在资源成功上传并确认可用之前，系统不会扣除您的积分或费用。\r\n请稍候片刻，之后请再次点选该资源。",
+            "📦 系统正在为您准备该资源。\r\n当前资源正从龙阳库调取并上传至 Telegram 端，传输过程可能需要一些时间。\r\n在资源完成上传之前，系统不会扣款。\r\n请稍候片刻，稍后请重新点选该资源以继续操作。",
+            "📦 资源正在传输中，请稍候。\r\n系统正在将该资源从龙阳库上传到 Telegram 平台，此过程可能需要一点时间。\r\n目前尚未进行扣款，请放心。\r\n请稍候片刻，完成后请再次点选该资源。",
+            "📦 当前资源正在准备与上传中。\r\n系统正在从龙阳库调取该资源并上传至 Telegram 端，完成后即可正常使用。\r\n在资源成功上传之前不会扣款。\r\n请稍候片刻，稍后请重新点选该资源。"
+        ]
+
+        msg = random.choice(MESSAGES)
+
+        notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+        spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 15))
+        print(f"❌ 解密失败C：{e}", flush=True)
+        # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+        try:
+            if content_id > 0:
+                db.cache.delete(f"sora_content_id:{content_id}")
+                await sync_sora(content_id)
+                await sync_table_by_pks("product", "content_id", [content_id])
+        except Exception as e2:
+            print(f"❌ 解密失败D：{e2}", flush=True)
+        
+        return
+
+    try:
+        print(f"688:Product Info", flush=True)
+        if product_info and product_info['ok']:
+            if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
+                # date = await state.get_data()
+                # clti_message = date.get("menu_message")
+                try:
+                    if current_message and hasattr(current_message, 'message_id') and hasattr(current_message, 'chat'):
+                        current_message =  await _edit_caption_or_text(
+                            photo=product_info['cover_file_id'],
+                            msg =current_message,
+                            text= product_info['caption'],
+                            reply_markup=product_info['reply_markup'],
+                            state= state
+                        )
+                        return
+                    else:
+                        print(f"⚠️ 无法编辑消息，clti_message 不存在或无效", flush=True)
+                        
+                except Exception as e:
+                    print(f"❌ 编辑消息失败e: {e}", flush=True)
+            
+
+            print(f"‼️ 不应该执行到这段，要查",flush=True)
+            product_message = await message.answer_photo(
+                photo=product_info['cover_file_id'],
+                caption=product_info['caption'],
+                parse_mode="HTML",
+                reply_markup=product_info['reply_markup'])
+        
+            # storage = state.storage
+            # key = StorageKey(bot_id=lz_var.bot.id, chat_id=lz_var.x_man_bot_id , user_id=lz_var.x_man_bot_id )
+            # storage_data = await storage.get_data(key)
+            # storage_data["menu_message"] = product_message
+            # await storage.set_data(key, storage_data)
+
+            await MenuBase.set_menu_status(state, {
+                "current_message": product_message,
+                "current_chat_id": product_message.chat.id,
+                "current_message_id": product_message.message_id
+            })
+
+
+        else:
+            await message.answer(product_info['msg'], parse_mode="HTML")
+            return
+    except Exception as e:
+        # tb = traceback.format_exc()
+        notify_msg=await message.answer("😼 正在从院长的硬盘把这个资源上传上来，这段时间还是先看看别的资源吧")
+        spawn_once(f"notify_msg:{notify_msg.message_id}",lambda: Media.auto_self_delete(notify_msg, 7))
+        # await message.answer(f"⚠️ 解密失败：\n{e}\n\n详细错误:\n<pre>{tb}</pre>", parse_mode="HTML")
+        print(f"❌ 解密失败D：{e}", flush=True)
 
 
 @router.callback_query(F.data.startswith("sora_operation:"))
@@ -3439,7 +3605,7 @@ async def handle_clt_my_pager(callback: CallbackQuery):
 @router.callback_query(F.data.regexp(r"^clt:my:(\d+)(?::(\d+)(?::([A-Za-z0-9]+))?)?$"))
 async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
     # ====== “我的资源橱窗”入口用通用键盘（保持既有行为）======
-    print(f"handle_clt_my_detail: {callback.data}")
+    # print(f"handle_clt_my_detail: {callback.data}")
     # _, _, cid_str, page_str,refresh_mode = callback.data.split(":")
     # cid = int(cid_str)
 
@@ -3461,7 +3627,7 @@ async def handle_clt_my_detail(callback: CallbackQuery,state: FSMContext):
         pass
     elif refresh_mode == 'tk':
         collection_info  = await _build_clt_info(cid=cid, user_id=user_id, mode='edit', ops='handle_clt_my')
-        print(f"collection_info==>{collection_info}")
+        # print(f"collection_info==>{collection_info}")
         if collection_info.get("success") is False:
             await callback.answer(collection_info.get("message"), show_alert=True)
             return
@@ -3561,7 +3727,8 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
         return
     await sync_table_by_pks("user_collection", "id", [cid])
     cache_key = f"user:clt:{user_id}:50:0"
-    PGPool.cache.delete(cache_key)
+    await PGPool.delete_cache(cache_key)
+    print(f">>> Deleted cache for key: {cache_key}")
 
     rec = await PGPool.get_user_collection_by_id(collection_id=cid)
     title = rec.get("title") if rec else "未命名资源橱窗"
@@ -3873,7 +4040,12 @@ async def _get_clti_list(cid,page,user_id,mode):
     lines = [f"资源橱窗 #{cid} 文件列表（第 {page+1} 页）", ""]
     for idx, f in enumerate(display, start=1):
         # print(f"f{f}",flush=True)
-        content = _short(f.get("content"))
+        if(f.get("product_content")):
+            content = _short(f.get("product_content"))
+        else:
+            content = _short(f.get("content"))
+        
+
         # 根据 r['file_type'] 进行不同的处理
         if f.get('file_type') == 'v':
             icon = "🎬"
@@ -5313,6 +5485,24 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 async def handle_jieba_export(message: Message | None = None):
     await export_lexicon_files(message=message, output_dir=".", force=True)
 
+@router.message(Command("sync"))
+async def handle_sync(message: Message, state: FSMContext):
+    # 使用 MySQL 找出所有 table user_collection, 并利用 sync_table_by_pks进行同步
+    tables_to_sync = ["user_collection"]
+    for table in tables_to_sync:
+        try:
+            user_id = message.from_user.id
+            rows = await MySQLPool.list_user_collections(user_id=user_id)
+            print(f"{rows}")
+            pks = set()
+            for row in rows:
+                pks.add(row["id"])
+            print(f"pks={pks}")
+            await sync_table_by_pks("user_collection", "id", pks)
+            print(f"✅ 同步表 {table} 成功，记录数: {len(pks)}")
+        except Exception as e:
+            print(f"❌ 同步表 {table} 失败: {e}", flush=True)
+   
 
 
 KICK_KEYWORDS = {

@@ -136,6 +136,37 @@ class PGPool:
                 cls._pool = None
                 print("🛑 PostgreSQL 连接池已关闭")
 
+
+    @classmethod
+    async def delete_cache(cls, prefix: str):
+        """
+        删除 cache 中以 prefix 开头的 key。
+        - MemoryCache: 无 keys() 接口，因此从内部 _store 取 key
+        - TwoLevelCache: 仅清 L1（L2 依业务需要可扩展批量删；目前保持轻量，不阻塞）
+        """
+        if not cls.cache:
+            return
+
+        # 统一拿到 L1 的 store（兼容 MemoryCache / TwoLevelCache）
+        l1 = getattr(cls.cache, "l1", None)
+        if l1 is None:
+            l1 = cls.cache  # 可能直接是 MemoryCache
+
+        store = getattr(l1, "_store", None)
+        if not store:
+            return
+
+        keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(prefix)]
+        for k in keys_to_delete:
+            try:
+                # TwoLevelCache / MemoryCache 都支持 delete(key)
+                if hasattr(cls.cache, "delete"):
+                    await cls.cache.delete(k)
+                else:
+                    store.pop(k, None)
+            except Exception:
+                pass
+
     # ========= 工具 =========
     @classmethod
     def _normalize_query(cls, keyword_str: str) -> str:
@@ -1102,6 +1133,7 @@ class PGPool:
         cls, user_id: int, limit: int = 50, offset: int = 0
     ) -> List[Dict[str, Any]]:
         cache_key = f"user:clt:{user_id}:{limit}:{offset}"
+        
         if cls.cache:
             cached = await cls.cache.get(cache_key)
             if cached:
@@ -1319,10 +1351,10 @@ class PGPool:
         try:
             conn = await cls.acquire()
             sql = """
-                SELECT sc.content, sc.id, sc.file_type
+                SELECT sc.content, sc.id, sc.file_type, p.content as product_content
                 FROM user_collection_file ucf
-                LEFT JOIN sora_content sc
-                  ON sc.id = ucf.content_id
+                LEFT JOIN sora_content sc ON sc.id = ucf.content_id 
+                LEFT JOIN product p ON p.content_id = sc.id
                 WHERE ucf.collection_id = $1
                   AND sc.valid_state != 4
                 ORDER BY ucf.sort ASC

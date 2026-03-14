@@ -38,3 +38,4 @@ xlj_discount_rate = 0.6 # 小懒觉会员补贴率
 default_point = 34  # 
 configuration_chat_id = -1002030683460
 configuration_thread_id = 207008
+luzaivversion=1004

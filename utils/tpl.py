@@ -76,11 +76,17 @@ class Tplate:
         else:
             tpl_data['album_string'] = ""
 
+        if 'content_id_str' in tpl_data and tpl_data['content_id_str'] is not None:
+            tpl_data['content_id_str'] = f"🌼 <code>{tpl_data['content_id_str']}</code>\r\n"
+        else:
+            tpl_data['content_id_str'] = ""      
+        
 
         template_str = textwrap.dedent("""\
             <blockquote>ㅤ
             $file_icon $content
             ㅤ</blockquote>
+            $hash_string                           
             $album_string$tag_string
             $fee_string $file_size_string$duration_string$create_timestamp_string
         """)

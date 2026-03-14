@@ -5371,6 +5371,10 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if(file_password  and file_password.strip() != ''):
             ret_content += f"🔐 密码: <code>{file_password}</code>  (点选复制)\n\n"
 
+        aes = AESCrypto(AES_KEY)
+        encoded = aes.aes_encode(content_id)
+        ret_content += f"🌼 <code>{encoded}</code> \n"
+
         profile = ""
         if file_size and (product_type != "album" and product_type != "a"):
             # print(f"🔍 资源大小: {file_size}")
@@ -5438,7 +5442,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             # print(f"裁切后内容长度 {len(content_preview)}")
 
         if ret_content:
-            ret_content = content_preview+"\r\n\r\n"+ret_content
+            ret_content = content_preview+"\n\n"+ret_content
         else:
             ret_content = content_preview
         
@@ -5460,7 +5464,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             print(f"购买条件解析结果: {condition}, is_protect_content={is_protect_content}", flush=True)
             required_talking_task = int(condition.get("talking_task") or 0)
             if required_talking_task > 0:
-                ret_content += f"\n\n<i>*可以积分兑换，但需要先念咒语</i>"
+                ret_content += f"<i>*可以积分兑换，但需要先念咒语</i>\n\n"
               
 
         if (file_type == "document" or file_type == "d") and LZString.contains_multi_volume_archive(content):
@@ -5583,3 +5587,19 @@ async def handle_private_text(message: Message, state: FSMContext):
             keyword = strip_keywords(text, KICK_KEYWORDS[action])
             print(f"【Telethon】群触发 luzai，剩余内容：{keyword}", flush=True)  
             await handle_search_component(message, state, keyword)
+        else:
+            try:
+                print(f"【Telethon】没有匹配到任何关键词{text}", flush=True)
+                aes = AESCrypto(AES_KEY)
+                decoded = aes.aes_decode(text)
+                # 如果 decoded 是纯数字，且长度小于 10，且大于 0，则认为是 content_id
+                if decoded.isdigit() and 0 < len(decoded) < 10:
+                    content_id = int(decoded)
+                    print(f"【Telethon】解析到 content_id: {content_id}", flush=True)
+                   
+                    print(f"【Telethon】载入内容成功，准备发送消息", flush=True)
+                   
+                    await _load_content(message, state, content_id, ["f", -1])
+                
+            except Exception as e:
+                print(f"【Telethon】解析文本失败: {e}", flush=True)

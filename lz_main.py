@@ -142,8 +142,6 @@ FILE_ID_REGEX = re.compile(
 from aiogram import Router, F
 router = Router()
 
-
-
 async def on_startup(bot: Bot):
     webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
     print(f"🔗 設定 Telegram webhook 為：{webhook_url}")

@@ -339,7 +339,7 @@ async def main():
                
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
                
-                lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+                await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|@{lz_var.bot_username}")
 
             await say_hello()
             # print(f"Skin {lz_var.skins}")
@@ -356,7 +356,7 @@ async def main():
             else:
               
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-                lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+                await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|@{lz_var.bot_username}")
               
 
             # print(f"Skin {lz_var.skins}")

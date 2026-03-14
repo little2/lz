@@ -234,10 +234,12 @@ async def main():
      # ✅ 赋值给 lz_var 让其他模块能引用
     lz_var.bot = bot
 
-    lz_var.switchbot = Bot(
+    switchbot = Bot(
         token=SWITCHBOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
+
+    lz_var.switchbot = switchbot
     
 
 

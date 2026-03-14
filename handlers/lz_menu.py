@@ -1346,13 +1346,16 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
     load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)
     if(load_result.get("ok") == 1):
         lz_var.skins = load_result.get("skins", {})
+        await message.answer("🔄 皮肤配置已重新加载。")
     else:
        
         print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-        await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+        r = await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+        print(f"⚠️ 已通知管理员: {r}", flush=True)
+        await message.answer("⚠️ 加载皮肤失败")
        
 
-    await message.answer("🔄 皮肤配置已重新加载。")
+    
 
 
 @router.message(Command("s"))

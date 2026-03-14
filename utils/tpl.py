@@ -282,8 +282,6 @@ class Tplate:
                 print(f"⚠️ 向 x-man 请求失败：{e} - {lz_var.x_man_bot_id}",flush=True)
                 return {"ok":None, "handshake": lz_var.x_man_bot_id}
                 
-                # await Media.handshake(lz_var.bot_username)
-                # await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
 
 
         # --- 写入文件（即便有缺） ---

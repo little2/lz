@@ -31,6 +31,7 @@ default_thumb_unique_file_ids: list[str] = [
 ]
 skins: dict = {}  # 皮肤配置
 bot = None  # 预留 bot 全局变量
+switchbot = None # 预留 switchbot 全局变量
 user_client = None  # Telethon 用户客户端
 redis_manager = None  # Redis client
 xlj_fee = 34 #TODO 可移除

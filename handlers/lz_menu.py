@@ -246,6 +246,7 @@ async def _edit_caption_or_text(
     
 
 
+
 @debug
 async def handle_update_thumb(content_id, file_id,state):
     print(f"🏃🖼 开始取得视频的默认封面图，正在处理...{lz_var.x_man_bot_id}", flush=True)
@@ -319,21 +320,21 @@ async def handle_update_thumb(content_id, file_id,state):
             print(f"...⚠️🏃🖼  提取缩图失败 for content_id: {content_id}", flush=True)
 
     except TelegramNotFound as e:
-    
-        await lz_var.user_client.send_message(lz_var.bot_username, "/start")
-        await lz_var.user_client.send_message(lz_var.bot_username, "[~bot~]")
+        await lz_var.switchbot.send_message(lz_var.x_man_bot_id,f"|_kick_|@{lz_var.bot_username}")
+       
 
         print(f"...⚠️ chat_id for content_id: {content_id}，错误：ChatNotFound", flush=True)
 
     except (TelegramForbiddenError) as e:
         print(f"...⚠️ TelegramForbiddenError for content_id: {content_id}，错误：{e}", flush=True)
     except (TelegramBadRequest) as e:
-        await lz_var.user_client.send_message(lz_var.bot_username, "/start")
-        await lz_var.user_client.send_message(lz_var.bot_username, "[~bot~]")
+        await lz_var.switchbot.send_message(lz_var.x_man_bot_id,f"|_kick_|@{lz_var.bot_username}")
+      
         print(f"...⚠️ TelegramBadRequest for content_id: {content_id}，错误：{e}", flush=True)
     except Exception as e:
 
         print(f"...⚠️ 失败 for content_id: {content_id}，错误：{e}", flush=True)
+
 
 
 # # == 主菜单 ==
@@ -1346,10 +1347,10 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
     if(load_result.get("ok") == 1):
         lz_var.skins = load_result.get("skins", {})
     else:
-        from utils.handshake import HandshakeUtils
+       
         print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-        await HandshakeUtils.handshake(load_result.get('handshake'))
-
+        lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+       
 
     await message.answer("🔄 皮肤配置已重新加载。")
 

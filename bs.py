@@ -1111,6 +1111,11 @@ async def handle_start_with_param(message: Message, command: CommandStart):
         reply_markup=kb,
     )
 
+    await message.answer(
+        text="<a href='https://t.me/HuuY2024_bot?start=1e71KvMK'>@HuuY2024_bot</a>",
+        parse_mode=ParseMode.HTML,
+    )
+
 
     
 @router.message(Command("start"))

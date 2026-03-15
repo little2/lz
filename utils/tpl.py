@@ -86,7 +86,7 @@ class Tplate:
             <blockquote>ㅤ
             $file_icon $content
             ㅤ</blockquote>
-            $hash_string                           
+            $content_id_str                           
             $album_string$tag_string
             $fee_string $file_size_string$duration_string$create_timestamp_string
         """)

@@ -1200,7 +1200,7 @@ def tpl(stock_row,user_id):
     #     print(f"{e}", flush=True)
 
 
-
+    # //TODO
     id = stock_row["id"]
     kb = InlineKeyboardMarkup(
         inline_keyboard=[

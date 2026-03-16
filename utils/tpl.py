@@ -76,11 +76,17 @@ class Tplate:
         else:
             tpl_data['album_string'] = ""
 
+        if 'content_id_str' in tpl_data and tpl_data['content_id_str'] is not None:
+            tpl_data['content_id_str'] = f"🌼 <code>{tpl_data['content_id_str']}</code>\r\n"
+        else:
+            tpl_data['content_id_str'] = ""      
+        
 
         template_str = textwrap.dedent("""\
             <blockquote>ㅤ
             $file_icon $content
             ㅤ</blockquote>
+            $content_id_str                           
             $album_string$tag_string
             $fee_string $file_size_string$duration_string$create_timestamp_string
         """)
@@ -282,8 +288,6 @@ class Tplate:
                 print(f"⚠️ 向 x-man 请求失败：{e} - {lz_var.x_man_bot_id}",flush=True)
                 return {"ok":None, "handshake": lz_var.x_man_bot_id}
                 
-                # await Media.handshake(lz_var.bot_username)
-                # await lz_var.user_client.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
 
 
         # --- 写入文件（即便有缺） ---

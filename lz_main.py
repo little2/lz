@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from lz_config import BOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
+from lz_config import BOT_TOKEN,SWITCHBOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
 # from lz_db import db
 from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
@@ -54,63 +54,6 @@ class LzFSM(StatesGroup):
 
 lz_var.skins = {}  # 皮肤配置
 
-# def create_user_client():
-#     if SESSION_STRING:
-#         print("【Telethon】使用 StringSession 登录。", flush=True)
-#         return TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
-#     else:
-#         print("【Telethon】使用 USER_SESSION 登录。", flush=True)
-#         return TelegramClient(USER_SESSION, API_ID, API_HASH)
-
-
-# async def handle_user_private_media(event):
-#     # print(f"【Telethon】收到私聊媒体：{event.message.media}，来自 {event.message.from_id}",flush=True)
-    
-#     msg = event.message
-#     if not msg.is_private:
-#         return
-    
-#     file_type =''
-#     media = None
-#     if msg.document:
-#         media = msg.document
-#         file_type = 'document'
-#     elif msg.video:
-#         media = msg.video
-#         file_type = 'video'
-#     elif msg.photo:
-#         media = msg.photo
-#         file_type = 'photo'
-#     # elif msg.text:
-#     #     media = msg.text
-#     #     file_type = 'text'        
-#     #     pass
-
-
-#     print(f"【Telethon】收到私聊消息 {event.message.text} {file_type}",flush=True)
-
-#     # 转发到群组，并删除私聊
-#     if media:
-#         print(f"{lz_var.bot_id} {media}")
-#         ret = await user_client.send_file(lz_var.bot_username, media)
-        
-#     elif msg.text:
-#         try:
-#             match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', msg.text, re.IGNORECASE)
-#             if match:
-#                 botname = match.group(1) + match.group(2)
-#                 await user_client.send_message(botname, "/start")
-#                 # await user_client.send_message(botname, "[~bot~]")
-                
-#         except Exception as e:
-#                 print(f"Error kicking bot: {e} {botname}", flush=True)
-    
-    
-
-
-
-# from telethon.sessions import StringSession
-# from telethon import TelegramClient, events
 
 def create_user_client():
     if SESSION_STRING:
@@ -187,8 +130,8 @@ async def handle_user_private_media(event: events.NewMessage.Event):
                 print(f"⚠️ 删除私聊消息失败：{e}", flush=True)
 
 
-def register_telethon_handlers(client):
-    client.add_event_handler(handle_user_private_media, events.NewMessage(incoming=True))
+# def register_telethon_handlers(client):
+#     client.add_event_handler(handle_user_private_media, events.NewMessage(incoming=True))
 
 
 
@@ -198,8 +141,6 @@ FILE_ID_REGEX = re.compile(
 
 from aiogram import Router, F
 router = Router()
-
-
 
 async def on_startup(bot: Bot):
     webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -265,37 +206,26 @@ async def sync():
             break
 
 async def say_hello():
+    await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ] <code>{lz_var.bot_username}</code> 已启动！")
      # 构造一个要导入的联系人
-    try:
-        target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
-        me = await lz_var.user_client.get_me()
-        await lz_var.user_client.send_message(target, f"[LZ] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行LZ任务！",parse_mode='html')   
-        print(f"发送消息给 KeyMan 成功。",flush=True)
-    except Exception as e:
-        print(f"发送消息给 KeyMan 失败：{e}",flush=True)
+    # try:
+    #     target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
+    #     me = await lz_var.user_client.get_me()
+    #     await lz_var.user_client.send_message(target, f"[LZ] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行LZ任务！",parse_mode='html')   
+    #     print(f"发送消息给 KeyMan 成功。",flush=True)
+    # except Exception as e:
+    #     print(f"发送消息给 KeyMan 失败：{e}",flush=True)
 
-    try:
-        await lz_var.user_client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')   
-        print(f"发送消息给 {SWITCHBOT_USERNAME} 成功。",flush=True)
-    except Exception as e:
-        print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
+    # try:
+    #     await lz_var.user_client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')   
+    #     print(f"发送消息给 {SWITCHBOT_USERNAME} 成功。",flush=True)
+    # except Exception as e:
+    #     print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
   
 async def main():
     global PUBLISH_BOT_NAME
     # 10.2 并行运行 Telethon 与 Aiogram
    
-    # await delete_my_profile_photos(user_client)
-    # await update_my_name(user_client,'Luzai', 'Man')
-    # await update_username(user_client,"luzai09man")
-    # import aiohttp
-    # from aiogram import Bot
-    # # 禁用 SSL 验证（仅开发环境调试时使用）
-    # connector = aiohttp.TCPConnector(ssl=False)
-    # # 增加超时到 60 秒
-    # timeout = aiohttp.ClientTimeout(total=60)
-    # session = aiohttp.ClientSession(connector=connector, timeout=timeout
-    # bot = Bot(token=BOT_TOKEN, session=session)
-
     bot = Bot(
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -303,6 +233,16 @@ async def main():
     
      # ✅ 赋值给 lz_var 让其他模块能引用
     lz_var.bot = bot
+
+    switchbot = Bot(
+        token=SWITCHBOT_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+
+    lz_var.switchbot = switchbot
+    
+
+
     try:
         me = await bot.get_me()
         lz_var.bot_username = me.username
@@ -315,23 +255,22 @@ async def main():
         await bot.session.close()
         return
     
-    user_client = create_user_client()
-    lz_var.user_client = user_client
+    # user_client = create_user_client()
+    # lz_var.user_client = user_client
+    # register_telethon_handlers(user_client)
 
-
-
-    register_telethon_handlers(user_client)
-
-    await user_client.start(PHONE_NUMBER)
-    task_telethon = asyncio.create_task(user_client.run_until_disconnected())
+    # await user_client.start(PHONE_NUMBER)
+    # task_telethon = asyncio.create_task(user_client.run_until_disconnected())
 
     try:
         # TODO -- 人类账号可能也不再需要
-        man_me = await user_client.get_me()
-        lz_var.man_bot_id = man_me.id
-        print(f"✅ 【Telethon】人类账号 {man_me.id} {man_me.username} 已启动。", flush=True)
+        # man_me = await user_client.get_me()
+        # lz_var.man_bot_id = man_me.id
+        # print(f"✅ 【Telethon】人类账号 {man_me.id} {man_me.username} 已启动。", flush=True)
+        pass
     except Exception as e:
         print(f"❌ 无法获取人类账号信息：{e}", flush=True)
+
 
     dp = Dispatcher(storage=MemoryStorage())
 
@@ -369,10 +308,10 @@ async def main():
             await bot.session.close()
         except Exception as e:
             print(f"[shutdown] Bot session close error: {e}")
-        try:
-            await user_client.disconnect()
-        except Exception as e:
-            print(f"[shutdown] Telethon disconnect error: {e}")
+        # try:
+        #     await user_client.disconnect()
+        # except Exception as e:
+        #     print(f"[shutdown] Telethon disconnect error: {e}")
 
     # ✅ Telegram /ping 指令（aiogram v3 正确写法）
     @dp.message(Command(commands=["ping", "status"]))
@@ -397,9 +336,10 @@ async def main():
             if(load_result.get("ok") == 1):
                 lz_var.skins = load_result.get("skins", {})
             else:
-                from utils.handshake import HandshakeUtils
+               
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-                await HandshakeUtils.handshake(load_result.get('handshake'))
+               
+                await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|@{lz_var.bot_username}")
 
             await say_hello()
             # print(f"Skin {lz_var.skins}")
@@ -414,9 +354,10 @@ async def main():
             if(load_result.get("ok") == 1):
                 lz_var.skins = load_result.get("skins", {})
             else:
-                from utils.handshake import HandshakeUtils
+              
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-                await HandshakeUtils.handshake(load_result.get('handshake'))
+                await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|@{lz_var.bot_username}")
+              
 
             # print(f"Skin {lz_var.skins}")
             await say_hello()
@@ -439,13 +380,13 @@ async def main():
             await bot.session.close()
         except Exception:
             pass
-        try:
-            await user_client.disconnect()
-        except Exception:
-            pass
-        # 如果你还留着 task_telethon：
-        if not task_telethon.done():
-            task_telethon.cancel()       
+        # try:
+        #     await user_client.disconnect()
+        # except Exception:
+        #     pass
+        # # 如果你还留着 task_telethon：
+        # if not task_telethon.done():
+        #     task_telethon.cancel()       
 
 
     # 理论上 Aiogram 轮询不会退出，若退出则让 Telethon 同样停止

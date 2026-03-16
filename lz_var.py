@@ -33,6 +33,7 @@ default_thumb_unique_file_ids: list[str] = [
 ]
 skins: dict = {}  # 皮肤配置
 bot = None  # 预留 bot 全局变量
+switchbot = None # 预留 switchbot 全局变量
 user_client = None  # Telethon 用户客户端
 redis_manager = None  # Redis client
 xlj_fee = 34 #TODO 可移除
@@ -40,3 +41,4 @@ xlj_discount_rate = 0.6 # 小懒觉会员补贴率
 default_point = 34  # 
 configuration_chat_id = -1002030683460
 configuration_thread_id = 207008
+luzaivversion=1004

@@ -458,14 +458,19 @@ class Media:
 
         if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
             lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
+            kack_qty = 0
             for fuid in lack_file_uid_rows:
-                
+                kack_qty = kack_qty+1
                 await lz_var.bot.send_message(
                     chat_id=lz_var.x_man_bot_id,
                     text=f"{fuid}"
                 )
                 print(f"缺少 {fuid}")
                 await asyncio.sleep(0.7)
+
+                if kack_qty > 7:
+                    break
+
             print(f"资源同步中，请稍后再试，请看看别的资源吧(-{len(lack_file_uid_rows)})", flush=True)        
             return {'ok':False,'message':f'资源同步中，请稍后再试，可以先看看别的资源吧(-{len(lack_file_uid_rows)})'}
         # print(f"1896=>{productInfomation}")

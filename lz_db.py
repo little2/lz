@@ -466,7 +466,7 @@ class DB:
                 SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
                     s.thumb_file_unique_id, s.valid_state, s.file_password,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
-                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status 
+                    p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.review_status, p.content as product_content  
                 FROM sora_content s
                 LEFT JOIN sora_media m ON s.id = m.content_id AND m.source_bot_name = $2
                 LEFT JOIN product p ON s.id = p.content_id
@@ -535,6 +535,7 @@ class DB:
                 "source_id": row["source_id"],
                 "file_type": row["file_type"],
                 "content": row["content"],
+                "product_content": row.get("product_content"),
                 "file_size": row["file_size"],
                 "duration": row["duration"],
                 "tag": row["tag"],

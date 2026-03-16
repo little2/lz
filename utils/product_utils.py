@@ -100,6 +100,11 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     content = None
     kb = None
 
+    if UPLOADER_BOT_NAME is None:
+        lz_var.uploader_bot_name = lz_var.bot_username
+    else:
+        lz_var.uploader_bot_name = UPLOADER_BOT_NAME
+
 
 
     try:
@@ -145,7 +150,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 ),
                 InlineKeyboardButton(
                     text="🐥 上传鲁馆",
-                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
+                    url=f"https://t.me/{lz_var.uploader_bot_name}?start=upload"
                 )
             ],
             [

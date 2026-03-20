@@ -1202,22 +1202,44 @@ def tpl(stock_row,user_id):
 
     # //TODO
     id = stock_row["id"]
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
-                # InlineKeyboardButton(text="◀️",url=f"https://t.me/HuuY2024_bot?start=eYTbHEqy"),  
-                InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
-                InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
-            ],
-            [                
-                InlineKeyboardButton(text="📿 随喜转发", copy_text=CopyTextButton(text=f"https://t.me/{BOT_USERNAME}?start={id}_{user_id}"))
-            ],
-            [                
-                InlineKeyboardButton(text="🙏 布施岛", url=f"https://t.me/+oRTYsn1BKC5mZTA8")
+
+
+    cache_key = f"item:{user_id}"
+    cached = PGDB.cache.get(cache_key)
+    if cached is not None:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="◀️",url=f"https://t.me/HuuY2024_bot?start=EmzAJSLa"),  
+                    InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
+                    InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
+                ],
+                [                
+                    InlineKeyboardButton(text="📿 随喜转发", copy_text=CopyTextButton(text=f"https://t.me/{BOT_USERNAME}?start={id}_{user_id}"))
+                ],
+                [                
+                    InlineKeyboardButton(text="🙏 布施岛", url=f"https://t.me/+oRTYsn1BKC5mZTA8")
+                ]
             ]
-        ]
-    )
+        )
+    else:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
+                    # InlineKeyboardButton(text="◀️",url=f"https://t.me/HuuY2024_bot?start=eYTbHEqy"),  
+                    InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
+                    InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
+                ],
+                [                
+                    InlineKeyboardButton(text="📿 随喜转发", copy_text=CopyTextButton(text=f"https://t.me/{BOT_USERNAME}?start={id}_{user_id}"))
+                ],
+                [                
+                    InlineKeyboardButton(text="🙏 布施岛", url=f"https://t.me/+oRTYsn1BKC5mZTA8")
+                ]
+            ]
+        )
+        PGDB.cache.set(cache_key, "True",3600)
 
     # ✅ 管理员专用：删除此视频
     if is_admin(user_id):

@@ -1510,7 +1510,7 @@ async def handle_set_price(callback_query: CallbackQuery, state: FSMContext):
     except Exception:
         cur_price = lz_var.default_point
 
-    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格( {lz_var.default_point}-{(lz_var.default_point*5)})"
+    caption = f"当前价格为 {cur_price}\n\n请在 3 分钟内输入商品价格( {lz_var.default_point} ~ 999)"
     cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="取消", callback_data=f"cancel_set_price:{content_id}")]
     ])
@@ -1557,13 +1557,13 @@ async def receive_price_input(message: Message, state: FSMContext):
     message_id = data.get("message_id")
     
     price_str = message.text.strip()
-    if not price_str.isdigit() or not (lz_var.default_point <= int(price_str) <= (lz_var.default_point*5)):
+    if not price_str.isdigit() or not (lz_var.default_point <= int(price_str) <= 999):
         # await message.answer("❌ 请输入 34~102 的整数作为价格")
         # 回到菜单
         
         callback_id = data.get("callback_id")
         if callback_id:
-            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 {lz_var.default_point}~{(lz_var.default_point*5)} 的整数作为价格", show_alert=True)
+            await bot.answer_callback_query(callback_query_id=callback_id, text=f"❌ 请输入 {lz_var.default_point}~999 的整数作为价格", show_alert=True)
         else:
             await state.clear()
             thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
@@ -2881,7 +2881,7 @@ async def _approve_content(product_row):
 
 
     text = textwrap.dedent(f'''\
-        ✅ 您的投稿内容「<code>{shorten_content}</code>」通过审核，已经上架发布。
+        ✅ 您的投稿内容「<code>{shorten_content}</code>」已经上架发布。
             
         🔗 <a href="{resource_board_url}">资源上架版块</a>。
 
@@ -4682,6 +4682,8 @@ async def _check_product_policy(product_row):
     thumb_file_id = product_row.get("thumb_file_id") or ""
     has_custom_thumb = bool(thumb_file_id and thumb_file_id != DEFAULT_THUMB_FILE_ID)
     has_tag_string = bool(tag_string and tag_string.strip())
+    price = int(product_info.get("price") or 0)
+
 
     try:
         tag_set = await AnanBOTPool.get_tags_for_file(source_id) if source_id else set()
@@ -4691,7 +4693,7 @@ async def _check_product_policy(product_row):
         tag_count = 0
 
     # 内容长度校验（“超过30字”→ 严格 > 30）
-    content_ok = len(content_text) > 30
+    content_ok = len(content_text) > lz_var.default_content_len
     tags_ok = tag_count >= 5
     thumb_ok = has_custom_thumb
     has_tag_ok = has_tag_string
@@ -4702,8 +4704,8 @@ async def _check_product_policy(product_row):
     # 如果有缺项，给出可操作的引导并阻止送审
     if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
         missing_parts = []
-        if not content_ok:
-            missing_parts.append("📝 内容需 > 30 字")
+        if not content_ok and price > lz_var.default_point:
+            missing_parts.append(f"📝 内容需 > {lz_var.default_content_len} 字")
         if not thumb_ok:
             missing_parts.append("📷 需要设置预览图（不是默认图）")
 

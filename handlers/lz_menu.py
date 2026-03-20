@@ -5496,7 +5496,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if review_status == 4:
             ret_content = f"<b>⚠️ 这个资源已被举报，正在审核中，欲兑换请考虑 ⚠️ </b>\n\n{ret_content}"
         if review_status in [2] or review_status is None:
-            ret_content = f"<b>⚠️ 这个资源尚未审核通过，欲兑换请考虑 ⚠️ </b>\n\n{ret_content}"
+            ret_content = f"<b>⚠️ 审核中，谨慎兑换 ⚠️ </b>\n\n{ret_content}"
 
         elif valid_state==20 or review_status in [0, 1,20]:
             if review_status==1:

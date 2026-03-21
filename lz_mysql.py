@@ -263,6 +263,30 @@ class MySQLPool(LYBase):
 
 
 
+    @classmethod
+    async def quick_check_if_product(cls, file_unique_id: str):
+        await cls.ensure_pool()  # ✅ 新增
+        conn, cursor = await cls.get_conn_cursor()
+        try:
+            await cursor.execute('''
+                SELECT product.id as product_id, sora_content.id as content_id  FROM `sora_content` 
+                LEFT JOIN product ON product.content_id = sora_content.id 
+                WHERE sora_content.`source_id` = %s;
+                '''
+            , (file_unique_id,))
+            row = await cursor.fetchone()
+            return row
+        except Exception as e:
+            print(f"⚠️ 数据库执行出错: {e}")
+            row = None
+        finally:
+            await cls.release(conn, cursor)
+
+        if not row:
+            print("❌ 没有找到匹配记录 file_id")
+            return None
+
+
 
     @classmethod
     async def get_sora_content_by_fuid(cls, file_unique_id: str) -> int | None:
@@ -292,6 +316,34 @@ class MySQLPool(LYBase):
             return None
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def upsert_sora_content(cls, file_unique_id, file_type, file_size, duration, user_id):
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            ret=await cur.execute(
+                """
+                INSERT INTO sora_content
+                    (source_id, file_type, file_size, duration, owner_user_id, stage)
+                VALUES
+                    (%s, %s, %s, %s, %s, 'pending')
+                ON DUPLICATE KEY UPDATE
+                    file_type     = VALUES(file_type),
+                    file_size     = VALUES(file_size),
+                    duration      = VALUES(duration),
+                    owner_user_id = IF(
+                        sora_content.owner_user_id IS NULL OR sora_content.owner_user_id = 0,
+                        VALUES(owner_user_id),
+                        sora_content.owner_user_id
+                    ),        
+                    stage         = 'pending'
+                """,
+                (file_unique_id, file_type, file_size, duration, user_id)
+            )
+            return ret
+        finally:
+            await cls.release(conn, cur)
+
 
 
     @classmethod
@@ -375,14 +427,15 @@ class MySQLPool(LYBase):
             sql = """
                 SELECT expire_timestamp
                 FROM membership 
-                WHERE user_id = %s
+                WHERE user_id = %s AND course_code = 'xlj'
                 LIMIT 1
             """
             await cursor.execute(sql, (manager_id,))
             row = await cursor.fetchone()
-            print(f"{int(row['expire_timestamp'])} {(manager_cnt*86400)}")
-            user_expire_timestamp = (int(row['expire_timestamp']) or 0 ) + (manager_cnt*43200)
-            new_expire_timestamp = int(min(user_expire_timestamp, (time.time()+86400*max_extend_days)))
+            current_expire_timestamp = int((row or {}).get('expire_timestamp') or time.time())
+            print(f"{current_expire_timestamp} {(manager_cnt * 86400)}")
+            user_expire_timestamp = current_expire_timestamp + (manager_cnt * 86400)
+            new_expire_timestamp = int(min(user_expire_timestamp, (time.time() + 86400 * max_extend_days)))
 
 
             if not row:
@@ -402,6 +455,7 @@ class MySQLPool(LYBase):
                 return new_expire_timestamp
         except Exception as e:
             print(f"⚠️ 427 数据库执行出错: {e}")
+            return None
         finally:
             await cls.release(conn, cursor)   
 
@@ -1645,7 +1699,7 @@ class MySQLPool(LYBase):
 
             sql = """
                 INSERT INTO contribute_today (user_id, stat_date, upload,  count, decent, update_timestamp)
-                VALUES (?, ?, 1, ?, ?, 0)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     upload = upload + VALUES(upload),
                     count = count + VALUES(count),
@@ -1658,13 +1712,12 @@ class MySQLPool(LYBase):
                 sql,
                 (int(user_id), stat_date,  upload, count, decent, now_ts)
             )
-            row = await cur.fetchone()
-            return int((row or {}).get("count") or 0)
+            return int(cur.rowcount or 0)
         finally:
             await cls.release(conn, cur)
 
     @classmethod
-    async def get_user_consecutive_days(cls, user_id: int, stat_date: str, upload: int = 0, count:int=0, decent:int=0) -> int:
+    async def get_user_consecutive_days(cls, user_id: int) -> int:
         conn, cur = await cls.get_conn_cursor()
         try:
             sql_consecutive_days = """
@@ -1673,7 +1726,7 @@ class MySQLPool(LYBase):
                     EXISTS (
                     SELECT 1
                     FROM contribute_today
-                    WHERE user_id = ?
+                    WHERE user_id = %s
                         AND stat_date = CURDATE()
                         AND upload >= 1
                     ),
@@ -1684,7 +1737,7 @@ class MySQLPool(LYBase):
                             DATEDIFF(CURDATE(), stat_date) AS diff,
                             ROW_NUMBER() OVER (ORDER BY stat_date DESC) - DATEDIFF(CURDATE(), stat_date) AS grp
                         FROM contribute_today
-                        WHERE user_id = ?
+                        WHERE user_id = %s
                         AND stat_date <= CURDATE()
                         AND upload >= 1
                     ) AS t
@@ -1696,15 +1749,13 @@ class MySQLPool(LYBase):
                 ) AS consecutive_days;
 
             """
-            
-            now_ts = int(time.time())
 
             await cur.execute(
                 sql_consecutive_days,
                 (int(user_id), int(user_id))
             )
             row = await cur.fetchone()
-            return int((row or {}).get("count") or 0)
+            return int((row or {}).get("consecutive_days") or 0)
         finally:
             await cls.release(conn, cur)
 

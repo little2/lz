@@ -26,7 +26,7 @@ from aiogram.types import (
  
 
 
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
 from utils.tpl import Tplate
 from aiogram.enums import ChatAction,ContentType
 from aiogram.filters import Command,CommandObject
@@ -110,7 +110,7 @@ REPORT_TYPES: dict[int, str] = {
 
 INPUT_TIMEOUT = 300
 
-COLLECTION_PROMPT_DELAY = 1
+COLLECTION_PROMPT_DELAY = 0.9
 TAG_REFRESH_DELAY = 0.7
 BG_TASK_TIMEOUT = 120
 
@@ -298,16 +298,7 @@ def build_report_type_keyboard(file_unique_id: str, transaction_id: int) -> Inli
 
 
 
-async def get_bot_username():
-    global bot_username
-    if not bot_username:
-        bot_info = await bot.get_me()
-        bot_username = bot_info.username
 
-    if not lz_var.bot_username:
-        lz_var.bot_username = bot_username
-    
-    return bot_username
 
 
 def format_bytes(size: int) -> str:
@@ -1291,10 +1282,11 @@ async def receive_album_media(message: Message, state: FSMContext):
         coro_factory=lambda: delayed_finish_prompt(placeholder_msg_id)
     )
 
-    # 创建新任务（3秒内无动作才触发）
+    # 创建新任务（0.9秒内无动作才触发）
     async def delayed_finish_prompt(placeholder_msg_id):
         try:
-            await asyncio.sleep(COLLECTION_PROMPT_DELAY)
+            
+           
 
             # 等待所有该 content_id 的后台处理完毕（copy、落库、写入 album_items 等）
             # await _await_inflight(content_id)
@@ -2177,6 +2169,7 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     thumb_file_id = product_row.get("thumb_file_id") or ""
     content_text = (product_info.get("content") or "").strip()
     tag_string = product_info.get("tag", "")
+    orign_review_status = product_info.get("review_status")
 
 
     has_tag_string = bool(tag_string and tag_string.strip())
@@ -2266,6 +2259,9 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     if result:
         await callback_query.answer("✅ 已提交审核", show_alert=False)
         spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
+        if orign_review_status == 0:
+            spawn_once(f"update_today_contribute:{content_id}", lambda:update_user_consecutive_days(callback_query.from_user.id, product_info))
+        
     else:
         if error:
             await callback_query.answer(f"⚠️ 发送失败：{error}", show_alert=True)
@@ -2720,9 +2716,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
                 # print(f"🔍 审核通过，准备发送到发布频道: content_id={content_id}", flush=True)
 
         # await _send_to_topic(content_id)
-    elif review_status == 0:
-        spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_user_consecutive_days(callback_query.from_user.id, product_info))
-        
+
 
     
         
@@ -2744,54 +2738,68 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
 
 async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Optional[str]]:
+    global publish_bot
     lengthInChineseCharacters = len(product_info.get("content", ""))
     incentive_share_fee = 5
 
-
+    print(f"🔍 更新用户连续上架天数: user_id={user_id}, content_length={lengthInChineseCharacters}", flush=True)
     stat_date = datetime.now().strftime("%Y-%m-%d")
-    MySQLPool.upsert_contribute_today(user_id, stat_date, upload=1, count=incentive_share_fee)
-
-    consecutive_days = MySQLPool.get_user_consecutive_days(user_id)
-
-    user_title = user_id
+    await MySQLPool.upsert_contribute_today(user_id, stat_date, upload=1, count=incentive_share_fee)
+    print(f"🔍 已记录今日贡献：user_id={user_id}, date={stat_date}, upload=1, count={incentive_share_fee}", flush=True)
+    
+    consecutive_days = await MySQLPool.get_user_consecutive_days(user_id)
+    user_row = await lz_var.bot.get_chat(user_id)
+    print(f"🔍 用户 {user_id} 当前连续上架天数: {consecutive_days}", flush=True)
+    user_title = user_row.full_name if user_row else str(user_id)
 
     if consecutive_days >= 1:
 
         chat_incentive_text = (
-            f"🎉 🎉 {user_title}已经连续 <b>{consecutive_days}</b> 天上架资源！(撸仔/萨莱) ，获得的奖励如下:\r\n"
-            f"- 已增加 {incentive_share_fee} 句额外发言数\r\n"
+            f"🎉 🎉 <code>{user_title}</code> 已经连续 <code><b>{consecutive_days}</b></code> 天上架资源！(鲁仔/萨莱) ，获得的奖励如下:\r\n\r\n"
+            f"☑️ 已增加 {incentive_share_fee} 句额外发言数\r\n"
         )
 
         if consecutive_days >= 4:
-            new_expire_timestamp = MySQLPool.extend_bm_membership(user_id, 7, 7)
-            chat_incentive_text +=chat_incentive_text
-            "- 获得🐥小懒觉会员资格，会员期直到"
-            + datetime.fromtimestamp(new_expire_timestamp).strftime("%Y-%m-%d %H:%M:%S")
-            + "\r\n"
+            new_expire_timestamp = await MySQLPool.extend_bm_membership(user_id, 7, 7)
+            if new_expire_timestamp:
+                chat_incentive_text += (
+                    "☑️ 获得🐥小懒觉会员资格，会员期直到"
+                    + datetime.fromtimestamp(new_expire_timestamp).strftime("%Y-%m-%d %H:%M:%S")
+                    + "\r\n"
+                )
+            else:
+                chat_incentive_text += "◻️ 会员资格奖励发放失败，请稍后重试。\r\n"
             
         else:
-            chat_incentive_text +=chat_incentive_text
-            "- 继续加油，连续 7 天以上可以获得🐥小懒觉会员资格！\r\n"
+            chat_incentive_text += "◻️ 继续加油，连续 4 天以上可以获得🐥小懒觉会员资格！\r\n"
             
 
+        r2_user = await lz_var.bot.send_message(
+            chat_id=user_id,
+            text=chat_incentive_text,
+            parse_mode="html",
+            disable_web_page_preview=True,
+        )
 
         school_chat_id = -1001926574189
-        message_thread_id = 2120
+                             
+        school_message_thread_id = 2120
 
-        r1 = await lz_var.bot.send_message({
-            "chat_id": school_chat_id,
-            "message_thread_id": message_thread_id,
-            "parse_mode": "html",
-            "disable_web_page_preview": True,
-            "text": chat_incentive_text,
-        })
+        print(f"{chat_incentive_text}", flush=True)
 
-        r1 = await lz_var.bot.send_message({
-            "chat_id": user_id,
-            "parse_mode": "html",
-            "disable_web_page_preview": True,
-            "text": chat_incentive_text,
-        })
+        try:
+            await publish_bot.send_message(
+                chat_id=school_chat_id,
+                message_thread_id=school_message_thread_id,
+                parse_mode="html",
+                disable_web_page_preview=True,
+                text=chat_incentive_text,
+            )
+        except TelegramBadRequest as e:
+            # Group/thread may be unavailable; do not fail the background flow.
+            logging.warning("send incentive message to school chat failed: %s", e)
+
+
                
 
     
@@ -5533,156 +5541,242 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
     非相簿（无 media_group_id）多条在 _DEBOUNCE_SECS 时间窗内聚合，统一编辑占位为“资源橱窗投稿”。
     - 不入库、不创建 content_id（callback 时再创建），只负责把批量清单展现出来。
     """
-    try:
-        await asyncio.sleep(_DEBOUNCE_SECS)  # 等窗口内的后续消息进入 _BATCH_BY_CHAT
-    except Exception:
-        pass
-
-    print(f"{meta}")
-
-    table = meta['file_type']
-    file_unique_id = meta['file_unique_id']
-    type_map = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
-    file_type_short = type_map.get(meta['file_type'], "v")
-
-    bot_username = await get_bot_username()
-    user_id = int(message.from_user.id)
-
-    
-    row = await AnanBOTPool.insert_sora_content_media(
-        meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
-        user_id, meta['file_id'], bot_username
+    timer = SegTimer(
+        "handle_batch_upload_async",
+        chat_id=message.chat.id,
+        msg_id=message.message_id,
+        file_type=meta.get("file_type"),
+        file_unique_id=meta.get("file_unique_id"),
     )
-    content_id = row["id"]
-
-    meta['content_id'] = content_id
-
-
-    # 如果存在则直接跳出
-    product_row = await AnanBOTPool.get_existing_product(content_id)
-    if product_row:
-
-        thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
-        try:
-            print(f"4885=>{thumb_file_id} {preview_text}")
-            # thumb_file_id = "AgACAgUAAxkBAAIBrmhyapzZ-aQigPWdtB5oITN4UQR8AAL5yDEbVtpYV7Gs5ZC2v8Y_AQADAgADeQADNgQ"
-            photo_msg = await lz_var.bot.edit_message_media(
-                chat_id=message.chat.id,
-                message_id=placeholder_msg_id,
-                media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
-                reply_markup=preview_keyboard
-            )  
-
-            # newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
-            await update_product_preview(content_id, thumb_file_id, state , photo_msg)
-
-
-        except Exception as e:
-            
-            if "Bad Request: MEDIA_EMPTY" in str(e) or "can't use file of type" in str(e):
-                # 若 thumb_file_id 有值,可能已经无效了，删除后，再试一次, 检查 file_extension.file_id 是否相同 ,若相同,也一并删除
-                await MySQLPool.reset_thumb_file_id(content_id,thumb_file_id,bot_username)
-                invalidate_cached_product(content_id)
-                
-                print(f"⚠️ MEDIA_EMPTY: {e}", flush=True)
-                await _handle_batch_upload_async(message=message, state=state, meta=meta, placeholder_msg_id=placeholder_msg_id)
-           
-            else:
-                print(f"⚠️ 编辑商品卡片失败D: {e}", flush=True)
-            # logging.exception(f"d返回商品卡片失败: {e}")
-        print(f"⚠️ 内容已存在 content_id={content_id}，跳过创建投稿", flush=True)
-        return
-
-
-    # 收集这一窗口的批量结果
-    try:
-       
-        # meta = _BATCH_BY_CHAT.get(message.chat.id, {}).get("first_meta", meta)  # 取第一条的 meta 作为代表，补齐 content_id 等字段
-        meta['batch_results'] = _collect_batch_results(message, meta)  # 会 pop 掉 _BATCH_BY_CHAT[chat_id]
-    except Exception:
-        meta['batch_results'] = None
-
 
     try:
-        results = meta.get("batch_results")  # 这里是我们在上一步塞进去的
-        _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
-        if results and isinstance(results, list) and len(results) >= 2:
-            
+    
+
+        table = meta['file_type']
+        file_unique_id = meta['file_unique_id']
+        type_map = {"video": "v", "document": "d", "photo": "p", "animation": "n", "album": "a"}
+        file_type_short = type_map.get(meta['file_type'], "v")
+
+        bot_username = await get_bot_username()
+        user_id = int(message.from_user.id)
+
+        product_row = await MySQLPool.quick_check_if_product(file_unique_id)
+        content_id = None
+        spawn_once(
+            f"insert_sora_content_media:{message.message_id}",
+            lambda:AnanBOTPool.insert_sora_content_media(meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
+            user_id, meta['file_id'], bot_username)
+        )
+
+        # row = await AnanBOTPool.insert_sora_content_media(
+            # meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
+            # user_id, meta['file_id'], bot_username
+        # )
+
+        # timer.lap("insert_sora_content_media")
+
+        # content_id = row["id"]
+
+        # meta['content_id'] = content_id
+
+
+        # # 如果存在则直接跳出
+        # product_row = await AnanBOTPool.get_existing_product(content_id)
+        # timer.lap("get_existing_product")
+
+        if product_row and product_row.get("product_id"):
+            content_id = product_row["content_id"]
+            thumb_file_id, preview_text, preview_keyboard = await get_product_tpl(content_id)
+            timer.lap("get_product_tpl")
 
             try:
-                list_text_reslt = await Tplate.list_template(results)                
-                if list_text_reslt.get('opt_text'):
-                    caption_text = f"ㅤ\n检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)\n\n" + list_text_reslt.get('opt_text')
+                print(f"4885=>{thumb_file_id} {preview_text}")
+                # thumb_file_id = "AgACAgUAAxkBAAIBrmhyapzZ-aQigPWdtB5oITN4UQR8AAL5yDEbVtpYV7Gs5ZC2v8Y_AQADAgADeQADNgQ"
+                photo_msg = await lz_var.bot.edit_message_media(
+                    chat_id=message.chat.id,
+                    message_id=placeholder_msg_id,
+                    media=InputMediaPhoto(media=thumb_file_id, caption=preview_text, parse_mode="HTML"),
+                    reply_markup=preview_keyboard
+                )  
+                timer.lap("edit_message_media")
+
+                # newsend = await message.answer_photo(photo=thumb_file_id, caption=preview_text, reply_markup=preview_keyboard, parse_mode="HTML")
+                await update_product_preview(content_id, thumb_file_id, state , photo_msg)
+                timer.lap("update_product_preview")
+
             except Exception as e:
-                print(f"⚠️ list_template 生成清单失败（忽略）：{e}", flush=True)
-
-            markup = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=f"📂 创建合集",
-                        callback_data=f"make_product_folder:{content_id}:{table}:{file_unique_id}:{user_id}"
-                    ),
-                    InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
-                ]
-            ])  
-        else:
-            
-            # ===== 组装 caption：优先使用 batch_results（无 content_id 场景）=====
-            caption_text = f"ㅤ\n检测到文件，是否需要创建为投稿？ \n\n🎈 创建后您仍可以升级为资源夹(即一个投稿下有多个媒体)，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
-     
-            markup = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=f"📄 创建投稿",
-                        callback_data=f"make_product:{content_id}:{table}:{file_unique_id}:{user_id}"
-                    ),
-                    InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
-                ]
-            ])
-
-        # ===== 按占位消息类型编辑（保持你现有的兼容分支）=====
-        try:
-            # print(f"\r\n==>{meta} {table}", flush=True)
-
-            if meta['file_type'] == "video":
-                print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
-                buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
-                # photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
                 
-                if(pic.file_unique_id):
-                   
-                    photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
-                    spawn_once(
-                        f"_process_update_default_preview_async:{message.message_id}",
-                        lambda:_process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
-                    )
+                if "Bad Request: MEDIA_EMPTY" in str(e) or "can't use file of type" in str(e):
+                    # 若 thumb_file_id 有值,可能已经无效了，删除后，再试一次, 检查 file_extension.file_id 是否相同 ,若相同,也一并删除
+                    await MySQLPool.reset_thumb_file_id(content_id,thumb_file_id,bot_username)
+                    invalidate_cached_product(content_id)
+                    
+                    print(f"⚠️ MEDIA_EMPTY: {e}", flush=True)
+                    await _handle_batch_upload_async(message=message, state=state, meta=meta, placeholder_msg_id=placeholder_msg_id)
+            
                 else:
-                    print(f"2=>⚠️ 提取预览图失败，file_unique_id 为空", flush=True)
-                    await lz_var.bot.edit_message_caption(
+                    print(f"⚠️ 编辑商品卡片失败D: {e}", flush=True)
+                # logging.exception(f"d返回商品卡片失败: {e}")
+            print(f"⚠️ 内容已存在 content_id={content_id}，跳过创建投稿", flush=True)
+            return
+
+
+        # 收集这一窗口的批量结果
+        try:
+        
+            # meta = _BATCH_BY_CHAT.get(message.chat.id, {}).get("first_meta", meta)  # 取第一条的 meta 作为代表，补齐 content_id 等字段
+            meta['batch_results'] = _collect_batch_results(message, meta)  # 会 pop 掉 _BATCH_BY_CHAT[chat_id]
+            timer.lap("collect_batch_results")
+        except Exception:
+            meta['batch_results'] = None
+
+
+        try:
+            if product_row:
+                content_id = product_row["content_id"]
+            else:  
+                #新增一个
+                row = await AnanBOTPool.insert_sora_content_media(
+                    meta['file_unique_id'],file_type_short,  meta['file_size'], meta['duration'],
+                    user_id, meta['file_id'], bot_username
+                )
+                content_id = row['id']
+                
+                
+
+
+            results = meta.get("batch_results")  # 这里是我们在上一步塞进去的
+            _PENDING_ALBUM_MEMBERS[(message.chat.id, placeholder_msg_id)] = results
+            if results and isinstance(results, list) and len(results) >= 2:
+                try:
+                    list_text_reslt = await Tplate.list_template(results)                
+                    if list_text_reslt.get('opt_text'):
+                        caption_text = f"ㅤ\n检测到多份文件，是否要创建为资源夹投稿？ \n\n🎈 创建后您仍可以为这个资源夹添加其他的同主题资源 (例如分卷或套图)\n\n" + list_text_reslt.get('opt_text')
+                except Exception as e:
+                    print(f"⚠️ list_template 生成清单失败（忽略）：{e}", flush=True)
+
+                markup = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=f"📂 创建合集",
+                            callback_data=f"make_product_folder:{content_id}:{table}:{file_unique_id}:{user_id}"
+                        ),
+                        InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
+                    ]
+                ])  
+            else:
+                
+                # ===== 组装 caption：优先使用 batch_results（无 content_id 场景）=====
+                caption_text = f"ㅤ\n检测到文件，是否需要创建为投稿？ \n\n🎈 创建后您仍可以升级为资源夹(即一个投稿下有多个媒体)，在此资源夹下添加其他的同主题的资源 (例如分卷或套图)"
+        
+                markup = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text=f"📄 创建投稿",
+                            callback_data=f"make_product:{content_id}:{table}:{file_unique_id}:{user_id}"
+                        ),
+                        InlineKeyboardButton(text="❌ 取消", callback_data="cancel_product")
+                    ]
+                ])
+
+            # ===== 按占位消息类型编辑（保持你现有的兼容分支）=====
+            try:
+                # print(f"\r\n==>{meta} {table}", flush=True)
+
+                if meta['file_type'] == "video":
+
+                    photo_msg = await message.answer_photo(photo=DEFAULT_THUMB_FILE_ID, caption=caption_text, reply_markup=markup, parse_mode="HTML")
+                    timer.lap("extract_preview_photo_buffer")
+
+                    
+                    spawn_once(
+                        f"_extract_preview_and_update:{photo_msg.message_id}",
+                        lambda:_extract_preview_and_update(message, placeholder_message=photo_msg, user_id = user_id, content_id = content_id)
+                    )
+
+                    # edit_result=await bot.edit_message_media(
+                    #     chat_id=chat_id,
+                    #     message_id=message_id,
+                    #     media=InputMediaPhoto(media=thumb_file_id, caption=preview_text,parse_mode="HTML"),
+                    #     reply_markup=preview_keyboard,     
+                    # )
+                    # print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
+
+                    # buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
+                    # timer.lap("extract_preview_photo_buffer")
+                    # # photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
+                    
+                    # if(pic.file_unique_id):
+                    
+                    #     photo_msg = await message.answer_photo(photo=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"), caption=caption_text, reply_markup=markup, parse_mode="HTML")
+                    #     spawn_once(
+                    #         f"_process_update_default_preview_async:{message.message_id}",
+                    #         lambda:_process_update_default_preview_async(photo_msg,  user_id = user_id, content_id = content_id)
+                    #     )
+                    # else:
+                    #     print(f"2=>⚠️ 提取预览图失败，file_unique_id 为空", flush=True)
+                    #     await lz_var.bot.edit_message_caption(
+                    #         chat_id=message.chat.id,
+                    #         message_id=placeholder_msg_id,
+                    #         caption=caption_text,
+                    #         reply_markup=markup,
+                    #         parse_mode="HTML"
+                    #     )
+                else:
+                    await lz_var.bot.edit_message_text(
                         chat_id=message.chat.id,
                         message_id=placeholder_msg_id,
-                        caption=caption_text,
-                        reply_markup=markup,
-                        parse_mode="HTML"
+                        text=caption_text,
+                        reply_markup=markup
                     )
-            else:
+            except Exception as e:
+                print(f"⚠️ 编辑占位消息失败，尝试编辑文本+按钮: {e}", flush=True)
                 await lz_var.bot.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=placeholder_msg_id,
                     text=caption_text,
                     reply_markup=markup
                 )
+
         except Exception as e:
-            print(f"⚠️ 编辑占位消息失败，尝试编辑文本+按钮: {e}", flush=True)
-            await lz_var.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=placeholder_msg_id,
-                text=caption_text,
-                reply_markup=markup
+            print(f"❌ 异步处理媒体失败: {e}", flush=True)
+    except Exception as e:
+        print(f"⚠️ 处理批量上传失败: {e}", flush=True)
+
+async def _extract_preview_and_update(message: Message, placeholder_message:Message, user_id: str, content_id: int):
+    try:
+        buf,pic = await Media.extract_preview_photo_buffer(message, prefer_cover=True, delete_sent=True)
+        if pic and pic.file_unique_id:
+            print(f"✅ 没有缩略图，尝试提取预览图", flush=True)
+            edit_result=await bot.edit_message_media(
+                chat_id=placeholder_message.chat.id,
+                message_id=placeholder_message.message_id,
+                media=InputMediaPhoto(
+                    media=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"),
+                    caption=placeholder_message.caption,
+                    parse_mode="HTML",
+                ),
+                reply_markup=placeholder_message.reply_markup
             )
 
+            # edit_result = await lz_var.bot.edit_message_media(
+            #         chat_id=message.chat.id,
+            #         message_id=placeholder_message.message_id,
+            #         media=InputMediaPhoto(
+            #             media=BufferedInputFile(buf.read(), filename=f"{pic.file_unique_id}.jpg"),
+            #             caption=placeholder_message.caption,   # 保留原 caption
+            #             parse_mode="HTML",               # 如果原本有 HTML 格式
+            #         ),
+            #     # reply_markup=current_message.reply_markup  # 保留原按钮
+            # )
+
+            await _process_update_default_preview_async(edit_result,  user_id = user_id, content_id = content_id)
+
+        else:
+            print(f"⚠️ 提取预览图失败，file_unique_id 为空", flush=True)
     except Exception as e:
-        print(f"❌ 异步处理媒体失败: {e}", flush=True)
+        print(f"⚠️ 提取预览图失败: {e}", flush=True)
+
 
 async def _process_update_default_preview_async(message: Message, user_id: str, content_id: int):
     bot_username = await get_bot_username()
@@ -6061,7 +6155,9 @@ async def get_bot_username():
         bot_username = bot_info.username
         lz_var.bot_username = bot_username
         return lz_var.bot_username
-        
+
+
+
 async def set_default_thumb_file_id():
     global DEFAULT_THUMB_FILE_ID
     first = lz_var.default_thumb_unique_file_ids[0] if lz_var.default_thumb_unique_file_ids else None

@@ -463,29 +463,48 @@ class AnanBOTPool(LYBase):
     async def insert_sora_content_media(cls, file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username):
         conn, cur = await cls.get_conn_cursor()
         try:
+            # 1. Check if record already exists
+            await cur.execute("SELECT id FROM sora_content WHERE source_id=%s LIMIT 1", (file_unique_id,))
+            row = await cur.fetchone()
+
+            if row:
+                # Record exists, just update media and return
+                content_id = row["id"]
+                await cur.execute(
+                    """
+                    INSERT INTO sora_media
+                        (content_id, source_bot_name, file_id)
+                    VALUES
+                        (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        file_id = VALUES(file_id)
+                    """,
+                    (content_id, bot_username, file_id)
+                )
+                return row
+
+            # 2. Record doesn't exist, create it
             await cur.execute(
                 """
                 INSERT INTO sora_content
                     (source_id, file_type, file_size, duration, owner_user_id, stage)
                 VALUES
                     (%s, %s, %s, %s, %s, 'pending')
-                ON DUPLICATE KEY UPDATE
-                    file_type     = VALUES(file_type),
-                    file_size     = VALUES(file_size),
-                    duration      = VALUES(duration),
-                    owner_user_id = IF(
-                        sora_content.owner_user_id IS NULL OR sora_content.owner_user_id = 0,
-                        VALUES(owner_user_id),
-                        sora_content.owner_user_id
-                    ),        
-                    stage         = 'pending'
                 """,
                 (file_unique_id, file_type, file_size, duration, user_id)
             )
-            await cur.execute("SELECT * FROM sora_content WHERE source_id=%s LIMIT 1", (file_unique_id,))
-            row = (await cur.fetchone())
+
+            # 3. Fetch the newly created record
+            await cur.execute("SELECT id FROM sora_content WHERE source_id=%s LIMIT 1", (file_unique_id,))
+            row = await cur.fetchone()
+
+            if not row:
+                # This should never happen if INSERT succeeded
+                raise RuntimeError(f"Failed to retrieve newly created sora_content for source_id={file_unique_id}")
+
             content_id = row["id"]
-            
+
+            # 4. Insert media record
             await cur.execute(
                 """
                 INSERT INTO sora_media
@@ -500,6 +519,9 @@ class AnanBOTPool(LYBase):
             return row
         finally:
             await cls.release(conn, cur)
+
+
+
 
     @classmethod    
     async def upsert_product_thumb(cls, content_id: int, thumb_file_unique_id: str, thumb_file_id: str, bot_username: str):

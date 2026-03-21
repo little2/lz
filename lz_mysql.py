@@ -366,7 +366,8 @@ class MySQLPool(LYBase):
     async def extend_bm_membership(
         cls,
         manager_id : int,
-        manager_cnt:  int
+        manager_cnt:  int = 0,
+        max_extend_days: int = 21
     ):
         await cls.ensure_pool()   # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()
@@ -379,19 +380,26 @@ class MySQLPool(LYBase):
             """
             await cursor.execute(sql, (manager_id,))
             row = await cursor.fetchone()
-            if not row:
-                print("没有")
-                return None
             print(f"{int(row['expire_timestamp'])} {(manager_cnt*86400)}")
-            user_expire_timestamp = int(row['expire_timestamp']) + (manager_cnt*43200)
-            new_expire_timestamp = int(min(user_expire_timestamp, (time.time()+86400*21)))
-            print(f"{manager_id} -> {new_expire_timestamp}")
-                       
-            await cursor.execute(f"""
-                UPDATE membership SET expire_timestamp = %s 
-                WHERE user_id = %s and course_code='xlj'
-            """, (new_expire_timestamp, manager_id))
-            return new_expire_timestamp
+            user_expire_timestamp = (int(row['expire_timestamp']) or 0 ) + (manager_cnt*43200)
+            new_expire_timestamp = int(min(user_expire_timestamp, (time.time()+86400*max_extend_days)))
+
+
+            if not row:
+                await cursor.execute(f"""
+                    INSERT INTO membership (create_timestamp, expire_timestamp, user_id, course_code)
+                    VALUES (%s, %s, %s, 'xlj')
+                """, (int(time.time()), new_expire_timestamp, manager_id))
+                return new_expire_timestamp
+            else:
+                
+                print(f"{manager_id} -> {new_expire_timestamp}")
+                        
+                await cursor.execute(f"""
+                    UPDATE membership SET expire_timestamp = %s 
+                    WHERE user_id = %s and course_code='xlj'
+                """, (new_expire_timestamp, manager_id))
+                return new_expire_timestamp
         except Exception as e:
             print(f"⚠️ 427 数据库执行出错: {e}")
         finally:
@@ -1629,6 +1637,77 @@ class MySQLPool(LYBase):
             return int((row or {}).get("count") or 0)
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def upsert_contribute_today(cls, user_id: int, stat_date: str, upload: int = 0, count:int=0, decent:int=0) -> int:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+
+            sql = """
+                INSERT INTO contribute_today (user_id, stat_date, upload,  count, decent, update_timestamp)
+                VALUES (?, ?, 1, ?, ?, 0)
+                ON DUPLICATE KEY UPDATE
+                    upload = upload + VALUES(upload),
+                    count = count + VALUES(count),
+                    decent = decent + VALUES(decent),
+                    update_timestamp = VALUES(update_timestamp)
+            """
+            now_ts = int(time.time())
+
+            await cur.execute(
+                sql,
+                (int(user_id), stat_date,  upload, count, decent, now_ts)
+            )
+            row = await cur.fetchone()
+            return int((row or {}).get("count") or 0)
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def get_user_consecutive_days(cls, user_id: int, stat_date: str, upload: int = 0, count:int=0, decent:int=0) -> int:
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql_consecutive_days = """
+            SELECT
+                IF(
+                    EXISTS (
+                    SELECT 1
+                    FROM contribute_today
+                    WHERE user_id = ?
+                        AND stat_date = CURDATE()
+                        AND upload >= 1
+                    ),
+                    (
+                    SELECT COUNT(*) AS consecutive_days
+                    FROM (
+                        SELECT stat_date,
+                            DATEDIFF(CURDATE(), stat_date) AS diff,
+                            ROW_NUMBER() OVER (ORDER BY stat_date DESC) - DATEDIFF(CURDATE(), stat_date) AS grp
+                        FROM contribute_today
+                        WHERE user_id = ?
+                        AND stat_date <= CURDATE()
+                        AND upload >= 1
+                    ) AS t
+                    GROUP BY grp
+                    ORDER BY MIN(diff)
+                    LIMIT 1
+                    ),
+                    0
+                ) AS consecutive_days;
+
+            """
+            
+            now_ts = int(time.time())
+
+            await cur.execute(
+                sql_consecutive_days,
+                (int(user_id), int(user_id))
+            )
+            row = await cur.fetchone()
+            return int((row or {}).get("count") or 0)
+        finally:
+            await cls.release(conn, cur)
+
 
 
     @classmethod

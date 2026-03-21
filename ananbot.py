@@ -43,7 +43,7 @@ import aiohttp
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.string_utils import LZString
 from utils.media_utils import Media
-from ananbot_config import BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
+from ananbot_config import SWITCHBOT_TOKEN,BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
 import lz_var
 from lz_config import AES_KEY
 
@@ -65,6 +65,8 @@ lz_var.bot = bot
 
 publish_bot = Bot(token=PUBLISH_BOT_TOKEN)
 
+switchbot = Bot(token=SWITCHBOT_TOKEN)
+lz_var.switchbot = switchbot
 
 # 全局变量缓存 bot username
 media_upload_tasks: dict[tuple[int, int], asyncio.Task] = {}
@@ -1733,11 +1735,11 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     message_id = data["message_id"]
 
     # print(f"📸 1开始处理预览图：content_id={content_id}, chat_id={chat_id}, message_id={message_id}", flush=True)
-
-    spawn_once(
-        f"copy_message:{message.message_id}",
-        lambda: safe_copy_message(message)
-    )  
+    await safe_copy_message(message)
+    # spawn_once(
+    #     f"copy_message:{message.message_id}",
+    #     lambda: safe_copy_message(message)
+    # )  
 
     message_photo = message.photo[-1]
     user_id = int(message.from_user.id)
@@ -1788,6 +1790,7 @@ async def receive_preview_photo(message: Message, state: FSMContext):
     
     # invalidate_cached_product(content_id) 在 set_preview_thumb 已调用
     print(f"📸 9预览图更新完成，返回菜单中：{file_unique_id}", flush=True)
+   
     await photo_message.delete()
 
 
@@ -2192,16 +2195,17 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
         tag_count = 0
 
     # 内容长度校验（“超过30字”→ 严格 > 30）
-    content_ok = len(content_text) > 30
+    content_ok = len(content_text) > lz_var.default_content_len
     tags_ok = tag_count >= 5
     thumb_ok = has_custom_thumb
     has_tag_ok = has_tag_string
 
     # 如果有缺项，给出可操作的引导并阻止送审
+    # todo : _check_product_policy
     if not (content_ok and tags_ok and thumb_ok and has_tag_ok):
         missing_parts = []
         if not content_ok:
-            missing_parts.append("📝 内容需 > 30 字")
+            missing_parts.append(f"📝 内容需 > {lz_var.default_content_len} 字")
         if not thumb_ok:
             missing_parts.append("📷 需要设置预览图（不是默认图）")
 
@@ -2261,6 +2265,7 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
     result , error = await send_to_review_group(content_id, state)
     if result:
         await callback_query.answer("✅ 已提交审核", show_alert=False)
+        spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
     else:
         if error:
             await callback_query.answer(f"⚠️ 发送失败：{error}", show_alert=True)
@@ -2636,6 +2641,9 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
         if affected == 0:
             return await callback_query.answer("⚠️ 未找到对应商品，审核失败", show_alert=True)
         
+        product_row['review_status'] = review_status  # 更新当前上下文的状态，供后续逻辑使用
+        spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
+        
 
     except Exception as e:
         logging.exception(f"审核失败: {e}")
@@ -2703,8 +2711,8 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             if re.search(r"(#不是正太片|#不是正太片爆菊)", caption):
                 await callback_query.answer("这不是正太片，审核结束后，将不再上架\r\n\r\n🎈如果有你觉得审核后不该再上架的资源，请在讨论区说明", show_alert=True)
             else:
-                spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
-
+                # spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
+                pass
 
                 
                 # ⬇️ 改为后台执行，不阻塞当前回调
@@ -2713,10 +2721,17 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
         # await _send_to_topic(content_id)
     elif review_status == 0:
-        print(f"update_today_contribute for content_id={content_id}", flush=True)
+       
+
+        spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_user_consecutive_days(callback_query.from_user.id, product_info))
+        
+
+    
+        
+
     
     if if_update_today_contribute == True:
-        spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_today_contribute(callback_query.from_user.id, 5, 1))
+        spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_today_contribute(callback_query.from_user.id, 3, 1))
     # await _reset_review_bot_button(callback_query,content_id,button_str)
     
     spawn_once(f"_reset_review_bot_button:{content_id}",lambda:_reset_review_bot_button(callback_query,content_id,button_str) )
@@ -2726,9 +2741,64 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     spawn_once(f"_reset_review_zone_button:{content_id}", lambda:_reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info) )
 
     # spawn_once(f"_review_next_product:{content_id}",lambda:_review_next_product(state) )
+    await _sync_pg(content_id)
 
 
 
+async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Optional[str]]:
+    lengthInChineseCharacters = len(product_info.get("content", ""))
+    incentive_share_fee = 5
+
+
+    stat_date = datetime.now().strftime("%Y-%m-%d")
+    MySQLPool.upsert_contribute_today(user_id, stat_date, upload=1, count=incentive_share_fee)
+
+    consecutive_days = MySQLPool.get_user_consecutive_days(user_id)
+
+    user_title = user_id
+
+    if consecutive_days >= 1:
+
+        chat_incentive_text = (
+            f"🎉 🎉 {user_title}已经连续 <b>{consecutive_days}</b> 天上架资源！(撸仔/萨莱) ，获得的奖励如下:\r\n"
+            f"- 已增加 {incentive_share_fee} 句额外发言数\r\n"
+        )
+
+        if consecutive_days >= 4:
+            new_expire_timestamp = MySQLPool.extend_bm_membership(user_id, 7, 7)
+            chat_incentive_text +=chat_incentive_text
+            "- 获得🐥小懒觉会员资格，会员期直到"
+            + datetime.fromtimestamp(new_expire_timestamp).strftime("%Y-%m-%d %H:%M:%S")
+            + "\r\n"
+            
+        else:
+            chat_incentive_text +=chat_incentive_text
+            "- 继续加油，连续 7 天以上可以获得🐥小懒觉会员资格！\r\n"
+            
+
+
+        school_chat_id = -1001926574189
+        message_thread_id = 2120
+
+        r1 = await lz_var.bot.send_message({
+            "chat_id": school_chat_id,
+            "message_thread_id": message_thread_id,
+            "parse_mode": "html",
+            "disable_web_page_preview": True,
+            "text": chat_incentive_text,
+        })
+
+        r1 = await lz_var.bot.send_message({
+            "chat_id": user_id,
+            "parse_mode": "html",
+            "disable_web_page_preview": True,
+            "text": chat_incentive_text,
+        })
+               
+
+    
+
+    # 增加连续天数
 
 # 后台处理下一个待审核的
 async def _review_next_product(state: Optional[FSMContext] = None):
@@ -3069,7 +3139,7 @@ async def receive_content_input(message: Message, state: FSMContext):
 
         # ✅ 7) 弹出字数
         length = len(content_text)
-        msg = await message.answer(f"📏 内容字数：{length}")
+        msg = await message.answer(f"📏 内容字数：{length}，字数最少需要 {lz_var.default_content_len} 字")
         await Media.auto_self_delete(msg, 5)
 
     finally:
@@ -5641,18 +5711,18 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
     await AnanBOTPool.upsert_product_thumb(content_id, thumb_file_unique_id, thumb_file_id, bot_username)
    
 
-    # print(f"{message}", flush=True)
-    await lz_var.bot.copy_message(
-        chat_id=lz_var.x_man_bot_id,
-        from_chat_id=message.chat.id,
-        message_id=message.message_id
-    )
+    # # print(f"{message}", flush=True)
+    # await lz_var.bot.copy_message(
+    #     chat_id=lz_var.x_man_bot_id,
+    #     from_chat_id=message.chat.id,
+    #     message_id=message.message_id
+    # )
 
     try:
         # TODO
         await safe_copy_message(message)
     except Exception as e:
-        print(f"⚠️ safe_copy_message 失败: {e}", flush=True)
+        print(f"⚠️ safe_copy_message 失败(5720): {e}", flush=True)
     
 
 
@@ -5662,25 +5732,42 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
 
 
 async def safe_copy_message(message: Message, max_retry: int = 8):
+    # print(f"mess/age=>{message}", flush=True)
+
+    def _resolve_source_ids(msg):
+        # 兼容 aiogram Message 与 dict 结构
+        if isinstance(msg, dict):
+            src_chat_id = msg.get("from_chat_id")
+            src_message_id = msg.get("message_id")
+        else:
+            src_chat = getattr(msg, "chat", None)
+            src_chat_id = getattr(src_chat, "id", None)
+            src_message_id = getattr(msg, "message_id", None)
+            if src_chat_id is None:
+                src_chat_id = getattr(msg, "from_chat_id", None)
+
+        return src_chat_id, src_message_id
+
+    src_chat_id, src_message_id = _resolve_source_ids(message)
+    if src_chat_id is None or src_message_id is None:
+        print(
+            f"❌ safe_copy_message 参数无效: from_chat_id={src_chat_id}, message_id={src_message_id}",
+            flush=True,
+        )
+        return None
+
     async with COPY_SEM:
         for i in range(max_retry):
-            try:
-                # 先小睡一下，避免贴脸输出
-                await asyncio.sleep(0.7)
+             # 先小睡一下，避免贴脸输出
+            await asyncio.sleep(0.7)
 
+            try:
                 ret =  await lz_var.bot.copy_message(
                     chat_id=lz_var.x_man_bot_id,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id
+                    from_chat_id=src_chat_id,
+                    message_id=src_message_id
                 )
-
-                ret2 =  await lz_var.bot.copy_message(
-                    chat_id=6457757567,
-                    from_chat_id=message.chat.id,
-                    message_id=message.message_id
-                )
-               
-                return ret
+                break
 
             except TelegramRetryAfter as e:
                 wait_s = int(getattr(e, "retry_after", 5))
@@ -5688,11 +5775,41 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
                 await asyncio.sleep(wait_s)
 
             except Exception as e:
-                print(f"❌ safe_copy_message 失败: {e}", flush=True)
-                return None
+                print(f"❌ safe_copy_message 失败(5748): {e}", flush=True)
+                
 
-        print("❌ safe_copy_message 超过最大重试次数", flush=True)
+    async with COPY_SEM:
+        for i in range(max_retry):
+             # 先小睡一下，避免贴脸输出
+            await asyncio.sleep(0.7)            
+
+            try:
+            
+                #DeletedAcconutBOT / bot 无法传给 bot
+                if hasattr(lz_var, "x_bk_man_bot_id") and lz_var.x_bk_man_bot_id is not None:
+                    ret2 =  await lz_var.bot.copy_message(
+                        chat_id=lz_var.x_bk_man_bot_id,
+                        from_chat_id=src_chat_id,
+                        message_id=src_message_id
+                    )
+               
+                    return ret
+
+            except TelegramRetryAfter as e:
+                wait_s = int(getattr(e, "retry_after", 5))
+                print(f"⚠️ Copy floodwait: retry after {wait_s}s (try {i+1}/{max_retry})", flush=True)
+                await asyncio.sleep(wait_s)
+
+            except Exception as e:
+                print(f"❌ safe_copy_message Rely - 失败(5770): {e}", flush=True)
+                if( e and "Bad Request: chat not found" in str(e) ):
+                    ret_bind = await lz_var.switchbot.send_message(lz_var.x_bk_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+                    print(f"⚠️ 可能是无法访问，已关连机器人", flush=True)
+               
+
+        print("❌ safe_copy_message 超过最大重试次数(573)", flush=True)
         return None
+    return ret
 
 
 async def premark_thumb(meta):
@@ -5720,6 +5837,7 @@ async def handle_media(message: Message, state: FSMContext):
         print(f"❌ 处理媒体信息失败(handle_media): {e}", flush=True)
         return await message.answer("⚠️ 处理媒体信息失败，请稍后重试。")
 
+    
     spawn_once(
         f"copy_message:{message.message_id}",
         lambda: safe_copy_message(message)
@@ -6014,7 +6132,7 @@ async def main():
             await set_default_thumb_file_id()
         else:
             print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
-            lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+            await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
 
         # ✅ Render 环境用 PORT，否则本地用 8080
         await web._run_app(app, host="0.0.0.0", port=8080)
@@ -6032,7 +6150,7 @@ async def main():
             await set_default_thumb_file_id()
         else:
             print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-            lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+            await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
 
         print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
         await dp.start_polling(bot)  # Aiogram 轮询

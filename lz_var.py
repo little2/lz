@@ -18,6 +18,8 @@ x_man_bot_id: int = x_conf["x_man_bot_id"]
 x_man_bot_phone: str = x_conf["x_man_bot_phone"]
 x_man_bot_username: str = x_conf["x_man_bot_username"]
 m_man_bot_id: int = int(x_conf.get("m_man_bot_id", 0) or 0)
+x_bk_man_bot_id = 7606450690
+
 
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
 

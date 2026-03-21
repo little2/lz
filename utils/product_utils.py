@@ -87,8 +87,19 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     """
     _bot = bot or lz_var.bot
 
-    me = await _bot.get_me()
-    bot_username = me.username
+    if lz_var.publish_bot_name is None:
+        publish_me = await _bot.get_me()
+        lz_var.publish_bot_name = publish_me.username
+   
+    if lz_var.uploader_bot_name is None:
+        mebot = await lz_var.bot.get_me()
+        lz_var.uploader_bot_name = mebot.username
+
+    # 注意，会在 .lz.env
+    if UPLOADER_BOT_NAME is None:
+        lz_var.uploader_bot_name = lz_var.bot_username
+    else:
+        lz_var.uploader_bot_name = UPLOADER_BOT_NAME
 
     retGuild = None
     review_status = None
@@ -100,10 +111,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     content = None
     kb = None
 
-    if UPLOADER_BOT_NAME is None:
-        lz_var.uploader_bot_name = lz_var.bot_username
-    else:
-        lz_var.uploader_bot_name = UPLOADER_BOT_NAME
+
 
 
 
@@ -148,7 +156,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             [
                 InlineKeyboardButton(
                     text="👀 看看先",
-                    url=f"https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
+                    url=f"https://t.me/{lz_var.publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
                 ),
                 InlineKeyboardButton(
                     text="🐥 上传鲁馆",
@@ -157,16 +165,11 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             ],
             [
                 InlineKeyboardButton(
-                    text="🏷️ 标签筛选",
-                    url=f"https://t.me/{bot_username}?start=search_tag"
+                    text="🔎 进阶搜索",
+                    url=f"https://t.me/{lz_var.publish_bot_name}?start=search"
                 )
             ],          
         ])
-
-
-
-
-
 
         review_status = None
         
@@ -181,10 +184,6 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 reply_markup=kb
             )
             print(f"  ✅ 发送到贤师楼(讨论)频道成功", flush=True)
-
-
-
-
 
     except Exception as e:
         print(f"  ❌ 发送到贤师楼(讨论)频道失败1: {e}", flush=True)
@@ -213,7 +212,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
 
         tpl_data["text"] = content
-        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{bot_username}?start=f_{keyword_id}_{content_id_str}"
+        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{lz_var.publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
         tpl_data["bot_name"] = 'luzai4001bot'
         tpl_data["business_type"] = 'salai'
         tpl_data["content_id"] = tpl_data.get("id")

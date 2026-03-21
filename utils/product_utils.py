@@ -97,7 +97,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
     # 注意，会在 .lz.env
     if UPLOADER_BOT_NAME is None:
-        lz_var.uploader_bot_name = lz_var.bot_username
+        lz_var.uploader_bot_name = lz_var.uploader_bot_name
     else:
         lz_var.uploader_bot_name = UPLOADER_BOT_NAME
 

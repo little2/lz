@@ -2721,8 +2721,6 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
 
         # await _send_to_topic(content_id)
     elif review_status == 0:
-       
-
         spawn_once(f"update_today_contribute:{content_id}", lambda:AnanBOTPool.update_user_consecutive_days(callback_query.from_user.id, product_info))
         
 

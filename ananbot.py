@@ -5910,7 +5910,7 @@ async def premark_thumb(meta):
         await lz_var.bot.send_video(
             chat_id=lz_var.m_man_bot_id,
             video=meta.get("file_id"),
-            caption=f"|_thumb_|{meta.get('file_unique_id')}",
+            caption=f"|_thumbnail_|{meta.get('file_unique_id')}",
         )
         print(f"Premark==>{meta}", flush=True)
 

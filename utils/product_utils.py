@@ -183,6 +183,18 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 parse_mode="HTML",
                 reply_markup=kb
             )
+
+            try:
+                await _bot.pin_chat_message(
+                    chat_id=tpl_data["guild_chat_id"],
+                    message_id=retGuild.message_id,
+                    disable_notification=True,
+                )
+                print("  📌 已置顶贤师楼(讨论)频道消息", flush=True)
+            except Exception as pin_e:
+                print(f"  ⚠️ 萨莱区消息发送成功，但置顶失败: {pin_e}", flush=True)
+
+
             print(f"  ✅ 发送到贤师楼(讨论)频道成功", flush=True)
 
     except Exception as e:
@@ -199,6 +211,15 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 parse_mode="HTML",
                 reply_markup=kb
             )
+            try:
+                await _bot.pin_chat_message(
+                    chat_id=-1001926574189,
+                    message_id=retGuild.message_id,
+                    disable_notification=True,
+                )
+                print("  📌 已置顶萨莱区消息", flush=True)
+            except Exception as pin_e:
+                print(f"  ⚠️ 萨莱区消息发送成功，但置顶失败: {pin_e}", flush=True)
             print(f"  ✅ 发送到萨莱区成功", flush=True)
     
     except Exception as e:

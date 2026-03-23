@@ -5936,14 +5936,13 @@ async def handle_media(message: Message, state: FSMContext):
     )
 
 
-    first_meta = _BATCH_BY_CHAT.get(message.chat.id, {}).get("first_meta")  # 取第一条的 meta 作为代表，补齐 content_id 等字段
-    if first_meta.get("file_unique_id") == meta.get("file_unique_id"):
+    if meta.get("file_type") == "video":
+        print(f"视频媒体，预先标记缩略图: {meta.get('file_unique_id')}", flush=True)
         spawn_once(
             f"premark_thumb:{message.message_id}",
             lambda: premark_thumb(meta)
         )
-    else:
-        print(f"A5697===>{first_meta} {meta}",flush=True)
+
         
 
     # 2) 第一个媒体就立刻发 placeholder（ensure_placeholder 会复用，不会重复发）

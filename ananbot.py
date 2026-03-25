@@ -43,7 +43,7 @@ import aiohttp
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.string_utils import LZString
 from utils.media_utils import Media
-from ananbot_config import SWITCHBOT_TOKEN,BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
+from ananbot_config import KEY_USER_ID,SWITCHBOT_TOKEN,BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
 import lz_var
 from lz_config import AES_KEY
 
@@ -5905,14 +5905,18 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
 
 
 async def premark_thumb(meta):
-    print(f"{lz_var.m_man_bot_id}")
+    # print(f"[premark]{lz_var.m_man_bot_id}")
     if lz_var.m_man_bot_id!=0:
-        await lz_var.bot.send_video(
+        ret=await lz_var.bot.send_video(
             chat_id=lz_var.m_man_bot_id,
             video=meta.get("file_id"),
             caption=f"|_thumbnail_|{meta.get('file_unique_id')}",
         )
-        print(f"Premark==>{meta}", flush=True)
+        # print(f"[premark] Premark sent: {ret}", flush=True)
+        # print(f"[premark] Premark==>{meta}", flush=True)
+    else:
+        await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) 已启动！")
+       
 
 @dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO, ContentType.ANIMATION}))
 async def handle_media(message: Message, state: FSMContext):
@@ -5936,8 +5940,9 @@ async def handle_media(message: Message, state: FSMContext):
     )
 
 
+
     if meta.get("file_type") == "video":
-        print(f"视频媒体，预先标记缩略图: {meta.get('file_unique_id')}", flush=True)
+        # print(f"视频媒体，预先标记缩略图: {meta.get('file_unique_id')}", flush=True)
         spawn_once(
             f"premark_thumb:{message.message_id}",
             lambda: premark_thumb(meta)
@@ -6198,7 +6203,7 @@ async def main():
 
     # await AnanBOTPool.sync_bid_product()
 
-    
+    await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ-Uploader] <code>{lz_var.bot_username}</code> 已启动！")
     
     # await _sync_pg(409009)
 

@@ -50,5 +50,5 @@ REPORT_REVIEW_THREAD_ID = config.get('report_review_thread_id', os.getenv('REPOR
 
 LOG_THREAD_ID = config.get('log_thread_id', os.getenv('LOG_THREAD_ID', ''))
 PUBLISH_BOT_TOKEN = config.get('publish_bot_token', os.getenv('PUBLISH_BOT_TOKEN', ''))
-
+KEY_USER_ID = config.get('key_user_id', os.getenv('KEY_USER_ID', ''))
 version = "0.1.1"

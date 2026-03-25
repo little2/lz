@@ -245,6 +245,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         await MySQLPool.close()
 
 
+
     try:
         # 发送到资源频道
         if tpl_data.get("guild_resource_chat_id"):

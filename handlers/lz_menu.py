@@ -66,7 +66,7 @@ from utils.tpl import Tplate
 from utils.string_utils import LZString
 from utils.product_utils import build_product_material,sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
-from utils.product_utils import sync_table_by_pks,sync_album_items
+from utils.product_utils import sync_table_by_pks,sync_album_items, should_cleanup_pinned_service_message
 from utils.action_gate import ActionGate
 
 
@@ -83,6 +83,52 @@ from urllib.parse import quote as url_quote
 
 
 router = Router()
+
+
+@router.message(F.pinned_message)
+async def handle_cleanup_pinned_service_message(message: Message):
+    pinned = getattr(message, "pinned_message", None)
+    if not pinned:
+        return
+
+    should_delete = await should_cleanup_pinned_service_message(
+        chat_id=message.chat.id,
+        pinned_target_message_id=pinned.message_id,
+    )
+    if not should_delete:
+        return
+
+    try:
+        await message.delete()
+        print(
+            f"🧹 已删除 pinned_message 系统提示 chat_id={message.chat.id}, pinned_target={pinned.message_id}",
+            flush=True,
+        )
+    except Exception as e:
+        print(f"⚠️ 删除 pinned_message 系统提示失败: {e}", flush=True)
+
+
+@router.channel_post(F.pinned_message)
+async def handle_cleanup_pinned_service_channel_post(message: Message):
+    pinned = getattr(message, "pinned_message", None)
+    if not pinned:
+        return
+
+    should_delete = await should_cleanup_pinned_service_message(
+        chat_id=message.chat.id,
+        pinned_target_message_id=pinned.message_id,
+    )
+    if not should_delete:
+        return
+
+    try:
+        await message.delete()
+        print(
+            f"🧹 已删除频道 pinned_message 系统提示 chat_id={message.chat.id}, pinned_target={pinned.message_id}",
+            flush=True,
+        )
+    except Exception as e:
+        print(f"⚠️ 删除频道 pinned_message 系统提示失败: {e}", flush=True)
 
 _background_tasks: dict[str, asyncio.Task] = {}
 

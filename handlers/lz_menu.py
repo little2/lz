@@ -1417,12 +1417,13 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     #     print("🔍 搜索指令已禁用（仅限开发环境）", flush=True)
     #     return
 
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.reply("请输入关键词： /s 正太 钢琴")
+    raw_text = (message.text or "").strip()
+    parts = raw_text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer("请输入关键词，使用方式：/s 正太 钢琴")
         return
-    
-    keyword = parts[1]
+
+    keyword = parts[1].strip()
 
     # 太短的直接挡掉（避免搜一堆 “的/在/是”）
     if len(keyword) < 2:

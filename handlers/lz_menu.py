@@ -1444,6 +1444,23 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     # })
 
 
+@router.message(Command("sub"))
+async def handle_sub(message: Message, state: FSMContext, command: Command = Command("sub")):
+    text = "有新资源就会发给你, 萨莱/岩仔/撸仔私信指令菜单使用\r\n"
+    text += "1️⃣ 私信小懒觉机器人 @xljdd013bot\r\n"
+    text += "2️⃣ 机器人右下角指令菜单，选择订阅通知\r\n"   
+    text += "🎈 只限小懒觉会员使用\r\n";
+
+    await message.answer(
+        text=text,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔔 订阅通知", url="https://t.me/xljdd013bot?start=subscribe")]
+            ]
+        ),
+    )
+
+
 @router.message(Command("setcommand"))
 async def handle_set_comment_command(message: Message, state: FSMContext):
 
@@ -1453,10 +1470,10 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
     await lz_var.bot.set_my_commands(
         commands=[
             BotCommand(command="start", description="首页菜单"),
-            # BotCommand(command="s", description="使用搜索"),
+            BotCommand(command="s", description="使用搜索"),
             BotCommand(command="search_tag", description="标签筛选"),
             # BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
-            # BotCommand(command="sub", description="订阅通知"),
+            BotCommand(command="sub", description="订阅通知"),
             # BotCommand(command="me", description="查看积分"),
             BotCommand(command="rank", description="排行"),
             # BotCommand(command="all", description="所有文件"),

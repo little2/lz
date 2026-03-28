@@ -222,6 +222,56 @@ class MySQLPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+    @classmethod
+    async def exists_transaction_log(
+        cls,
+        transaction_description: str,
+        transaction_type: str,
+        sender_id: int,
+    ) -> bool:
+        """
+        快速检查 transaction 表中是否存在匹配记录。
+        仅做存在性判断，使用 SELECT 1 + LIMIT 1 以减少开销。
+        """
+        desc = str(transaction_description or "").strip()
+        tx_type = str(transaction_type or "").strip()
+
+        try:
+            sender_id_int = int(sender_id)
+        except Exception:
+            return False
+
+        if not desc or not tx_type:
+            return False
+
+        cache_key = f"tx:exist:{sender_id_int}:{tx_type}:{desc}"
+        cached = await cls.cache.get(cache_key)
+        if cached is not None:
+            return bool(cached)
+
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT 1
+                FROM transaction
+                WHERE sender_id = %s
+                  AND transaction_type = %s
+                  AND transaction_description = %s
+                LIMIT 1
+                """,
+                (sender_id_int, tx_type, desc),
+            )
+            exists = await cur.fetchone() is not None
+            cls.cache.set(cache_key, 1 if exists else 0, ttl=120)
+            return exists
+        except Exception as e:
+            print(f"⚠️ exists_transaction_log 出错: {e}", flush=True)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
 
 
     @classmethod

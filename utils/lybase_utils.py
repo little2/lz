@@ -189,24 +189,17 @@ class LYBase:
             transaction_data["sender_fee"] = sender_fee
             transaction_data["receiver_fee"] = receiver_fee
 
-            # 禁止自己打赏自己
-            if sender_id != "" and sender_id == receiver_id:
-                return {"ok": "", "status": "reward_self", "transaction_data": transaction_data}
-
             # ---------- 2) 开启事务（关键：保证一致性） ----------
             await conn.begin()
 
             # ---------- 3) 幂等查重（事务内 + FOR UPDATE 降并发重复） ----------
+            # 已购买判断命中后立即返回；不校验 receiver_id。
             where_clauses = []
             params = []
 
             if sender_id != "":
                 where_clauses.append("sender_id = %s")
                 params.append(sender_id)
-
-            if receiver_id != "":
-                where_clauses.append("receiver_id = %s")
-                params.append(receiver_id)
 
             where_clauses.append("transaction_type = %s")
             params.append(tx_type)
@@ -230,6 +223,11 @@ class LYBase:
             if exist_row and exist_row.get("transaction_id"):
                 await conn.rollback()
                 return {"ok": "1", "status": "exist", "transaction_data": exist_row}
+
+            # 禁止自己打赏自己（已购命中时不会走到这里）
+            if sender_id != "" and sender_id == receiver_id:
+                await conn.rollback()
+                return {"ok": "", "status": "reward_self", "transaction_data": transaction_data}
 
             # ---------- 4) 扣 sender（并发安全：锁定该用户行） ----------
             if sender_id != "" and sender_fee != 0:

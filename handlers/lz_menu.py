@@ -2027,6 +2027,20 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
 
     discount_amount = int(fee * lz_var.xlj_discount_rate)
     xlj_final_price = fee - discount_amount
+
+    viewer_id = (
+        int(viewer_user_id)
+        if viewer_user_id is not None
+        else int(message.from_user.id)
+    )
+
+    has_redeem_record = False
+    if source_id:
+        has_redeem_record = await MySQLPool.exists_transaction_log(
+            transaction_description=str(source_id),
+            transaction_type='confirm_buy',
+            sender_id=viewer_id,
+        )
     
 
     # ==== 形成翻页按钮 ====
@@ -2048,12 +2062,20 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
             )
         )
 
-    nav_row.append(
-        InlineKeyboardButton(
-            text=f"{resource_icon} {fee}",
-            callback_data=f"sora_redeem:{content_id}"
+    if has_redeem_record:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="✅ 已兑换",
+                callback_data=f"sora_redeem:{content_id}"
+            )
         )
-    )
+    else:
+        nav_row.append(
+            InlineKeyboardButton(
+                text=f"{resource_icon} {fee}",
+                callback_data=f"sora_redeem:{content_id}"
+            )
+        )
 
     if has_next:
         nav_row.append(
@@ -2066,14 +2088,15 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     reply_markup = InlineKeyboardMarkup(inline_keyboard=[nav_row])
 
 
-    reply_markup.inline_keyboard.append(
-        [
-            InlineKeyboardButton(
-                text=f"{resource_icon} {xlj_final_price} (小懒觉会员)",
-                callback_data=f"sora_redeem:{content_id}:xlj"
-            )
-        ]
-    ) 
+    if not has_redeem_record:
+        reply_markup.inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{resource_icon} {xlj_final_price} (小懒觉会员)",
+                    callback_data=f"sora_redeem:{content_id}:xlj"
+                )
+            ]
+        ) 
 
 
     page_num = int(int(current_pos) / RESULTS_PER_PAGE) or 0
@@ -2120,13 +2143,6 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     bottom_row.append(InlineKeyboardButton(text="➕ 加入资源橱窗", callback_data=f"add_to_collection:{content_id}:0:productinfo")) 
     reply_markup.inline_keyboard.append(bottom_row)
     
-
-    viewer_id = (
-        int(viewer_user_id)
-        if viewer_user_id is not None
-        else int(message.from_user.id)
-    )
-
 
     if ((viewer_id == owner_user_id) or (viewer_id in ADMIN_IDS)):
         # 如果是资源拥有者，添加编辑按钮
@@ -4484,6 +4500,10 @@ TZ_UTC8 = timezone(timedelta(hours=8))
 def _today_ymd() -> str:
     return datetime.now(TZ_UTC8).strftime("%Y-%m-%d")
 
+@router.callback_query(F.data == "noop")
+async def handle_noop(callback: CallbackQuery):
+    await callback.answer()
+
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
@@ -4667,6 +4687,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         discount_amount = int(fee * lz_var.xlj_discount_rate)
         xlj_final_price = fee - discount_amount
         sender_fee = xlj_final_price * (-1)
+        receiver_fee = int(int(xlj_final_price) * (0.6))
 
 
     # 6) credit / author 这些“购买前门槛”建议也在交易前挡住（对齐你 PHP 逻辑）
@@ -4701,9 +4722,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
 
-    if( user_point + sender_fee < 0) and (int(owner_user_id or 0) != int(from_user_id)):
-        await callback.answer("⚠️ 你的积分余额不足，无法兑换此资源，请先赚取积分。", show_alert=True)
-        return
+
 
 
     # 7) 额外问答门槛（在真正扣分/发货前拦截）
@@ -4770,6 +4789,18 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
+
+    # if( user_point + sender_fee < 0) and (int(owner_user_id or 0) != int(from_user_id)):
+    #     # 看看是否曾经买过该资源：买过则允许重复兑换，不再因当前余额不足而阻断。
+    #     has_prev_purchase = await MySQLPool.exists_transaction_log(
+    #         transaction_description=str(source_id),
+    #         transaction_type='confirm_buy',
+    #         sender_id=int(from_user_id),
+    #     )
+
+    #     if not has_prev_purchase:
+    #         await callback.answer("⚠️ 你的积分余额不足，无法兑换此资源，请先赚取积分。", show_alert=True)
+    #         return
 
 
     timer.lap("2771 开始交易记录")

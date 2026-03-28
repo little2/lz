@@ -145,11 +145,13 @@ class RedeemFSM(StatesGroup):
     waiting_for_condition_answer = State()
 
 
-async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: int) -> Optional[int]:
+async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: int) -> tuple[int, bool]:
     """校验管理权限。
     
     Returns:
-        owner_user_id：有权限时返回 owner_user_id；无权限则弹窗并返回 None。
+        tuple(owner_user_id, has_permission)
+        - owner_user_id: 资源真正上传者 user_id（查不到时为 0）
+        - has_permission: 当前操作者是否有管理权限
     """
     print(f"{callback.from_user.id} 尝试管理 content_id={content_id}", flush=True)
     try:
@@ -159,15 +161,15 @@ async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: in
     except Exception as e:
         print(f"❌ 读取 owner_user_id 失败: {e}", flush=True)
         await callback.answer("系统忙碌，请稍后再试。", show_alert=True)
-        return None
+        return 0, False
 
     uid = int(callback.from_user.id)
     if uid == owner_user_id or uid in ADMIN_IDS:
         print(f"✅ 用户 {uid} 具备管理权限（owner_user_id={owner_user_id}）", flush=True)
-        return uid
+        return owner_user_id, True
 
     await callback.answer("你没有权限管理这个资源。", show_alert=True)
-    return None
+    return owner_user_id, False
 
 
 async def _mysql_set_product_review_status_by_content_id(content_id: int, review_status: int, operator_user_id: int = 0, reason: str = "") -> None:
@@ -2351,8 +2353,8 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
     
 
     # 权限校验（owner 或 ADMIN）
-    owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
-    if owner_user_id is None or not owner_user_id:
+    owner_user_id, has_permission = await _ensure_sora_manage_permission(callback, content_id)
+    if not has_permission:
         print(f"❌ 权限校验未通过，用户 {callback.from_user.id} 不能管理内容 {content_id} {owner_user_id}", flush=True)
         return
 
@@ -2373,6 +2375,17 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
     record = await db.search_sora_content_by_id(int(content_id))
     print(f"{record}",flush=True)
 
+    owner_name = "未知用户"
+    owner_id_int = int(owner_user_id or 0)
+    if owner_id_int > 0:
+        try:
+            owner_name = await MySQLPool.get_user_name(owner_id_int)
+        except Exception as e:
+            print(f"⚠️ 获取上传者信息失败: {e}", flush=True)
+            owner_name = "未知用户"
+
+    owner_name_safe = html_escape(str(owner_name or "未知用户"))
+
     text = (
         "请选择你要处理的方式:\n\n"
         "<b>📝 退回编辑:</b>\n"
@@ -2382,6 +2395,7 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
         "资源将立即下架，所有用户将无法存取。\n"
         "若日后需要重新上架，需先将状态改为「退回编辑」，并完成编辑与审核流程。\n"
         "\n"
+        f"👤 上传者：<a href=\"tg://user?id={owner_id_int}\">{owner_name_safe}</a>（<code>{owner_id_int}</code>）\n"
         f"🆔 <code>{content_id}</code>\n"
     )
 
@@ -2433,8 +2447,8 @@ async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext)
         await callback.answer("参数错误", show_alert=True)
         return
 
-    owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
-    if owner_user_id is None or not owner_user_id:
+    owner_user_id, has_permission = await _ensure_sora_manage_permission(callback, content_id)
+    if not has_permission:
         return
 
     try:
@@ -2475,8 +2489,8 @@ async def handle_sora_op_unpublish_prompt(callback: CallbackQuery, state: FSMCon
         await callback.answer("参数错误", show_alert=True)
         return
 
-    owner_user_id = await _ensure_sora_manage_permission(callback, content_id)
-    if owner_user_id is None or not owner_user_id:
+    owner_user_id, has_permission = await _ensure_sora_manage_permission(callback, content_id)
+    if not has_permission:
         return
 
     # 发一条“输入原因”的提示消息（你要求：有取消按钮、取消则删除该消息）
@@ -2495,19 +2509,25 @@ async def handle_sora_op_unpublish_prompt(callback: CallbackQuery, state: FSMCon
     await callback.answer()
 
 
-@router.callback_query(F.data == "force_update")
+@router.callback_query(F.data.startswith("force_update:"))
 async def handle_sora_op_force_update(callback: CallbackQuery, state: FSMContext):
     try:
+        print(f"🛠️ 收到强制更新请求，callback.data={callback.data}", flush=True)
         _, content_id_str = callback.data.split(":", 1)
         content_id = int(content_id_str)
-    except Exception:
+    except Exception as e:
+        print(f"❌ 解析 content_id 失败，callback.data={callback.data}, e={e}", flush=True)
         await callback.answer("参数错误", show_alert=True)
         return
 
     # 不强制权限也行（但管理页回上一页通常仍在 owner/admin 手里）
+    print(f"🛠️ 强制更新 content_id={content_id}，用户 {callback.from_user.id}", flush=True)
     db.cache.delete(f"sora_content_id:{content_id}")
+    print(f"🛠️ 已删除缓存 sora_content_id:{content_id}", flush=True)
     await sync_sora(int(content_id))
+    print(f"🛠️ 已同步 sora_content_id:{content_id}", flush=True)
     await sync_table_by_pks("product", "content_id", [content_id])
+    print(f"🛠️ 已同步数据库 product content_id={content_id}", flush=True)
     await callback.answer("更新同步中，请在 1 分钟后再试", show_alert=False)
 
 @router.callback_query(F.data == "sora_op:cancel_unpublish")
@@ -4785,7 +4805,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         timer.lap("2753 是小懒觉会员")
         
         try:
-            reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts)}"
+            reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts_int)}"
         except Exception:
             pass
 
@@ -5174,7 +5194,9 @@ async def handle_media_box(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("media_box_old:"))
 async def handle_media_box(callback: CallbackQuery, state: FSMContext):
-    # reply_to_message_id = callback.message.reply_to_message.message_id
+    reply_to_message_id = None
+    if callback.message and callback.message.reply_to_message:
+        reply_to_message_id = callback.message.reply_to_message.message_id
     _, content_id, box_id, quantity = callback.data.split(":")
     from_user_id = callback.from_user.id
 

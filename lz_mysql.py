@@ -1260,23 +1260,59 @@ class MySQLPool(LYBase):
                 await cls.release(conn, cur)
 
     @classmethod
-    async def get_user_name(cls,user_id: int):
+    async def get_user_name(cls, user_id: int) -> str:
 
-        if user_id is None or user_id == 0:
+        if user_id is None or int(user_id) == 0:
             return "未知用户"
 
-        cache_key = f"get_user_name:{user_id}"
+        uid = int(user_id)
+        cache_key = f"get_user_name:{uid}"
         cached = await cls.cache.get(cache_key)
         if cached:
-            return cached
+            return str(cached)
 
+        # 1) 优先查 Telegram 资料
         try:
-            chat = await lz_var.bot.get_chat(user_id)
-            cached = chat.full_name or f"@{chat.username}" or "未知用户"
-            return cached
+            chat = await lz_var.bot.get_chat(uid)
+            full_name = (getattr(chat, "full_name", "") or "").strip()
+            username = (getattr(chat, "username", "") or "").strip()
+            display_name = full_name or (f"@{username}" if username else "")
+            if display_name:
+                cls.cache.set(cache_key, display_name, ttl=3000)
+                return display_name
+        except Exception:
+            pass
+
+        # 2) Telegram 取不到时，回退到 MySQL `user` 表
+        conn = cur = None
+        try:
+            conn, cur = await cls.get_conn_cursor()
+            await cur.execute(
+                """
+                SELECT first_name, last_name, username
+                FROM user
+                WHERE user_id = %s
+                LIMIT 1
+                """,
+                (uid,),
+            )
+            row = await cur.fetchone()
+            if row:
+                first_name = (row.get("first_name") or "").strip()
+                last_name = (row.get("last_name") or "").strip()
+                username = (row.get("username") or "").strip()
+
+                full_name = " ".join([p for p in [first_name, last_name] if p]).strip()
+                display_name = full_name or (f"@{username}" if username else "") or "未知用户"
+                cls.cache.set(cache_key, display_name, ttl=3000)
+                return display_name
         except Exception as e:
-            # print(f"❌ 获取用户资料失败: {e}")
-            return "未知用户"
+            print(f"⚠️ get_user_name 回退查询 user 表失败: {e}", flush=True)
+        finally:
+            if conn and cur:
+                await cls.release(conn, cur)
+
+        return "未知用户"
 
     @classmethod
     async def list_transactions_for_sync(

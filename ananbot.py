@@ -5349,7 +5349,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
     else:
        
         print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-        lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+        await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
        
 
 

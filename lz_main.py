@@ -205,7 +205,7 @@ async def sync():
         if summary["checked"] == 0:
             break
 
-async def say_hello(text:str = 'Started news bot!'):
+async def say_hello(text:str = 'Started bot!'):
     me = await lz_var.bot.get_me()
     bot_name = me.username if me and me.username else "UnknownSwitchBot"
     bot_id = me.id if me and me.id else 0

@@ -5827,6 +5827,7 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
 
 async def safe_copy_message(message: Message, max_retry: int = 8):
     # print(f"mess/age=>{message}", flush=True)
+    ret = None
 
     def _resolve_source_ids(msg):
         # 兼容 aiogram Message 与 dict 结构
@@ -5887,7 +5888,7 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
                         message_id=src_message_id
                     )
                
-                    return ret
+                    return ret if ret is not None else ret2
 
             except TelegramRetryAfter as e:
                 wait_s = int(getattr(e, "retry_after", 5))

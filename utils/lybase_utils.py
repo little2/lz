@@ -443,9 +443,13 @@ class LYBase:
     @classmethod
     async def show_main_menu(cls, message):
         print(f"01-显示主菜单给用户 {message.from_user.id if message.from_user else 'unknown'}")
-        if lz_var.skins['home']['file_id']:
+        skins = lz_var.skins if isinstance(lz_var.skins, dict) else {}
+        home_skin = skins.get('home') if isinstance(skins.get('home'), dict) else {}
+        home_file_id = home_skin.get('file_id')
+
+        if home_file_id:
             current_message = await message.answer_photo(
-                    photo=lz_var.skins['home']['file_id'],
+                photo=home_file_id,
                     caption="👋 欢迎使用 LZ 机器人！请选择操作：",
                     parse_mode="HTML",
                     reply_markup=cls.main_menu_keyboard()
@@ -454,6 +458,7 @@ class LYBase:
             
              
         else:
+            print("⚠️ skin[home][file_id] 缺失，降级为文本主菜单", flush=True)
             current_message = await message.answer(
                     text="👋 欢迎使用鲁仔机器人！请选择操作：",
                     parse_mode="HTML",

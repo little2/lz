@@ -6233,8 +6233,8 @@ async def main():
             await set_default_thumb_file_id()
         else:
             print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
-            await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
-
+            switchRet = await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+            print(f"⚠️ 已通知连系机器人，结果: {switchRet}", flush=True)
         # ✅ Render 环境用 PORT，否则本地用 8080
         await web._run_app(app, host="0.0.0.0", port=8080)
 

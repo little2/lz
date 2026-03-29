@@ -33,7 +33,7 @@ default_thumb_unique_file_ids: list[str] = [
     "AQADMq0xG4g4QEV-",
     "AQADMa0xG4g4QEV-",
 ]
-skins: dict = {}  # 皮肤配置
+skins: dict = {"home": {"file_id": None}}  # 皮肤配置，提供 home 默认键防止 KeyError
 bot = None  # 预留 bot 全局变量
 switchbot = None # 预留 switchbot 全局变量
 user_client = None  # Telethon 用户客户端

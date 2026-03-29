@@ -11,13 +11,20 @@ from lz_pgsql import PGPool
 from lz_config import AES_KEY,UPLOADER_BOT_NAME
 import lz_var
 from lz_db import db
+from lexicon_manager import LexiconManager
+from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
+from opencc import OpenCC
+import jieba
 import json
 import asyncio
 import time
+import io
+import hashlib
 from aiogram.fsm.storage.base import StorageKey
 
 _pending_pin_cleanup: dict[tuple[int, int], float] = {}
 _pending_pin_lock = asyncio.Lock()
+_tw2s = OpenCC("tw2s")
 
 class MenuBase:
     @classmethod
@@ -405,6 +412,10 @@ async def sync_sora(content_id: int):
     mysql_row = await MySQLPool.search_sora_content_by_id(int(content_id))
     print(f"01[sync_sora_content] MySQL row = {mysql_row} for content_id={content_id}", flush=True)
 
+    # 1.1) 同步前先在 MySQL 生成并回写 content_seg（分词 + 同义词归一 + 转简体）
+    if mysql_row:
+        mysql_row = await _update_mysql_content_seg(int(content_id), mysql_row)
+
     # 2) 先做 PG 端 UPSERT
     upsert_count = 0
     if mysql_row:
@@ -417,6 +428,56 @@ async def sync_sora(content_id: int):
     except Exception as e:
         print(f"[sync_sora] sync_album_items error: {e}", flush=True)
         album_sync_summary = None
+
+
+async def _build_content_seg(content: str | None, tag: str | None) -> str:
+    """
+    生成用于 MySQL.sora_content.content_seg 的分词结果：
+    - 文本先转简体
+    - jieba 分词
+    - 同义词归一到 canonical
+    - tag 仅去除 # 后直接并入
+    """
+    await ensure_and_load_lexicon_runtime(output_dir=".", export_if_missing=True)
+
+    # 确保同义词词库已加载（幂等）
+    LexiconManager.ensure_loaded()
+
+    text_s = _tw2s.convert((content or "").strip())
+    tag_s = _tw2s.convert((tag or "").replace("#", " ").strip())
+
+    tokens: list[str] = []
+    if text_s:
+        tokens.extend([t.strip() for t in jieba.cut(text_s) if t and t.strip()])
+    if tag_s:
+        tokens.append(tag_s)
+
+    if not tokens:
+        return ""
+
+    tokens = LexiconManager.normalize_tokens(tokens)
+    return " ".join(tokens)
+
+
+async def _update_mysql_content_seg(content_id: int, mysql_row: dict) -> dict:
+    """根据 content/tag 生成 content_seg，写回 MySQL，并回传更新后的 mysql_row。"""
+    if not mysql_row:
+        return mysql_row
+
+    updated_row = dict(mysql_row)
+    try:
+        content_seg = await _build_content_seg(
+            content=mysql_row.get("content"),
+            tag=mysql_row.get("tag"),
+        )
+        updated_row["content_seg"] = content_seg
+        await MySQLPool.set_sora_content_by_id(
+            int(content_id),
+            {"content_seg": content_seg},
+        )
+    except Exception as e:
+        print(f"[sync_sora] update mysql content_seg failed: {e}", flush=True)
+    return updated_row
     
 
 async def sync_product_by_user(user_id: int):
@@ -491,12 +552,14 @@ async def sync_cover_change(content_id: int, thumb_file_unique_id: str, thumb_fi
     await PGPool.ensure_pool()
 
     content_id = int(content_id)
+    thumb_hash = await _compute_thumb_hash_by_file_id(thumb_file_id)
     
     await MySQLPool.upsert_product_thumb(
         content_id=content_id,
         thumb_file_unique_id=thumb_file_unique_id,
         thumb_file_id=thumb_file_id,
         bot_username=bot_username,
+        thumb_hash=thumb_hash,
     )
 
     await PGPool.upsert_product_thumb(
@@ -504,10 +567,40 @@ async def sync_cover_change(content_id: int, thumb_file_unique_id: str, thumb_fi
         thumb_file_unique_id=thumb_file_unique_id,
         thumb_file_id=thumb_file_id,
         bot_username=bot_username,
+        thumb_hash=thumb_hash,
     )
 
     await MySQLPool.reset_sora_media_by_id(content_id, bot_username)
     await PGPool.reset_sora_media_by_id(content_id, bot_username)
+
+
+async def _compute_thumb_hash_by_file_id(thumb_file_id: str | None) -> str | None:
+    """使用 PILImage 读取 Telegram 图片并计算稳定 hash。"""
+    if not thumb_file_id:
+        return None
+
+    try:
+        from PIL import Image as PILImage
+    except Exception as e:
+        print(f"[sync_cover_change] PIL import failed: {e}", flush=True)
+        return None
+
+    try:
+        file_meta = await lz_var.bot.get_file(thumb_file_id)
+        if not file_meta or not getattr(file_meta, "file_path", None):
+            return None
+
+        buffer = io.BytesIO()
+        await lz_var.bot.download_file(file_meta.file_path, destination=buffer)
+        buffer.seek(0)
+
+        with PILImage.open(buffer) as img:
+            # 统一到固定灰阶尺寸，避免格式差异导致 hash 不稳定。
+            normalized = img.convert("L").resize((32, 32))
+            return hashlib.sha256(normalized.tobytes()).hexdigest()
+    except Exception as e:
+        print(f"[sync_cover_change] compute thumb_hash failed: {e}", flush=True)
+        return None
 
 
 

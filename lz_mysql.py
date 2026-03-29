@@ -287,7 +287,7 @@ class MySQLPool(LYBase):
         conn, cursor = await cls.get_conn_cursor()
         try:
             await cursor.execute('''
-                SELECT s.id, s.source_id, s.file_type, s.content, s.file_size, s.duration, s.tag,
+                SELECT s.id, s.source_id, s.file_type, s.content, s.content_seg, s.file_size, s.duration, s.tag,
                     s.thumb_file_unique_id, s.valid_state, s.file_password,
                     m.file_id AS m_file_id, m.thumb_file_id AS m_thumb_file_id,
                     p.price as fee, p.file_type as product_type, p.owner_user_id, p.purchase_condition, p.id as product_id,  p.review_status,
@@ -420,14 +420,29 @@ class MySQLPool(LYBase):
         thumb_file_unique_id: str,
         thumb_file_id: str,
         bot_username: str,
+        thumb_hash: Optional[str] = None,
     ):
         await cls.ensure_pool()   # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()
         try:
-            await cursor.execute(f"""
-                UPDATE sora_content SET thumb_file_unique_id = %s, stage='pending'
-                WHERE id = %s 
-            """, (thumb_file_unique_id, content_id))
+            if thumb_hash is None:
+                await cursor.execute(
+                    """
+                    UPDATE sora_content
+                    SET thumb_file_unique_id = %s, stage='pending'
+                    WHERE id = %s
+                    """,
+                    (thumb_file_unique_id, content_id),
+                )
+            else:
+                await cursor.execute(
+                    """
+                    UPDATE sora_content
+                    SET thumb_file_unique_id = %s, thumb_hash = %s, stage='pending'
+                    WHERE id = %s
+                    """,
+                    (thumb_file_unique_id, thumb_hash, content_id),
+                )
            
             await cursor.execute(f"""
                 INSERT INTO sora_media (content_id, source_bot_name, thumb_file_id)

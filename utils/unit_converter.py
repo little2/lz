@@ -9,11 +9,18 @@ class UnitConverter:
         units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
         step = 1000.0 if cls.use_si else 1024.0
 
+        try:
+            if num_bytes is None or num_bytes == "":
+                num_bytes = 0
+            num_bytes = float(num_bytes)
+        except Exception:
+            num_bytes = 0
+
         if num_bytes < 0:
             raise ValueError("字节数不能为负数")
 
         index = 0
-        num = float(num_bytes)
+        num = num_bytes
 
         while num >= step and index < len(units) - 1:
             num /= step
@@ -23,6 +30,13 @@ class UnitConverter:
     
     @classmethod
     def seconds_to_hms(cls, seconds):
+        try:
+            if seconds is None or seconds == "":
+                seconds = 0
+            seconds = int(float(seconds))
+        except Exception:
+            seconds = 0
+
         if seconds < 0:
             raise ValueError("秒数不能为负数")
 

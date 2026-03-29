@@ -281,10 +281,11 @@ class PGPool:
         thumb_file_unique_id: str,
         thumb_file_id: str,
         bot_username: str,
+        thumb_hash: Optional[str] = None,
     ):
         """
         更新缩图信息（PostgreSQL 版本，@classmethod）：
-        - sora_content: 若传入 thumb_file_unique_id，则更新该 content_id 的缩略图字段
+        - sora_content: 若传入 thumb_file_unique_id / thumb_hash，则更新该 content_id 的缩略图字段
         - sora_media: 以 (content_id, source_bot_name) 为唯一键做 UPSERT，更新 thumb_file_id
         * 需要 sora_media 上有唯一约束：UNIQUE (content_id, source_bot_name)
 
@@ -298,7 +299,7 @@ class PGPool:
         conn = await cls.acquire()
         try:
             print(
-                f"[PG upsert_product_thumb] thumb_file_unique_id={thumb_file_unique_id} thumb_file_id={thumb_file_id} "
+                f"[PG upsert_product_thumb] thumb_file_unique_id={thumb_file_unique_id} thumb_file_id={thumb_file_id} thumb_hash={thumb_hash} "
                 f"content_id={content_id} bot={bot_username}",
                 flush=True,
             )
@@ -306,13 +307,28 @@ class PGPool:
             async with conn.transaction():
                 # 1) 更新 sora_content（有传才更）
                 content_rows = 0
-                if thumb_file_unique_id:
-                    sql_update_content = """
+                if thumb_file_unique_id or thumb_hash is not None:
+                    set_clauses: List[str] = []
+                    params: List[Any] = []
+                    param_idx = 1
+
+                    if thumb_file_unique_id:
+                        set_clauses.append(f"thumb_file_unique_id = ${param_idx}")
+                        params.append(thumb_file_unique_id)
+                        param_idx += 1
+
+                    if thumb_hash is not None:
+                        set_clauses.append(f"thumb_hash = ${param_idx}")
+                        params.append(thumb_hash)
+                        param_idx += 1
+
+                    params.append(content_id)
+                    sql_update_content = f"""
                         UPDATE sora_content
-                        SET thumb_file_unique_id = $1
-                        WHERE id = $2
+                        SET {', '.join(set_clauses)}
+                        WHERE id = ${param_idx}
                     """
-                    tag = await conn.execute(sql_update_content, thumb_file_unique_id, content_id)
+                    tag = await conn.execute(sql_update_content, *params)
                     # asyncpg 的 execute 返回类似 'UPDATE 1'，取最后的数字即影响行数
                     try:
                         content_rows = int(tag.split()[-1])
@@ -403,18 +419,8 @@ class PGPool:
                 valid_state = mysql_row.get("valid_state", 1)
                 file_password = (mysql_row.get("file_password") or "").strip()
 
-                # content_seg：同义词替换 + jieba 分词（与检索一致）
-                norm = cls.replace_synonym(content)
-                content_seg = " ".join(jieba.cut(norm)) if norm else ""
-
-                if tag:
-                    #将字串中的#字号全部移除
-                    tag_remove_slash = tag.replace("#", "")
-                    content_seg = content_seg + " " + tag_remove_slash
-
-
-                tw2s = OpenCC('tw2s')
-                content_seg = tw2s.convert(content_seg)
+                # content_seg 由 MySQL 端预先生成；PG 仅负责落库。
+                content_seg = (mysql_row.get("content_seg") or "").strip()
 
 
 

@@ -661,12 +661,14 @@ async def _fetch_and_consume(session: aiohttp.ClientSession, url: str):
     """
     try:
         params = {"t": int(datetime.now().timestamp())}
-        async with session.get(url, params=params) as resp:
+        async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             content = await resp.read()  # 真实读取内容
             length = len(content)
             # print(f"🌐 keep-alive fetch => {url} status={resp.status} bytes={length}", flush=True)
+    except asyncio.TimeoutError:
+        print(f"⚠️ keep-alive fetch timeout => {url} (10s)", flush=True)
     except Exception as e:
-        print(f"⚠️ keep-alive fetch failed => {url} error={e}", flush=True)
+        print(f"⚠️ keep-alive fetch failed => {url}: {type(e).__name__}: {e}", flush=True)
 
 
 async def ping_keepalive_task():

@@ -43,7 +43,7 @@ import aiohttp
 from ananbot_utils import AnanBOTPool  # ✅ 修改点：改为统一导入类
 from utils.string_utils import LZString
 from utils.media_utils import Media
-from ananbot_config import KEY_USER_ID,SWITCHBOT_TOKEN,BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
+from ananbot_config import KEY_USER_ID,SWITCHBOT_TOKEN,SWITCHBOT_CHAT_ID,SWITCHBOT_THREAD_ID,BOT_TOKEN, BOT_MODE, WEBHOOK_HOST, WEBHOOK_PATH, REVIEW_CHAT_ID, REVIEW_THREAD_ID,LOG_THREAD_ID,WEBAPP_HOST, WEBAPP_PORT,PUBLISH_BOT_TOKEN,REPORT_REVIEW_CHAT_ID,REPORT_REVIEW_THREAD_ID
 import lz_var
 from lz_config import AES_KEY
 
@@ -6177,6 +6177,24 @@ async def set_default_thumb_file_id():
     else:
         print("⚠️ 未配置任何默认缩略图", flush=True)
 
+async def say_hello(text:str = 'Started news bot!'):
+    me = await lz_var.bot.get_me()
+    bot_name = me.username if me and me.username else "UnknownSwitchBot"
+    bot_id = me.id if me and me.id else 0
+    try:
+        await lz_var.switchbot.send_message(
+            chat_id=f"-100{SWITCHBOT_CHAT_ID}",
+            message_thread_id=SWITCHBOT_THREAD_ID,
+            text=f"[{bot_name} - {bot_id}] {text}",
+        )
+    except Exception as e:
+        print(
+            f"⚠️ say_hello 发送失败: chat_id=-100{SWITCHBOT_CHAT_ID}", 
+            f"thread_id={SWITCHBOT_THREAD_ID}, error={e}",
+            flush=True,
+        )
+
+
 async def keep_alive_ping():
     url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if BOT_MODE == "webhook" else f"{WEBHOOK_HOST}/"
     while True:
@@ -6200,61 +6218,79 @@ async def main():
 
 
    # ✅ 初始化 MySQL 连接池
-    await AnanBOTPool.init_pool()
+    try:
+        await AnanBOTPool.init_pool()
+        await MySQLPool.init_pool()
 
-    await MySQLPool.init_pool()
+        # await AnanBOTPool.sync_bid_product()
+        try:
+            await say_hello()
+        except Exception as e:
+            print(f"⚠️ 启动通知失败（忽略）: {e}", flush=True)
 
-    # await AnanBOTPool.sync_bid_product()
+        # await _sync_pg(409009)
 
-    await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ-Uploader] <code>{lz_var.bot_username}</code> 已启动！")
-    
-    # await _sync_pg(409009)
+        if BOT_MODE == "webhook":
+            # dp.startup.register(on_startup)
+            print("🚀 啟動 Webhook 模式")
 
-    if BOT_MODE == "webhook":
-        # dp.startup.register(on_startup)
-        print("🚀 啟動 Webhook 模式")
+            app = web.Application()
+            app.router.add_get("/", health)  # ✅ 健康检查路由
 
-        app = web.Application()
-        app.router.add_get("/", health)  # ✅ 健康检查路由
+            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/")
+            setup_application(app, dp, bot=bot)
 
-        SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/")
-        setup_application(app, dp, bot=bot)
+            webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+            print(f"🔗 設定 Telegram webhook 為：{webhook_url}")
+            await bot.delete_webhook(drop_pending_updates=True)
+            await bot.set_webhook(webhook_url)
 
-       
-        webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
-        print(f"🔗 設定 Telegram webhook 為：{webhook_url}")
-        await bot.delete_webhook(drop_pending_updates=True)
-        await bot.set_webhook(webhook_url)
-     
+            load_result = await Tplate.load_or_create_skins(get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+            if(load_result.get("ok") == 1):
+                lz_var.skins = load_result.get("skins", {})
+                await set_default_thumb_file_id()
+            else:
+                print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
+                try:
+                    switchRet = await lz_var.switchbot.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
+                    print(f"⚠️ 已通知连系机器人，结果: {switchRet}", flush=True)
+                except Exception as e:
+                    print(f"⚠️ 通知连系机器人失败（忽略）(webhook): {e}", flush=True)
 
-        load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
-        if(load_result.get("ok") == 1):
-            lz_var.skins = load_result.get("skins", {})
-            await set_default_thumb_file_id()
+            # ✅ Render 环境用 PORT，否则本地用 8080
+            await web._run_app(app, host="0.0.0.0", port=8080)
+
         else:
-            print(f"⚠️ 加载皮肤失败: 请连系 {load_result.get('handshake')}", flush=True)
-            switchRet = await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
-            print(f"⚠️ 已通知连系机器人，结果: {switchRet}", flush=True)
-        # ✅ Render 环境用 PORT，否则本地用 8080
-        await web._run_app(app, host="0.0.0.0", port=8080)
+            await bot.delete_webhook(drop_pending_updates=True)
+            load_result = await Tplate.load_or_create_skins(get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
+            if(load_result.get("ok") == 1):
+                lz_var.skins = load_result.get("skins", {})
+                await set_default_thumb_file_id()
+            else:
+                print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
+                try:
+                    await lz_var.switchbot.send_message(lz_var.x_man_bot_id, f"|_kick_|{lz_var.bot_username}")
+                except Exception as e:
+                    print(f"⚠️ @{lz_var.x_man_bot_username} 和 @{lz_var.switchbot_username} 未关连 (polling): {e}", flush=True)
 
+            print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。", flush=True)
+            await dp.start_polling(bot)  # Aiogram 轮询
+    finally:
+        try:
+            await MySQLPool.close()
+        except Exception as e:
+            print(f"⚠️ MySQLPool.close 失败（忽略）: {e}", flush=True)
 
+        try:
+            await AnanBOTPool._reset_pool()
+        except Exception as e:
+            print(f"⚠️ AnanBOTPool._reset_pool 失败（忽略）: {e}", flush=True)
 
-
-
-        
-    else:
-        await bot.delete_webhook(drop_pending_updates=True)
-        load_result = await Tplate.load_or_create_skins( get_file_ids_fn=MySQLPool.get_file_id_by_file_unique_id)
-        if(load_result.get("ok") == 1):
-            lz_var.skins = load_result.get("skins", {})
-            await set_default_thumb_file_id()
-        else:
-            print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-            await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
-
-        print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。",flush=True)
-        await dp.start_polling(bot)  # Aiogram 轮询
+        for _name, _bot in (("bot", bot), ("publish_bot", publish_bot), ("switchbot", switchbot)):
+            try:
+                await _bot.session.close()
+            except Exception as e:
+                print(f"⚠️ {_name}.session.close 失败（忽略）: {e}", flush=True)
 
 
    

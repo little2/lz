@@ -23,7 +23,16 @@ WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", 10000))
 
 
 BOT_TOKEN = config.get('bot_token', os.getenv('BOT_TOKEN', ''))
-SWITCHBOT_TOKEN = os.getenv("SWITCHBOT_TOKEN", "")
+
+
+s_raw = os.getenv("SWITCHBOT_CONFIGURATION")
+s_conf = json.loads(s_raw)
+SWITCHBOT_CHAT_ID: int = s_conf["chat_id"]
+SWITCHBOT_THREAD_ID: int = s_conf["thread_id"]
+SWITCHBOT_TOKEN: str = s_conf["switchbot_token"]
+SWITCHBOT_USERNAME: str = s_conf["switchbot_username"]
+
+
 
 BOT_MODE        = os.getenv("BOT_MODE", "polling").lower()
 MYSQL_HOST = config.get('db_host', os.getenv('MYSQL_DB_HOST', 'localhost'))
@@ -52,3 +61,4 @@ LOG_THREAD_ID = config.get('log_thread_id', os.getenv('LOG_THREAD_ID', ''))
 PUBLISH_BOT_TOKEN = config.get('publish_bot_token', os.getenv('PUBLISH_BOT_TOKEN', ''))
 KEY_USER_ID = config.get('key_user_id', os.getenv('KEY_USER_ID', ''))
 version = "0.1.1"
+

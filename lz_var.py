@@ -45,3 +45,10 @@ default_content_len = 15
 configuration_chat_id = -1002030683460
 configuration_thread_id = 207008
 luzaivversion=1004
+
+s_raw = os.getenv("SWITCHBOT_CONFIGURATION")
+s_conf = json.loads(s_raw)
+switchbot_chat_id: int = s_conf["chat_id"]
+switchbot_thread_id: int = s_conf["thread_id"]
+switchbot_token: str = s_conf["switchbot_token"]
+switchbot_username = s_conf["switchbot_username"]

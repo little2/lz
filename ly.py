@@ -680,7 +680,7 @@ async def ping_keepalive_task():
         "https://twork-vdoh.onrender.com",  # TGtworkONE freebsd666bot
         "https://twork-f1im.onrender.com",  # News  news05251
         "https://lz-9bfp.onrender.com",     # 菊次郎 stcxp1069
-        "https://lz-rhxh.onrender.com",     # 红包 stoverepmaria
+        "https://lz-rhxh.onrender.com",     # 调察宝 stoverepmaria
         "https://lz-6q45.onrender.com",     # 布施 yaoqiang648
         "https://tgone-ah13.onrender.com",  # Rely
         "https://hb-lp3a.onrender.com",     # HB  

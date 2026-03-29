@@ -4,8 +4,7 @@ import json
 
 load_dotenv(dotenv_path='.lz.env')
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SWITCHBOT_TOKEN = os.getenv("SWITCHBOT_TOKEN", "")
-SWITCHBOT_USERNAME = os.getenv("SWITCHBOT_USERNAME", "")
+
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 
 BOT_MODE = os.getenv("BOT_MODE", "polling").lower()
@@ -62,3 +61,10 @@ PUBLISH_BOT_NAME = config.get('publish_bot_name', os.getenv('PUBLISH_BOT_NAME', 
 KEY_USER_ID     = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
 KEY_USER_PHONE = config.get('key_user_phone', os.getenv('KEY_USER_PHONE', ''))
 
+
+s_raw = os.getenv("SWITCHBOT_CONFIGURATION")
+s_conf = json.loads(s_raw)
+SWITCHBOT_CHAT_ID: int = s_conf["chat_id"]
+SWITCHBOT_THREAD_ID: int = s_conf["thread_id"]
+SWITCHBOT_TOKEN: str = s_conf["switchbot_token"]
+SWITCHBOT_USERNAME = s_conf["switchbot_username"]

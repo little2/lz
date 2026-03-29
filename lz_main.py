@@ -16,7 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from lz_config import BOT_TOKEN,SWITCHBOT_TOKEN, BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
+from lz_config import BOT_TOKEN,SWITCHBOT_TOKEN, SWITCHBOT_CHAT_ID, SWITCHBOT_THREAD_ID,BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
 # from lz_db import db
 from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
@@ -205,22 +205,43 @@ async def sync():
         if summary["checked"] == 0:
             break
 
-async def say_hello():
-    await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ] <code>{lz_var.bot_username}</code> 已启动！")
-     # 构造一个要导入的联系人
-    # try:
-    #     target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
-    #     me = await lz_var.user_client.get_me()
-    #     await lz_var.user_client.send_message(target, f"[LZ] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行LZ任务！",parse_mode='html')   
-    #     print(f"发送消息给 KeyMan 成功。",flush=True)
-    # except Exception as e:
-    #     print(f"发送消息给 KeyMan 失败：{e}",flush=True)
+async def say_hello(text:str = 'Started news bot!'):
+    me = await lz_var.bot.get_me()
+    bot_name = me.username if me and me.username else "UnknownSwitchBot"
+    bot_id = me.id if me and me.id else 0
+    try:
+        await lz_var.switchbot.send_message(
+            chat_id=f"-100{SWITCHBOT_CHAT_ID}",
+            message_thread_id=SWITCHBOT_THREAD_ID,
+            text=f"[{bot_name} - {bot_id}] {text}",
+        )
+    except Exception as e:
+        print(
+            f"⚠️ say_hello 发送失败: chat_id={SWITCHBOT_CHAT_ID}, "
+            f"thread_id={SWITCHBOT_THREAD_ID}, error={e}",
+            flush=True,
+        )
 
-    # try:
-    #     await lz_var.user_client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')   
-    #     print(f"发送消息给 {SWITCHBOT_USERNAME} 成功。",flush=True)
-    # except Exception as e:
-    #     print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
+
+# async def say_hello():
+#     try:
+#         await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ] <code>{lz_var.bot_username}</code> 已启动！")
+#     except Exception as e:
+#         print(f"⚠️ say_hello 通知失败（忽略）: {e}", flush=True)
+#      # 构造一个要导入的联系人
+#     # try:
+#     #     target = await lz_var.user_client.get_entity(KEY_USER_ID)     # 7550420493
+#     #     me = await lz_var.user_client.get_me()
+#     #     await lz_var.user_client.send_message(target, f"[LZ] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行LZ任务！",parse_mode='html')   
+#     #     print(f"发送消息给 KeyMan 成功。",flush=True)
+#     # except Exception as e:
+#     #     print(f"发送消息给 KeyMan 失败：{e}",flush=True)
+
+#     # try:
+#     #     await lz_var.user_client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')   
+#     #     print(f"发送消息给 {SWITCHBOT_USERNAME} 成功。",flush=True)
+#     # except Exception as e:
+#     #     print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
   
 async def main():
     global PUBLISH_BOT_NAME
@@ -336,10 +357,11 @@ async def main():
             if(load_result.get("ok") == 1):
                 lz_var.skins = load_result.get("skins", {})
             else:
-               
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-               
-                await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|@{lz_var.bot_username}")
+                try:
+                    await lz_var.switchbot.send_message(lz_var.x_man_bot_id, f"|_kick_|@{lz_var.bot_username}")
+                except Exception as _kick_err:
+                    print(f"⚠️ 通知 x_man 失败（忽略）: {_kick_err}", flush=True)
 
             await say_hello()
             # print(f"Skin {lz_var.skins}")
@@ -354,10 +376,11 @@ async def main():
             if(load_result.get("ok") == 1):
                 lz_var.skins = load_result.get("skins", {})
             else:
-              
                 print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-                await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|@{lz_var.bot_username}")
-              
+                try:
+                    await lz_var.switchbot.send_message(lz_var.x_man_bot_id, f"|_kick_|@{lz_var.bot_username}")
+                except Exception as _kick_err:
+                    print(f"⚠️ 通知 x_man 失败（忽略）: {_kick_err}", flush=True)
 
             # print(f"Skin {lz_var.skins}")
             await say_hello()

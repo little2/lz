@@ -1287,11 +1287,12 @@ async def _build_pagination(
         if not result:
             return {"ok": False, "message": "⚠️ 同步正在进行中，或是您目前还没有任何兑换纪录"}
     elif callback_function in {"ul_pid"}:
+        
         spawn_once(
             f"sync_product_by_user:{keyword_id}",
             lambda: sync_product_by_user(keyword_id)
         )
-
+        print(f"Started background sync for user {keyword_id} upload history", flush=True)
         result = await PGPool.search_history_upload(keyword_id)
         if not result:
             return {"ok": False, "message": "⚠️ 同步正在进行中，或是您目前还没有任何上传纪录"}            

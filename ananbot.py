@@ -5346,14 +5346,16 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
     if(load_result.get("ok") == 1):
         lz_var.skins = load_result.get("skins", {})
         await set_default_thumb_file_id()
+        await message.answer("🔄 皮肤配置已重新加载。")
     else:
        
-        print(f"⚠️ 加载皮肤失败: {load_result.get('handshake')}", flush=True)
-        await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
-       
+        print(f"⚠️ 加载皮肤失败: 向 {load_result.get('handshake')} 开通连络", flush=True)
+        retSwitchBOT = await lz_var.switchbot.send_message(lz_var.x_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+        print(f"⚠️ 通知 SwitchBOT 结果: {retSwitchBOT}", flush=True)
+        await message.answer("⚠️ 加载皮肤失败，请稍后重试。 /reload ")
 
 
-    await message.answer("🔄 皮肤配置已重新加载。")
+    
 
 @dp.message(F.chat.type == "private", Command("synonym"))
 async def handle_synonym_export(message: Message):

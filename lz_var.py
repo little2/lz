@@ -11,13 +11,15 @@ cold_start_flag: bool = True  # 是否处于冷启动
 default_thumb_file_id: list[str] = None  # 但不推荐，类型不完整
 sungfeng: int = 7753111936  # 顺丰快递,基本废用了
 
-
-x_raw = os.getenv("X_CONFIGURATION")
-x_conf = json.loads(x_raw)
-x_man_bot_id: int = x_conf["x_man_bot_id"]
-x_man_bot_phone: str = x_conf["x_man_bot_phone"]
-x_man_bot_username: str = x_conf["x_man_bot_username"]
-m_man_bot_id: int = int(x_conf.get("m_man_bot_id", 0) or 0)
+try:
+    x_raw = os.getenv("X_CONFIGURATION")
+    x_conf = json.loads(x_raw)
+    x_man_bot_id: int = x_conf["x_man_bot_id"]
+    x_man_bot_phone: str = x_conf["x_man_bot_phone"]
+    x_man_bot_username: str = x_conf["x_man_bot_username"]
+    m_man_bot_id: int = int(x_conf.get("m_man_bot_id", 0) or 0)
+except Exception as e:
+    print(f"⚠️ X_CONFIGURATION 解析失败: {e}; 使用默认值", flush=True)
 x_bk_man_bot_id = 7606450690
 
 

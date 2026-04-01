@@ -1785,7 +1785,7 @@ async def say_hello():
     )
     result = await client(ImportContactsRequest([contact]))
     # print("导入结果:", result)
-    target = await client.get_entity(KEY_USER_ID)     # 7550420493
+    target = await client.get_entity(int(KEY_USER_ID))     # 7550420493
 
     me = await client.get_me()
     await client.send_message(target, f"[LY] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行TGONE任务！",parse_mode='html') 

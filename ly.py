@@ -46,6 +46,7 @@ from ly_config import (
     STAT_FLUSH_INTERVAL,
     STAT_FLUSH_BATCH_SIZE,
     KEY_USER_ID,
+    KEY_USER_PHONE,
     SWITCHBOT_USERNAME,
     THUMB_DISPATCH_INTERVAL,
     THUMB_BOTS,
@@ -75,14 +76,14 @@ GroupStatsTracker.configure(
 
 
 
-async def notify_command_receivers_on_start():
-    target = await client.get_entity(int(KEY_USER_ID))     
-    me = await client.get_me()
-    await client.send_message(target, f"[LYHB] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行 LY 任务！",parse_mode='html')  
+# async def notify_command_receivers_on_start():
+#     target = await client.get_entity(int(KEY_USER_ID))     
+#     me = await client.get_me()
+#     await client.send_message(target, f"[LY-HB] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行 LY 任务！",parse_mode='html')  
 
-    if SWITCHBOT_USERNAME:
-        await client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')      
-    return
+#     if SWITCHBOT_USERNAME:
+#         await client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')      
+#     return
    
 async def add_contact():
 
@@ -1775,9 +1776,26 @@ target_thread_id = int(cfg.get("target_thread_id", 0))
 
 
 async def say_hello():
-    pass
-    # 使用 notify_command_receivers_on_start
-   
+     # 构造一个要导入的联系人
+    contact = InputPhoneContact(
+        client_id=0, 
+        phone=KEY_USER_PHONE, 
+        first_name="KeyMan", 
+        last_name=""
+    )
+    result = await client(ImportContactsRequest([contact]))
+    # print("导入结果:", result)
+    target = await client.get_entity(int(KEY_USER_ID))     # 7550420493
+
+    me = await client.get_me()
+    await client.send_message(target, f"[LY-HB] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行TGONE任务！",parse_mode='html') 
+
+    try:
+        await client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')
+        print(f"✅ 已向 @{SWITCHBOT_USERNAME} 发送启动消息。", flush=True)
+    except Exception as e:
+        print(f"⚠️ 向 @{SWITCHBOT_USERNAME} 发送消息失败（可能未关联或未启动）：{e}", flush=True)
+        pass
   
 
 
@@ -1844,7 +1862,7 @@ async def main():
     else:
         try:
             print(f"✅ KEY_USER_ID 检查通过，当前运行账号 {user_id} , 主要用户是  {KEY_USER_ID} 。", flush=True)
-            await notify_command_receivers_on_start()
+            await say_hello()
         except Exception as e:
             print(f"⚠️ 通知命令接收者时出错: {e}", flush=True)
             await add_contact()
@@ -1853,6 +1871,8 @@ async def main():
     # await exec_pay_board_manager_salary(client=client, task={"task_value":{"source_chat_id": -1001943193056,"target_chat_id": -1003802600020,"target_thread_id": 3, "include_bots": False}})
 
     print("📡 开始监听所有事件...")
+
+    
 
 
 

@@ -80,6 +80,7 @@ PG_MIN_SIZE = 1
 PG_MAX_SIZE = 5 
 
 KEY_USER_ID = os.getenv("KEY_USER_ID")  
+KEY_USER_PHONE     = config.get('key_user_phone', os.getenv('KEY_USER_PHONE', ''))
 SWITCHBOT_USERNAME = os.getenv("SWITCHBOT_USERNAME", "")
 raw = os.getenv("BOT_INIT", "")
 BOT_INIT = [x.strip() for x in raw.split(",") if x.strip()]
@@ -91,4 +92,11 @@ DEBUG_HB_GROUP_ID = -1001943193056  # 换成实际群 ID
 FORWARD_THUMB_USER =  os.getenv("FORWARD_THUMB_USER", "")
 
 VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))
+
+s_raw = os.getenv("SWITCHBOT_CONFIGURATION")
+s_conf = json.loads(s_raw)
+SWITCHBOT_CHAT_ID: int = s_conf["chat_id"]
+SWITCHBOT_THREAD_ID: int = s_conf["thread_id"]
+SWITCHBOT_TOKEN: str = s_conf["switchbot_token"]
+SWITCHBOT_USERNAME: str = s_conf["switchbot_username"]
 

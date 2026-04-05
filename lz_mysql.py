@@ -1064,6 +1064,49 @@ class MySQLPool(LYBase):
             return {"ok": "", "status": "error", "error": str(e)}
         finally:
             await cls.release(conn, cur)
+
+    @classmethod
+    async def upsert_bilibibli(cls, enc_str: str, file_unique_id: str, disable_count: int = 0) -> dict:
+        enc = str(enc_str or "").strip()
+        file_id = str(file_unique_id or "").strip()
+
+        if not enc or not file_id:
+            return {
+                "ok": "",
+                "status": "missing_required_field",
+                "required": ["enc_str", "file_unique_id"],
+            }
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            sql = """
+                INSERT INTO bilibibli
+                    (enc_str, file_unique_id, disable_count)
+                VALUES
+                    (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    file_unique_id = VALUES(file_unique_id),
+                    disable_count = VALUES(disable_count)
+            """
+            await cur.execute(sql, (enc, file_id, int(disable_count)))
+            await conn.commit()
+
+            return {
+                "ok": "1",
+                "status": "upserted",
+                "enc_str": enc,
+                "file_unique_id": file_id,
+                "affected": cur.rowcount,
+            }
+        except Exception as e:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
+            print(f"⚠️ upsert_bilibibli 出错: {e}", flush=True)
+            return {"ok": "", "status": "error", "error": str(e)}
+        finally:
+            await cls.release(conn, cur)
  
     @classmethod
     async def fetch_valid_xlj_memberships(cls, user_id: int | str = None) -> list[dict]:

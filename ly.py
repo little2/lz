@@ -16,6 +16,7 @@ from pg_stats_db import PGStatsDB
 from group_stats_tracker import GroupStatsTracker
 
 from telethon.tl.functions.contacts import ImportContactsRequest
+from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import InputPhoneContact,DocumentAttributeFilename,InputDocument
 from telethon.tl.types import PeerUser
 from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError
@@ -27,6 +28,7 @@ from typing import Optional, List, Any
 import importlib
 import inspect
 import time
+import re
 
 
 
@@ -56,6 +58,16 @@ from ly_config import (
 )
 
 TG_TEXT_LIMIT = 4096
+BILIBILI_URL_RE = re.compile(r"https://www\.bilibili\.com/\S+")
+BILIBILI_VIDEO_CODE_RE = re.compile(r"https://www\.bilibili\.com/video/([^/?#]+)/?", re.IGNORECASE)
+STARTUP_BILIBILI_TARGET = "@bilibiliparse_bot"
+STARTUP_BILIBILI_URL = "https://www.bilibili.com/video/BV1MiotYGEzK/?share_source=copy_web&vd_source=ff5c3551704f213ef5ae6be4679feb21"
+STARTUP_BILIBILI_TIMEOUT = 120
+STARTUP_BILIBILI_SUBSCRIBE_HINT = "用解析前需要订阅频道"
+STARTUP_BILIBILI_WAITING_TEXT = "✅ Summarizing with AI... Please wait a moment..."
+STARTUP_BILIBILI_DOWNLOAD_FAILED_TEXT = "Download failed"
+STARTUP_ZTJIANBAO_TARGET = "@ztjianbaobot"
+STARTUP_ZTJIANBAO_TIMEOUT = 120
 
 # ======== Telethon 启动方式 ========
 client = TelegramClient(
@@ -378,6 +390,7 @@ async def handle_group_command(event):
     #     await event.reply("⚠️ 交易失败")
 
 
+
 # ==================================================================
 # 私聊 JSON 处理
 # ==================================================================
@@ -388,6 +401,18 @@ async def handle_private_json(event):
     
     msg = event.message
     text = event.raw_text.strip()
+
+    sender = await event.get_sender()
+    sender_username = (getattr(sender, "username", "") or "").lower()
+    if sender_username == STARTUP_BILIBILI_TARGET.lstrip("@").lower():
+        print(f"📩 收到 {STARTUP_BILIBILI_TARGET} 回覆，略过自动私聊处理。", flush=True)
+        return
+
+    bilibili_url = _extract_first_bilibili_url(text)
+    if bilibili_url:
+        print(f"📩 私聊匹配到 bilibili URL，开始解析。 url={bilibili_url}", flush=True)
+        await parse_bilibili(bilibili_url)
+        return
 
     # [NEW] 私聊视频 + caption 以 |_thumbnail_| 开头：登记任务
     if msg and getattr(msg, "video", None):
@@ -462,7 +487,6 @@ async def handle_private_json(event):
         except Exception as e:
             await event.reply(f"❌ 处理回传缩图失败: {e}")
             return
-
 
 
     
@@ -647,6 +671,20 @@ async def handle_private_json(event):
            
 
     await event.reply(json.dumps({"ok": 0, "error": "unknown_json"}))
+
+
+@client.on(events.NewMessage)
+async def handle_group_bilibili(event):
+    if event.is_private:
+        return
+
+    text = (event.raw_text or "").strip()
+    bilibili_url = _extract_first_bilibili_url(text)
+    if not bilibili_url:
+        return
+
+    print(f"📩 群组匹配到 bilibili URL，开始解析。 chat_id={event.chat_id} url={bilibili_url}", flush=True)
+    await parse_bilibili(bilibili_url)
 
 
 
@@ -1796,6 +1834,181 @@ async def say_hello():
     except Exception as e:
         print(f"⚠️ 向 @{SWITCHBOT_USERNAME} 发送消息失败（可能未关联或未启动）：{e}", flush=True)
         pass
+
+
+async def parse_bilibili(bilibili_url: str):
+    try:
+        async with client.conversation(STARTUP_BILIBILI_TARGET, timeout=STARTUP_BILIBILI_TIMEOUT) as conv:
+            await conv.send_message(bilibili_url)
+            print(f"✅ 已发送启动 Bilibili URL 给 {STARTUP_BILIBILI_TARGET}", flush=True)
+            response = await _await_bilibili_final_response(conv, bilibili_url)
+            if response is None:
+                print(f"⚠️ {STARTUP_BILIBILI_TARGET} 返回下载失败，放弃后续处理", flush=True)
+                return
+
+            print(f"📬 收到 {STARTUP_BILIBILI_TARGET} 的回覆: {response}", flush=True)
+
+            if getattr(response, "media", None) is not None:
+                file_unique_id = await _relay_media_to_ztjianbaobot(response)
+                bilibibli_key = parse_bilibili_video_code(bilibili_url)
+                bilibibli_caption = response.message or ""
+                print(f"{bilibibli_caption} 🎬 Bilibili 视频 {bilibibli_key} 的 file_unique_id: {file_unique_id}", flush=True)
+                if bilibibli_key and file_unique_id:
+                    db_result = await MySQLPool.upsert_bilibibli(
+                        enc_str=bilibibli_key,
+                        file_unique_id=file_unique_id,
+                    )
+                    print(f"💾 bilibibli upsert: {db_result}", flush=True)
+                else:
+                    print(
+                        f"⚠️ 略过 bilibibli upsert: enc_str={bilibibli_key!r} file_unique_id={file_unique_id!r}",
+                        flush=True,
+                    )
+
+        # target = await client.get_entity(int(KEY_USER_ID))
+        # await client.forward_messages(target, response)
+        # print(f"✅ 已将 {STARTUP_BILIBILI_TARGET} 的回覆转传给 KEY_USER_ID={KEY_USER_ID}", flush=True)
+    except asyncio.TimeoutError:
+        print(
+            f"⚠️ 等待 {STARTUP_BILIBILI_TARGET} 回覆超时（{STARTUP_BILIBILI_TIMEOUT}s）",
+            flush=True,
+        )
+    except Exception as e:
+        print(f"⚠️ 发送启动 Bilibili URL 失败: target={STARTUP_BILIBILI_TARGET} err={e}", flush=True)
+
+
+
+
+
+def _get_response_text(response) -> str:
+    return (getattr(response, "raw_text", None) or getattr(response, "message", None) or "").strip()
+
+
+def _extract_first_bilibili_url(text: str) -> str:
+    urls = BILIBILI_URL_RE.findall(text or "")
+    return urls[0] if urls else ""
+
+
+def parse_bilibili_video_code(url: str) -> str:
+    text = (url or "").strip()
+    if not text:
+        return ""
+
+    match = BILIBILI_VIDEO_CODE_RE.search(text)
+    if not match:
+        return ""
+
+    return match.group(1).strip()
+
+
+def _get_first_line(text: str) -> str:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[0] if lines else ""
+
+
+async def _await_bilibili_final_response(conv, bilibili_url: str):
+    while True:
+        response = await conv.get_response()
+        text = _get_response_text(response)
+
+        if STARTUP_BILIBILI_DOWNLOAD_FAILED_TEXT in text:
+            print(f"⚠️ 收到 {STARTUP_BILIBILI_TARGET} 下载失败回覆，停止处理", flush=True)
+            return None
+
+        if STARTUP_BILIBILI_SUBSCRIBE_HINT in text:
+            channel_ref = _extract_bilibili_subscription_target(response)
+            if channel_ref:
+                joined = await _join_public_channel(channel_ref)
+                if joined:
+                    print(f"✅ 已先订阅频道 {channel_ref}，重新发送 Bilibili URL", flush=True)
+                    await conv.send_message(bilibili_url)
+                    continue
+
+                print(f"⚠️ 自动订阅频道失败: {channel_ref}", flush=True)
+            else:
+                print(f"⚠️ 收到订阅提示，但未解析出频道目标: {response}", flush=True)
+            continue
+
+        if text == STARTUP_BILIBILI_WAITING_TEXT:
+            print(f"⏳ 收到 {STARTUP_BILIBILI_TARGET} 的处理中提示，继续等待下一则回覆", flush=True)
+            continue
+
+        if getattr(response, "media", None) is not None:
+            print(f"📦 收到 {STARTUP_BILIBILI_TARGET} 的媒体回覆: {response}", flush=True)
+            return response
+
+        print(f"📨 收到 {STARTUP_BILIBILI_TARGET} 的非媒体回覆，继续等待媒体: {response}", flush=True)
+
+
+async def _relay_media_to_ztjianbaobot(response) -> None:
+    try:
+        async with client.conversation(STARTUP_ZTJIANBAO_TARGET, timeout=STARTUP_ZTJIANBAO_TIMEOUT) as conv:
+            await conv.send_file(
+                file=response.media,
+                caption=_get_response_text(response) or None,
+            )
+            print(f"📤 已将媒体转发给 {STARTUP_ZTJIANBAO_TARGET}", flush=True)
+
+            zt_response = await conv.get_response()
+            zt_text = _get_response_text(zt_response)
+            first_line = _get_first_line(zt_text)
+
+            if first_line:
+                print(f"📝 {STARTUP_ZTJIANBAO_TARGET} 首行回覆: {first_line}", flush=True)
+                return first_line
+            else:
+                print(f"⚠️ {STARTUP_ZTJIANBAO_TARGET} 回覆没有可用文字: {zt_response}", flush=True)
+    except asyncio.TimeoutError:
+        print(f"⚠️ 等待 {STARTUP_ZTJIANBAO_TARGET} 回覆超时（{STARTUP_ZTJIANBAO_TIMEOUT}s）", flush=True)
+    except Exception as e:
+        print(f"⚠️ 转发媒体给 {STARTUP_ZTJIANBAO_TARGET} 失败: {e}", flush=True)
+
+
+def _extract_bilibili_subscription_target(response) -> str:
+    text = _get_response_text(response)
+
+    match = re.search(r"@([A-Za-z0-9_]{5,})", text)
+    if match:
+        return f"@{match.group(1)}"
+
+    reply_markup = getattr(response, "reply_markup", None)
+    rows = getattr(reply_markup, "rows", None) or []
+    for row in rows:
+        for button in getattr(row, "buttons", None) or []:
+            url = (getattr(button, "url", None) or "").strip()
+            if not url:
+                continue
+
+            tg_match = re.search(r"https://t\.me/([A-Za-z0-9_+]+)", url)
+            if tg_match:
+                name = tg_match.group(1)
+                if name.startswith("+"):
+                    return url
+                return f"@{name}"
+
+    return ""
+
+
+async def _join_public_channel(channel_ref: str) -> bool:
+    ref = (channel_ref or "").strip()
+    if not ref:
+        return False
+
+    try:
+        if ref.startswith("https://t.me/+"):
+            invite_hash = ref.rsplit("+", 1)[-1].strip("/")
+            await join(invite_hash)
+            return True
+
+        entity = await client.get_entity(ref)
+        await client(JoinChannelRequest(entity))
+        return True
+    except Exception as e:
+        msg = str(e)
+        if "already" in msg.lower() or "participant" in msg.lower():
+            return True
+        print(f"⚠️ 订阅频道失败 ref={ref} err={e}", flush=True)
+        return False
   
 
 
@@ -1828,6 +2041,7 @@ async def main():
 
     await client.start()
     await client.catch_up()
+   
 
     asyncio.create_task(run_taskrec_scheduler(client, poll_seconds=180))
 
@@ -1872,7 +2086,7 @@ async def main():
 
     print("📡 开始监听所有事件...")
 
-    
+   
 
 
 

@@ -223,6 +223,20 @@ async def say_hello(text:str = 'Started bot!'):
         )
 
 
+async def close_bot_session(bot_instance: Bot | None, label: str):
+    if not bot_instance:
+        return
+
+    session = getattr(bot_instance, "session", None)
+    if session is None or getattr(session, "closed", False):
+        return
+
+    try:
+        await session.close()
+    except Exception as e:
+        print(f"[shutdown] {label} session close error: {e}")
+
+
 # async def say_hello():
 #     try:
 #         await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ] <code>{lz_var.bot_username}</code> 已启动！")
@@ -273,7 +287,8 @@ async def main():
     except Exception as e:
         print(f"❌ 无法获取 Bot 信息：{e}", flush=True)
         # 记得把 Telethon 停掉
-        await bot.session.close()
+        await close_bot_session(switchbot, "SwitchBot")
+        await close_bot_session(bot, "Bot")
         return
     
     # user_client = create_user_client()
@@ -325,10 +340,8 @@ async def main():
             await MySQLPool.close()
         except Exception as e:
             print(f"[shutdown] MySQL close error: {e}")
-        try:
-            await bot.session.close()
-        except Exception as e:
-            print(f"[shutdown] Bot session close error: {e}")
+        await close_bot_session(switchbot, "SwitchBot")
+        await close_bot_session(bot, "Bot")
         # try:
         #     await user_client.disconnect()
         # except Exception as e:
@@ -399,10 +412,8 @@ async def main():
             await MySQLPool.close()
         except Exception:
             pass
-        try:
-            await bot.session.close()
-        except Exception:
-            pass
+        await close_bot_session(switchbot, "SwitchBot")
+        await close_bot_session(bot, "Bot")
         # try:
         #     await user_client.disconnect()
         # except Exception:

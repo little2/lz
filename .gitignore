@@ -26,3 +26,5 @@ u2net.onnx
 *skins.json
 ranking_xg.html
 ranking_earn.html
+watermark_verify_output/
+input.png

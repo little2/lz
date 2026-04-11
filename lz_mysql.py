@@ -2247,4 +2247,105 @@ class MySQLPool(LYBase):
             await cls.release(conn, cur)
 
 
+
+    @classmethod
+    async def get_transaction_by_id(cls, transaction_id: int) -> dict | None:
+        """
+        根据 transaction_id 取得交易记录
+        """
+        await cls.ensure_pool()
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT *
+                FROM transaction
+                WHERE transaction_id = %s
+                LIMIT 1
+                """,
+                (int(transaction_id),)
+            )
+            row = await cur.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            print(f"⚠️ get_transaction_by_id 出错: {e}", flush=True)
+            return None
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def list_transactions_by_suffix(
+        cls,
+        suffix: int,
+        transaction_type: str | None = None,
+        sender_id: int | None = None,
+        receiver_id: int | None = None,
+        transaction_description: str | None = None,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        """
+        用 transaction_id 的 5 位尾数缩圈候选：
+            transaction_id % 100000 = suffix
+
+        可再叠加业务条件缩小范围。
+        """
+        await cls.ensure_pool()
+
+        sql = """
+            SELECT
+                transaction_id,
+                sender_id,
+                sender_fee,
+                receiver_id,
+                receiver_fee,
+                transaction_type,
+                transaction_description,
+                transaction_timestamp,
+                memo,
+                balance
+            FROM transaction
+            WHERE MOD(transaction_id, 100000) = %s and transaction_type = 'confirm_buy' and sender_id > 0 
+        """
+        params = [int(suffix)]
+
+        if transaction_type is not None:
+            sql += " AND transaction_type = %s"
+            params.append(transaction_type)
+
+        if sender_id is not None:
+            sql += " AND sender_id = %s"
+            params.append(int(sender_id))
+
+        if receiver_id is not None:
+            sql += " AND receiver_id = %s"
+            params.append(int(receiver_id))
+
+        if transaction_description is not None:
+            sql += " AND transaction_description = %s"
+            params.append(transaction_description)
+
+        if start_ts is not None:
+            sql += " AND transaction_timestamp >= %s"
+            params.append(int(start_ts))
+
+        if end_ts is not None:
+            sql += " AND transaction_timestamp <= %s"
+            params.append(int(end_ts))
+
+        sql += " ORDER BY transaction_id DESC LIMIT %s"
+        params.append(int(limit))
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(sql, tuple(params))
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows] if rows else []
+        except Exception as e:
+            print(f"⚠️ list_transactions_by_suffix 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn, cur)
+
     #** End of lz_mysql.py **#

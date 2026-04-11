@@ -10,6 +10,12 @@ redis >= 4.2
 jieba>=0.42.1
 opencc-python-reimplemented==0.1.7
 
+#image
+numpy==1.26.4
+opencv-python==4.10.0.84
+invisible-watermark==0.2.0
+Pillow==10.3.0
+
 
 
 

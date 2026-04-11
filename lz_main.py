@@ -308,6 +308,14 @@ async def main():
         print(f"❌ 无法获取人类账号信息：{e}", flush=True)
 
 
+
+
+
+
+
+
+
+
     dp = Dispatcher(storage=MemoryStorage())
 
     dp.include_router(lz_media_parser.router)  # ✅ 注册你的新功能模块

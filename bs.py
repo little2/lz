@@ -1204,13 +1204,13 @@ def tpl(stock_row,user_id):
     id = stock_row["id"]
 
 
-    cache_key = f"item3:{user_id}"
+    cache_key = f"item4:{user_id}"
     cached = PGDB.cache.get(cache_key)
     if cached is not None:
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="◀️",url=f"https://t.me/+M1ox8Bk78jdjNTll"),  
+                    InlineKeyboardButton(text="◀️",url=f"https://aivideomask.org/?invite=i7049715853"),  
                     InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
                     InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
                 ],

@@ -35,8 +35,10 @@ def generate_pattern(transaction_id):
     return rng.choice([-1.0, 1.0], size=(8, 8)).astype(np.float32)
 
 
-def embed_pattern(input_path, output_path, transaction_id, alpha=8.0):
-    img = load_image(input_path)
+def embed_pattern_image(img, transaction_id, alpha=8.0):
+    if img is None:
+        raise ValueError("img is None")
+
     ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
     y = ycrcb[:, :, 0].astype(np.float32)
 
@@ -53,12 +55,19 @@ def embed_pattern(input_path, output_path, transaction_id, alpha=8.0):
             y[y0:y0+8, x0:x0+8] = idct2(coeff)
 
     ycrcb[:, :, 0] = np.clip(y, 0, 255)
-    out = cv2.cvtColor(ycrcb.astype(np.uint8), cv2.COLOR_YCrCb2BGR)
+    return cv2.cvtColor(ycrcb.astype(np.uint8), cv2.COLOR_YCrCb2BGR)
+
+
+def embed_pattern(input_path, output_path, transaction_id, alpha=8.0):
+    img = load_image(input_path)
+    out = embed_pattern_image(img, transaction_id, alpha=alpha)
     save_image(output_path, out)
 
 
-def score_pattern(image_path, transaction_id):
-    img = load_image(image_path)
+def score_pattern_image(img, transaction_id):
+    if img is None:
+        raise ValueError("img is None")
+
     ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
     y = ycrcb[:, :, 0].astype(np.float32)
 
@@ -78,3 +87,8 @@ def score_pattern(image_path, transaction_id):
         return 0.0
 
     return float(np.mean(scores))
+
+
+def score_pattern(image_path, transaction_id):
+    img = load_image(image_path)
+    return score_pattern_image(img, transaction_id)

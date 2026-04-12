@@ -1,13 +1,13 @@
 import os
-import tempfile
 import cv2
+import numpy as np
 from imwatermark import WatermarkEncoder, WatermarkDecoder
 
 from watermark.watermark_utils import (
     encode_transaction_id_to_short_key,
     decode_short_key_to_suffix,
 )
-from watermark.pattern_watermark import embed_pattern
+from watermark.pattern_watermark import embed_pattern_image
 from lz_mysql import MySQLPool
 
 
@@ -17,18 +17,24 @@ BASE62_CHARS = set("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwx
 class TransactionWatermarkService:
 
     @staticmethod
-    def embed_short_key(input_path, output_path, short_key):
-        img = cv2.imread(input_path)
+    def embed_short_key_image(img: np.ndarray, short_key: str) -> np.ndarray:
+        if img is None:
+            raise ValueError("img is None")
 
         encoder = WatermarkEncoder()
         encoder.set_watermark("bytes", short_key.encode())
+        return encoder.encode(img, "dwtDct")
 
-        result = encoder.encode(img, "dwtDct")
+    @staticmethod
+    def embed_short_key(input_path, output_path, short_key):
+        img = cv2.imread(input_path)
+        result = TransactionWatermarkService.embed_short_key_image(img, short_key)
         cv2.imwrite(output_path, result)
 
     @staticmethod
-    def decode_short_key(path):
-        img = cv2.imread(path)
+    def decode_short_key_image(img: np.ndarray) -> str:
+        if img is None:
+            raise ValueError("img is None")
 
         decoder = WatermarkDecoder("bytes", 24)
         raw = decoder.decode(img, "dwtDct")
@@ -42,22 +48,33 @@ class TransactionWatermarkService:
 
         if len(short_key) != 3:
             raise ValueError(
-                f"failed to decode valid short key from {path}: {raw!r}. "
+                f"failed to decode valid short key: {raw!r}. "
                 "Legacy images generated through a JPEG intermediary may be corrupted."
             )
 
         return short_key
+
+    @staticmethod
+    def decode_short_key(path):
+        img = cv2.imread(path)
+        return TransactionWatermarkService.decode_short_key_image(img)
 
     @classmethod
     async def watermark(cls, transaction_id, input_path, output_path):
 
         short_key = encode_transaction_id_to_short_key(transaction_id)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            p1 = os.path.join(tmp, "l1.png")
+        img = cv2.imread(input_path)
+        if img is None:
+            raise FileNotFoundError(input_path)
 
-            cls.embed_short_key(input_path, p1, short_key)
-            embed_pattern(p1, output_path, transaction_id)
+        img = cls.embed_short_key_image(img, short_key)
+        img = embed_pattern_image(img, transaction_id)
+
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        cv2.imwrite(output_path, img)
 
         return {
             "transaction_id": transaction_id,

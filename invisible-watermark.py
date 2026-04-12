@@ -1,7 +1,12 @@
 import os
 import json
 import asyncio
+import io
 from pathlib import Path
+from typing import Optional
+
+from aiogram import Bot
+from aiogram.types import BufferedInputFile
 
 from lz_mysql import MySQLPool
 from watermark.watermark_workflow import WatermarkWorkflow, WatermarkWorkflowParams
@@ -21,76 +26,177 @@ def pretty(obj) -> str:
     return json.dumps(obj, ensure_ascii=False, indent=2, default=str)
 
 
+async def watermark_file_id_with_aiogram(
+    bot: Bot,
+    source_file_id: str,
+    upload_chat_id: int,
+    transaction_id: int,
+    *,
+    enable_invisible_watermark: bool = True,
+    enable_pattern_watermark: bool = True,
+    visible_mode: str = "none",
+    visible_position: str = "bottom_right",
+    visible_text: Optional[str] = None,
+    fullscreen_text: Optional[str] = None,
+) -> dict:
+    """
+    透过 Telegram file_id 抓图，加上水印后再上传，回传新的 file_id。
+    """
+    file_meta = await bot.get_file(source_file_id)
+    file_path = getattr(file_meta, "file_path", None)
+    if not file_path:
+        raise ValueError("无法从 file_id 取得 file_path")
+
+    input_buf = io.BytesIO()
+    await bot.download_file(file_path, destination=input_buf)
+    input_bytes = input_buf.getvalue()
+    if not input_bytes:
+        raise RuntimeError("下载原图失败：内容为空")
+
+    params = WatermarkWorkflowParams(
+        transaction_id=transaction_id,
+        input_bytes=input_bytes,
+        return_output_bytes=True,
+        output_format="png",
+        enable_invisible_watermark=enable_invisible_watermark,
+        enable_pattern_watermark=enable_pattern_watermark,
+        visible_mode=visible_mode,
+        visible_position=visible_position,
+        visible_text=visible_text,
+        fullscreen_text=fullscreen_text,
+    )
+
+    workflow_result = await WatermarkWorkflow.run(params)
+    output_bytes = workflow_result.get("output_bytes")
+    if not output_bytes:
+        raise RuntimeError("水印输出为空")
+
+    sent = await bot.send_document(
+        chat_id=upload_chat_id,
+        document=BufferedInputFile(output_bytes, filename="watermarked.png"),
+    )
+    watermarked_file_id = sent.document.file_id if sent.document else None
+    if not watermarked_file_id:
+        raise RuntimeError("上传水印图片后未取得新的 file_id")
+
+    return {
+        "source_file_id": source_file_id,
+        "watermarked_file_id": watermarked_file_id,
+        "upload_chat_id": upload_chat_id,
+        "workflow": workflow_result,
+    }
+
+
+async def run_aiogram_demo() -> None:
+    """
+    以环境变量示范 file_id -> 水印 -> 新 file_id。
+
+    必填:
+    - BOT_TOKEN
+    - SOURCE_FILE_ID
+    - UPLOAD_CHAT_ID
+    可选:
+    - TRANSACTION_ID
+    """
+    bot_token = os.getenv("BOT_TOKEN")
+    source_file_id = os.getenv("SOURCE_FILE_ID")
+    upload_chat_id_raw = os.getenv("UPLOAD_CHAT_ID")
+    transaction_id_raw = os.getenv("TRANSACTION_ID")
+
+    if not bot_token:
+        raise ValueError("缺少 BOT_TOKEN")
+    if not source_file_id:
+        raise ValueError("缺少 SOURCE_FILE_ID")
+    if not upload_chat_id_raw:
+        raise ValueError("缺少 UPLOAD_CHAT_ID")
+
+    upload_chat_id = int(upload_chat_id_raw)
+    transaction_id = int(transaction_id_raw) if transaction_id_raw else TRANSACTION_ID
+
+    async with Bot(token=bot_token) as bot:
+        result = await watermark_file_id_with_aiogram(
+            bot=bot,
+            source_file_id=source_file_id,
+            upload_chat_id=upload_chat_id,
+            transaction_id=transaction_id,
+            enable_invisible_watermark=True,
+            enable_pattern_watermark=True,
+            visible_mode="none",
+        )
+        print("===== AIOGRAM FILE_ID WATERMARK RESULT =====", flush=True)
+        print(pretty(result), flush=True)
+
+
 async def build_cases():
     """
     生成多种水印模式
     """
     cases = [
-        # (
-        #     "01_invisible_only",
-        #     WatermarkWorkflowParams(
-        #         transaction_id=TRANSACTION_ID,
-        #         input_path=INPUT_IMAGE,
-        #         output_path=os.path.join(OUTPUT_DIR, "01_invisible_only.png"),
-        #         enable_invisible_watermark=True,
-        #         enable_pattern_watermark=True,
-        #         visible_mode="none",
-        #     )
-        # ),
-        # (
-        #     "02_layer1_only",
-        #     WatermarkWorkflowParams(
-        #         transaction_id=TRANSACTION_ID,
-        #         input_path=INPUT_IMAGE,
-        #         output_path=os.path.join(OUTPUT_DIR, "02_layer1_only.png"),
-        #         enable_invisible_watermark=True,
-        #         enable_pattern_watermark=False,
-        #         visible_mode="none",
-        #     )
-        # ),
-        # (
-        #     "03_layer2_only",
-        #     WatermarkWorkflowParams(
-        #         transaction_id=TRANSACTION_ID,
-        #         input_path=INPUT_IMAGE,
-        #         output_path=os.path.join(OUTPUT_DIR, "03_layer2_only.png"),
-        #         enable_invisible_watermark=False,
-        #         enable_pattern_watermark=True,
-        #         visible_mode="none",
-        #     )
-        # ),
-        # (
-        #     "04_invisible_plus_visible_bottom_right",
-        #     WatermarkWorkflowParams(
-        #         transaction_id=TRANSACTION_ID,
-        #         input_path=INPUT_IMAGE,
-        #         output_path=os.path.join(OUTPUT_DIR, "04_invisible_plus_visible_bottom_right.png"),
-        #         enable_invisible_watermark=True,
-        #         enable_pattern_watermark=True,
-        #         visible_mode="single",
-        #         visible_position="bottom_right",
-        #         visible_text="写入后成功追查出",
-        #         visible_opacity=0.25,
-        #         visible_font_scale=0.5,
-        #         visible_thickness=1,
-        #     )
-        # ),
-        # (
-        #     "05_visible_only_bottom_right",
-        #     WatermarkWorkflowParams(
-        #         transaction_id=TRANSACTION_ID,
-        #         input_path=INPUT_IMAGE,
-        #         output_path=os.path.join(OUTPUT_DIR, "05_visible_only_bottom_right.png"),
-        #         enable_invisible_watermark=False,
-        #         enable_pattern_watermark=False,
-        #         visible_mode="single",
-        #         visible_position="bottom_right",
-        #         visible_text="写入后成功追查出",
-        #         visible_opacity=0.25,
-        #         visible_font_scale=0.5,
-        #         visible_thickness=1,
-        #     )
-        # ),
+        (
+            "01_invisible_only",
+            WatermarkWorkflowParams(
+                transaction_id=TRANSACTION_ID,
+                input_path=INPUT_IMAGE,
+                output_path=os.path.join(OUTPUT_DIR, "01_invisible_only.png"),
+                enable_invisible_watermark=True,
+                enable_pattern_watermark=True,
+                visible_mode="none",
+            )
+        ),
+        (
+            "02_layer1_only",
+            WatermarkWorkflowParams(
+                transaction_id=TRANSACTION_ID,
+                input_path=INPUT_IMAGE,
+                output_path=os.path.join(OUTPUT_DIR, "02_layer1_only.png"),
+                enable_invisible_watermark=True,
+                enable_pattern_watermark=False,
+                visible_mode="none",
+            )
+        ),
+        (
+            "03_layer2_only",
+            WatermarkWorkflowParams(
+                transaction_id=TRANSACTION_ID,
+                input_path=INPUT_IMAGE,
+                output_path=os.path.join(OUTPUT_DIR, "03_layer2_only.png"),
+                enable_invisible_watermark=False,
+                enable_pattern_watermark=True,
+                visible_mode="none",
+            )
+        ),
+        (
+            "04_invisible_plus_visible_bottom_right",
+            WatermarkWorkflowParams(
+                transaction_id=TRANSACTION_ID,
+                input_path=INPUT_IMAGE,
+                output_path=os.path.join(OUTPUT_DIR, "04_invisible_plus_visible_bottom_right.png"),
+                enable_invisible_watermark=True,
+                enable_pattern_watermark=True,
+                visible_mode="single",
+                visible_position="bottom_right",
+                visible_text="写入后成功追查出",
+                visible_opacity=0.25,
+                visible_font_scale=0.5,
+                visible_thickness=1,
+            )
+        ),
+        (
+            "05_visible_only_bottom_right",
+            WatermarkWorkflowParams(
+                transaction_id=TRANSACTION_ID,
+                input_path=INPUT_IMAGE,
+                output_path=os.path.join(OUTPUT_DIR, "05_visible_only_bottom_right.png"),
+                enable_invisible_watermark=False,
+                enable_pattern_watermark=False,
+                visible_mode="single",
+                visible_position="bottom_right",
+                visible_text="写入后成功追查出",
+                visible_opacity=0.25,
+                visible_font_scale=0.5,
+                visible_thickness=1,
+            )
+        ),
         (
             "06_invisible_plus_visible_top_left_custom_text",
             WatermarkWorkflowParams(
@@ -263,4 +369,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # RUN_MODE=aiogram 时走 file_id 模式；默认维持原本验证流程。
+    run_mode = os.getenv("RUN_MODE", "verify").strip().lower()
+    if run_mode == "aiogram":
+        asyncio.run(run_aiogram_demo())
+    else:
+        asyncio.run(main())

@@ -72,6 +72,89 @@ def _save_rgba_image(image: Image.Image, output_path: str) -> None:
     image.convert("RGB").save(output_path)
 
 
+def draw_visible_watermark_image(
+    img: np.ndarray,
+    text: str,
+    position: str = "bottom_right",
+    opacity: float = 0.25,
+    font_scale: float = 0.5,
+    thickness: int = 1,
+    margin: int = 15,
+    font_path: str | None = None,
+) -> np.ndarray:
+    if img is None:
+        raise ValueError("img is None")
+
+    base = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    font_size = max(12, int(round(font_scale * 48)))
+    font = _load_font(font_path, font_size)
+    text_w, text_h = _measure_text(draw, text, font)
+    x, y = _position_xy(position, base.width, base.height, text_w, text_h, margin)
+    alpha = _opacity_to_alpha(opacity)
+
+    draw.text((x + 1, y + 1), text, font=font, fill=(0, 0, 0, alpha))
+    draw.text((x, y), text, font=font, fill=(255, 255, 255, alpha))
+
+    result = Image.alpha_composite(base, layer).convert("RGB")
+    return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+
+
+def draw_fullscreen_watermark_image(
+    img: np.ndarray,
+    text: str,
+    opacity: float = 0.12,
+    font_scale: float = 0.9,
+    thickness: int = 1,
+    angle: float = -30,
+    x_gap: int = 220,
+    y_gap: int = 140,
+    font_path: str | None = None,
+) -> np.ndarray:
+    if img is None:
+        raise ValueError("img is None")
+
+    base = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)).convert("RGBA")
+    w, h = base.size
+    font_size = max(12, int(round(font_scale * 48)))
+    font = _load_font(font_path, font_size)
+
+    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    probe_draw = ImageDraw.Draw(probe)
+    tw, th = _measure_text(probe_draw, text, font)
+    x_gap, y_gap = _resolve_fullscreen_spacing(tw, th, font_size, x_gap, y_gap)
+
+    canvas_w = int(math.sqrt(w * w + h * h)) + max(x_gap, y_gap) * 2
+    canvas_h = canvas_w
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+
+    start_x = 50
+    start_y = 80
+    alpha = _opacity_to_alpha(opacity)
+
+    y = start_y
+    row_idx = 0
+    while y < canvas_h:
+        x_offset = 0 if row_idx % 2 == 0 else x_gap // 2
+        x = start_x + x_offset
+        while x < canvas_w:
+            draw.text((x, y), text, font=font, fill=(255, 255, 255, alpha))
+            x += x_gap
+        y += y_gap
+        row_idx += 1
+
+    rotated = canvas.rotate(angle, resample=Image.BICUBIC, center=(canvas_w // 2, canvas_h // 2))
+
+    x0 = (canvas_w - w) // 2
+    y0 = (canvas_h - h) // 2
+    overlay = rotated.crop((x0, y0, x0 + w, y0 + h))
+
+    result = Image.alpha_composite(base, overlay).convert("RGB")
+    return cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+
+
 def draw_visible_watermark(
     input_path: str,
     output_path: str,
@@ -96,21 +179,17 @@ def draw_visible_watermark(
     src = cv2.imread(input_path)
     if src is None:
         raise FileNotFoundError(input_path)
-
-    base = Image.fromarray(cv2.cvtColor(src, cv2.COLOR_BGR2RGB)).convert("RGBA")
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
-    font_size = max(12, int(round(font_scale * 48)))
-    font = _load_font(font_path, font_size)
-    text_w, text_h = _measure_text(draw, text, font)
-    x, y = _position_xy(position, base.width, base.height, text_w, text_h, margin)
-    alpha = _opacity_to_alpha(opacity)
-
-    draw.text((x + 1, y + 1), text, font=font, fill=(0, 0, 0, alpha))
-    draw.text((x, y), text, font=font, fill=(255, 255, 255, alpha))
-
-    result = Image.alpha_composite(base, layer)
-    _save_rgba_image(result, output_path)
+    out = draw_visible_watermark_image(
+        src,
+        text=text,
+        position=position,
+        opacity=opacity,
+        font_scale=font_scale,
+        thickness=thickness,
+        margin=margin,
+        font_path=font_path,
+    )
+    cv2.imwrite(output_path, out)
 
 
 def draw_fullscreen_watermark(
@@ -134,45 +213,15 @@ def draw_fullscreen_watermark(
     src = cv2.imread(input_path)
     if src is None:
         raise FileNotFoundError(input_path)
-
-    base = Image.fromarray(cv2.cvtColor(src, cv2.COLOR_BGR2RGB)).convert("RGBA")
-    w, h = base.size
-    font_size = max(12, int(round(font_scale * 48)))
-    font = _load_font(font_path, font_size)
-
-    probe = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-    probe_draw = ImageDraw.Draw(probe)
-    tw, th = _measure_text(probe_draw, text, font)
-    x_gap, y_gap = _resolve_fullscreen_spacing(tw, th, font_size, x_gap, y_gap)
-
-    # 在大画布上先排字，避免旋转后边缘空白
-    canvas_w = int(math.sqrt(w * w + h * h)) + max(x_gap, y_gap) * 2
-    canvas_h = canvas_w
-    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(canvas)
-
-    start_x = 50
-    start_y = 80
-    alpha = _opacity_to_alpha(opacity)
-
-    y = start_y
-    row_idx = 0
-    while y < canvas_h:
-        x_offset = 0 if row_idx % 2 == 0 else x_gap // 2
-        x = start_x + x_offset
-        while x < canvas_w:
-            draw.text((x, y), text, font=font, fill=(255, 255, 255, alpha))
-            x += x_gap
-        y += y_gap
-        row_idx += 1
-
-    # 旋转
-    rotated = canvas.rotate(angle, resample=Image.BICUBIC, center=(canvas_w // 2, canvas_h // 2))
-
-    # 裁切回原图大小
-    x0 = (canvas_w - w) // 2
-    y0 = (canvas_h - h) // 2
-    overlay = rotated.crop((x0, y0, x0 + w, y0 + h))
-
-    result = Image.alpha_composite(base, overlay)
-    _save_rgba_image(result, output_path)
+    out = draw_fullscreen_watermark_image(
+        src,
+        text=text,
+        opacity=opacity,
+        font_scale=font_scale,
+        thickness=thickness,
+        angle=angle,
+        x_gap=x_gap,
+        y_gap=y_gap,
+        font_path=font_path,
+    )
+    cv2.imwrite(output_path, out)

@@ -1,15 +1,14 @@
 import os
-import shutil
-import tempfile
+import cv2
+import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Literal
 
 from watermark.watermark_utils import encode_transaction_id_to_short_key
-from watermark.pattern_watermark import embed_pattern
 from watermark.transaction_watermark_service import TransactionWatermarkService
 from watermark.visible_watermark import (
-    draw_visible_watermark,
-    draw_fullscreen_watermark,
+    draw_visible_watermark_image,
+    draw_fullscreen_watermark_image,
 )
 
 
@@ -20,8 +19,13 @@ VisibleMode = Literal["none", "single", "fullscreen"]
 class WatermarkWorkflowParams:
     # 必填
     transaction_id: int
-    input_path: str
-    output_path: str
+    input_path: Optional[str] = None
+    output_path: Optional[str] = None
+    input_bytes: Optional[bytes] = None
+    input_ndarray: Optional[np.ndarray] = None
+    output_format: str = "png"
+    return_output_bytes: bool = False
+    return_output_ndarray: bool = False
 
     # 1. 是否要隐形浮水印
     enable_invisible_watermark: bool = True
@@ -53,10 +57,42 @@ class WatermarkWorkflowParams:
 
 class WatermarkWorkflow:
 
+    @staticmethod
+    def _decode_bytes_to_image(image_bytes: bytes) -> np.ndarray:
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("input_bytes 不是有效图片")
+        return img
+
+    @staticmethod
+    def _encode_image_to_bytes(img: np.ndarray, fmt: str = "png") -> bytes:
+        fmt = (fmt or "png").strip().lower().lstrip(".")
+        ext = f".{fmt}"
+        ok, buf = cv2.imencode(ext, img)
+        if not ok:
+            raise RuntimeError(f"图片编码失败: {ext}")
+        return buf.tobytes()
+
+    @classmethod
+    def _load_input_image(cls, params: WatermarkWorkflowParams) -> tuple[np.ndarray, str]:
+        if params.input_ndarray is not None:
+            return params.input_ndarray.copy(), "ndarray"
+
+        if params.input_bytes is not None:
+            return cls._decode_bytes_to_image(params.input_bytes), "bytes"
+
+        if params.input_path:
+            img = cv2.imread(params.input_path)
+            if img is None:
+                raise FileNotFoundError(params.input_path)
+            return img, "path"
+
+        raise ValueError("必须提供 input_ndarray / input_bytes / input_path 其中之一")
+
     @classmethod
     async def run(cls, params: WatermarkWorkflowParams) -> dict:
-        if not os.path.exists(params.input_path):
-            raise FileNotFoundError(params.input_path)
+        current_img, input_source = cls._load_input_image(params)
 
         short_key = encode_transaction_id_to_short_key(params.transaction_id)
 
@@ -64,79 +100,78 @@ class WatermarkWorkflow:
         visible_text = params.visible_text or short_key
         fullscreen_text = params.fullscreen_text or short_key
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            current_path = params.input_path
-            step_results = []
+        step_results = []
 
-            # Step 1: invisible watermark
-            if params.enable_invisible_watermark:
-                next_path = os.path.join(tmpdir, "step_invisible.png")
-                TransactionWatermarkService.embed_short_key(
-                    current_path,
-                    next_path,
-                    short_key,
-                )
-                current_path = next_path
-                step_results.append("invisible_watermark")
+        # Step 1: invisible watermark
+        if params.enable_invisible_watermark:
+            current_img = TransactionWatermarkService.embed_short_key_image(
+                current_img,
+                short_key,
+            )
+            step_results.append("invisible_watermark")
 
-            # Step 2: pattern watermark
-            if params.enable_pattern_watermark:
-                next_path = os.path.join(tmpdir, "step_pattern.png")
-                embed_pattern(
-                    current_path,
-                    next_path,
-                    params.transaction_id,
-                )
-                current_path = next_path
-                step_results.append("pattern_watermark")
+        # Step 2: pattern watermark
+        if params.enable_pattern_watermark:
+            from watermark.pattern_watermark import embed_pattern_image
 
-            # Step 3: visible watermark
-            if params.visible_mode == "single":
-                next_path = os.path.join(tmpdir, "step_visible.png")
-                draw_visible_watermark(
-                    input_path=current_path,
-                    output_path=next_path,
-                    text=visible_text,
-                    position=params.visible_position,
-                    opacity=params.visible_opacity,
-                    font_scale=params.visible_font_scale,
-                    thickness=params.visible_thickness,
-                    font_path=params.visible_font_path,
-                )
-                current_path = next_path
-                step_results.append("visible_single")
+            current_img = embed_pattern_image(
+                current_img,
+                params.transaction_id,
+            )
+            step_results.append("pattern_watermark")
 
-            elif params.visible_mode == "fullscreen":
-                next_path = os.path.join(tmpdir, "step_fullscreen.png")
-                draw_fullscreen_watermark(
-                    input_path=current_path,
-                    output_path=next_path,
-                    text=fullscreen_text,
-                    opacity=params.fullscreen_opacity,
-                    font_scale=params.fullscreen_font_scale,
-                    thickness=params.fullscreen_thickness,
-                    angle=params.fullscreen_angle,
-                    x_gap=params.fullscreen_x_gap,
-                    y_gap=params.fullscreen_y_gap,
-                    font_path=params.visible_font_path,
-                )
-                current_path = next_path
-                step_results.append("visible_fullscreen")
+        # Step 3: visible watermark
+        if params.visible_mode == "single":
+            current_img = draw_visible_watermark_image(
+                current_img,
+                text=visible_text,
+                position=params.visible_position,
+                opacity=params.visible_opacity,
+                font_scale=params.visible_font_scale,
+                thickness=params.visible_thickness,
+                font_path=params.visible_font_path,
+            )
+            step_results.append("visible_single")
 
-            elif params.visible_mode == "none":
-                pass
-            else:
-                raise ValueError(f"unsupported visible_mode: {params.visible_mode}")
+        elif params.visible_mode == "fullscreen":
+            current_img = draw_fullscreen_watermark_image(
+                current_img,
+                text=fullscreen_text,
+                opacity=params.fullscreen_opacity,
+                font_scale=params.fullscreen_font_scale,
+                thickness=params.fullscreen_thickness,
+                angle=params.fullscreen_angle,
+                x_gap=params.fullscreen_x_gap,
+                y_gap=params.fullscreen_y_gap,
+                font_path=params.visible_font_path,
+            )
+            step_results.append("visible_fullscreen")
 
-            shutil.copy(current_path, params.output_path)
+        elif params.visible_mode == "none":
+            pass
+        else:
+            raise ValueError(f"unsupported visible_mode: {params.visible_mode}")
+
+        if params.output_path:
+            out_dir = os.path.dirname(params.output_path)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            cv2.imwrite(params.output_path, current_img)
+
+        output_bytes = None
+        if params.return_output_bytes:
+            output_bytes = cls._encode_image_to_bytes(current_img, params.output_format)
 
         return {
             "transaction_id": params.transaction_id,
             "short_key": short_key,
             "input_path": params.input_path,
+            "input_source": input_source,
             "output_path": params.output_path,
             "steps": step_results,
             "visible_mode": params.visible_mode,
             "visible_text": visible_text if params.visible_mode == "single" else None,
             "fullscreen_text": fullscreen_text if params.visible_mode == "fullscreen" else None,
+            "output_ndarray": current_img if params.return_output_ndarray else None,
+            "output_bytes": output_bytes,
         }

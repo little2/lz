@@ -1346,7 +1346,11 @@ async def build_product_material(rows):
                 send_group.append(send_sub_group)
                 send_sub_group=[]  
                 
-        
+            if item['file_type'] == "pp":
+                item["file_id"] = 'new'
+                item["file_type"] = "p"
+
+                pass
 
             current = 'pv'    
             send_sub_group.append(

@@ -2529,6 +2529,10 @@ async def handle_sora_op_force_update(callback: CallbackQuery, state: FSMContext
     print(f"🛠️ 已同步 sora_content_id:{content_id}", flush=True)
     await sync_table_by_pks("product", "content_id", [content_id])
     print(f"🛠️ 已同步数据库 product content_id={content_id}", flush=True)
+
+    await sync_album_items(content_id)
+    print(f"🛠️ 已同步 album items content_id={content_id}", flush=True)
+
     await callback.answer("更新同步中，请在 1 分钟后再试", show_alert=False)
 
 @router.callback_query(F.data == "sora_op:cancel_unpublish")
@@ -4527,6 +4531,8 @@ async def handle_noop(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
+    
+    
 
     content_id = callback.data.split(":")[1]
     redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None #小懒觉会员
@@ -4539,12 +4545,13 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     condition: dict = {}
     is_protect_content = False
 
+
     timer = SegTimer("handle_redeem", content_id=f"{content_id}")
-    print(f"开始交易记录")
 
 
-    timer.lap("2634 load_sora_content_by_id")
+    timer.lap("⌛️ load_sora_content_by_id")
     result = await load_sora_content_by_id(int(content_id), state)
+    timer.lap("👆 load_sora_content_by_id finished")
     # print("Returned==>:", result)
 
     ret_content, file_info, purchase_info = result
@@ -4668,11 +4675,6 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         timer.lap("没有找到匹配记录")
         print("❌ 没有找到匹配记录 source_id")
         await callback.answer(f"👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。{file_type}", show_alert=True)
-        # await callback.message.reply("👻 我们正偷偷的从院长的硬盘把这个资源搬出来，这段时间先看看别的资源吧。")
-        # await lz_var.bot.delete_message(
-        #     chat_id=callback.message.chat.id,
-        #     message_id=callback.message.message_id
-        # )
         return
     
 
@@ -4688,9 +4690,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             return str(ts)
     
 
-
-    timer.lap("2687 get_latest_membership_expire")
+    timer.lap("⌛️ get_latest_membership_expire")
     expire_ts_raw = await db.get_latest_membership_expire(from_user_id)
+    timer.lap("👆 get_latest_membership_expire done")
+
     now_utc = int(datetime.now(timezone.utc).timestamp())
 
     try:
@@ -4713,7 +4716,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
     # 6) credit / author 这些“购买前门槛”建议也在交易前挡住（对齐你 PHP 逻辑）
     #    （只有当资源有价格/会扣分时才做）
+    timer.lap("⌛️ get_user_point_credit")
     user_info = await MySQLPool.get_user_point_credit(from_user_id)
+    timer.lap("👆 get_user_point_credit done")
+
     try:
         user_point = int(user_info.get('point') or 0)
     except (TypeError, ValueError):
@@ -4732,7 +4738,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
     author_gate = condition.get("author") if condition else ""
     author_gate = str(author_gate).strip()
-    print(f"author_gate={author_gate} {condition}", flush=True)
+    
     if author_gate == "1":
         await lz_var.bot.send_message(
             chat_id=from_user_id,
@@ -4811,21 +4817,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             pass
 
 
-    # if( user_point + sender_fee < 0) and (int(owner_user_id or 0) != int(from_user_id)):
-    #     # 看看是否曾经买过该资源：买过则允许重复兑换，不再因当前余额不足而阻断。
-    #     has_prev_purchase = await MySQLPool.exists_transaction_log(
-    #         transaction_description=str(source_id),
-    #         transaction_type='confirm_buy',
-    #         sender_id=int(from_user_id),
-    #     )
-
-    #     if not has_prev_purchase:
-    #         await callback.answer("⚠️ 你的积分余额不足，无法兑换此资源，请先赚取积分。", show_alert=True)
-    #         return
-
-
-    timer.lap("2771 开始交易记录")
-
+    timer.lap("⌛️ transaction_log")
     result = await MySQLPool.transaction_log({
         'sender_id': from_user_id,
         'receiver_id': receiver_id,
@@ -4834,10 +4826,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         'sender_fee': sender_fee,
         'receiver_fee': receiver_fee
     })
+    timer.lap("👆 transaction_log done")
 
-    timer.lap("2780 结束")
+    
 
-    # print(f"🔍 交易记录结果: {result}", flush=True)    
+    print(f"🔍 交易记录结果: {result}", flush=True)    
     # ✅ 兜底：确保 result & user_info 可用
     if not isinstance(result, dict):
         await callback.answer("⚠️ 交易服务暂不可用，请稍后再试。", show_alert=True)
@@ -4928,6 +4921,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             if user_point > 0:
                 reply_text += f"，当前积分余额: {(user_point+sender_fee)}。"
 
+        try:
+            await callback.answer(text=reply_text, show_alert=True)
+        except Exception as e:
+            print(f"❌ callback.answer 失败: {e}", flush=True)      
+
+
         feedback_kb = None
         if UPLOADER_BOT_NAME and source_id:
             feedback_kb = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
@@ -4941,9 +4940,14 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             if file_type == "album" or file_type == "a":
 
                 transaction_data = result.get("transaction_data")
-                print(f"transaction_data = {transaction_data}")
-               
-                productInfomation = await get_product_material(content_id)
+                transaction_id = 0
+                if transaction_data and transaction_data.get("transaction_id"):
+                    transaction_id = int(transaction_data.get("transaction_id"))
+                
+                timer.lap(f"获取资源信息")
+                productInfomation = await get_product_material(content_id, transaction_id=transaction_id)
+                timer.lap(f"获取资源信息完成")
+
                 if not productInfomation:
                      await callback.answer(f"资源同步中，请稍等一下再试，请先看看别的资源吧 {content_id}", show_alert=True)
                      return   
@@ -4975,8 +4979,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         })
 
 
-        timer.lap(f"结束全部流程 {reply_text}")
-        await callback.answer(reply_text, show_alert=True)
+        timer.lap(f"结束全部流程")
+       
         
         # TODO : 删除兑换消息，改为复制一条新的消息
         # new_message = await lz_var.bot.copy_message(
@@ -5250,13 +5254,17 @@ async def handle_update_xlj(callback: CallbackQuery, state: FSMContext):
 
 # 📌 功能函数：根据 sora_content id 载入资源
 async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key_index=None, search_from : str = '') -> str:
+    timer = SegTimer("load_sora_content_by_id", content_id=f"{content_id}")
+
     convert = UnitConverter()  # ✅ 实例化转换器
     # print(f"content_id = {content_id}, search_key_index={search_key_index}, search_from={search_from}")
+    timer.lap("开始载入资源记录record")
     record = await db.search_sora_content_by_id(content_id)
-
+    timer.lap("查询数据库完成")
+    
     # print(f"\n\n\n🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
-       
+        timer.lap(f"载入资源记录record {content_id} 成功")
          # 取出字段，并做基本安全处理
         fee = record.get('fee', lz_var.default_point)
         if fee is None or fee < 0:
@@ -5273,7 +5281,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         source_id = record.get('source_id', '')
         file_type = record.get('file_type', '')
 
-        print(f"record ==> {record}")
+      
 
         if record.get('product_content'):
             content = record.get('product_content', '')

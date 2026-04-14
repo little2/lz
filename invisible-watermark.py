@@ -397,6 +397,17 @@ async def main():
 
     ensure_output_dir(OUTPUT_DIR)
 
+
+    print(f"\n[VERIFY] ", flush=True)
+    result = await verify_case(
+        name="local",
+        image_path="photo_2026-04-15_06-08-32.jpg",
+        expected_transaction_id=TRANSACTION_ID,
+    )
+    
+    print(pretty(result), flush=True)
+    return
+
     await MySQLPool.init_pool()
 
     cases = await build_cases()
@@ -404,15 +415,15 @@ async def main():
     generation_results = []
     verify_results = []
 
-    print("===== STEP 1: 生成测试图片 =====", flush=True)
-    for name, params in cases:
-        print(f"\n[GENERATE] {name}", flush=True)
-        result = await WatermarkWorkflow.run(params)
-        generation_results.append({
-            "case": name,
-            **result,
-        })
-        print(pretty(result), flush=True)
+    # print("===== STEP 1: 生成测试图片 =====", flush=True)
+    # for name, params in cases:
+    #     print(f"\n[GENERATE] {name}", flush=True)
+    #     result = await WatermarkWorkflow.run(params)
+    #     generation_results.append({
+    #         "case": name,
+    #         **result,
+    #     })
+    #     print(pretty(result), flush=True)
 
     print("\n===== STEP 2: 自动追查验证 =====", flush=True)
     for item in generation_results:
@@ -468,7 +479,7 @@ if __name__ == "__main__":
     # 其他: 维持原本验证流程
     run_mode = os.getenv("RUN_MODE", "verify").strip().lower()
 
-    run_mode = "polling"
+    # run_mode = "polling"
 
     if run_mode == "aiogram":
         asyncio.run(run_aiogram_demo())

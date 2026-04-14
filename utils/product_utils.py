@@ -318,22 +318,22 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     
     return {'review_status': review_status , 'result_send': retGuild}
 
-async def get_product_material(content_id: int):
+async def get_product_material(content_id: int, transaction_id:int | None):
     from lz_db import db  # 延迟导入避免循环依赖
         # ✅ 统一在这里连一次
     # await db.connect()
     rows = await db.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)    
 
     if rows:
-        print(f"✅ get_product_material: found rows {rows}", flush=True)
-        result = await build_product_material(rows)
+        # print(f"✅ get_product_material: found rows {rows}", flush=True)
+        result = await build_product_material(rows, transaction_id=transaction_id)
        
         return result
     else:
         # print(f"❌ get_product_material: no rows, try sync for content_id={content_id}", flush=True)
         await sync_album_items(content_id)
         # print(f"❌ get_product_material: no rows for content_id={content_id}", flush=True)
-        return await get_product_material(content_id)
+        return await get_product_material(content_id, transaction_id=transaction_id)
         
 
 # == 找到文件里已有的占位 ==
@@ -1330,6 +1330,9 @@ async def build_product_material(
     if upload_chat_id is None:
         upload_chat_id = lz_var.x_man_bot_id
 
+
+    
+
     # 遍历结果
     send_group = []
     send_sub_group=[]
@@ -1337,7 +1340,7 @@ async def build_product_material(
     current = None
     ready_status = True
     for item in rows:
-
+        print(f"item=>{item}\r\n", flush=True)
         
 
         if len(send_sub_group)>=10:
@@ -1352,7 +1355,7 @@ async def build_product_material(
             lack_file_uid_rows.append(item['source_id'])  
             continue
 
-        if item["file_type"]=="p" or item["file_type"] == "v":  # photo, video
+        if item["file_type"]=="p" or item["file_type"] == "pp" or item["file_type"] == "v":  # photo, video
             # print(f"file_type={item["file_type"]}\r\n", flush=True)
             if current != None and current != 'pv':
                 # print(f"\r\n>>> AS-IS:{current}, TO-BE:{item["file_type"]}", flush=True)
@@ -1361,9 +1364,9 @@ async def build_product_material(
                 send_sub_group=[]  
                 
             if item['file_type'] == "pp":
-
-
+                
                 if bot is not None and upload_chat_id is not None and transaction_id is not None:
+                    print(f"⚠️ [build_product_material] Applying watermark for file_id={item['file_id']} with transaction_id={transaction_id}", flush=True)
                     source_file_id = item["file_id"]
                     wm_result = await watermark_from_file_id(
                         bot=bot,
@@ -1503,11 +1506,11 @@ async def watermark_from_file_id(
     if not output_bytes:
         raise RuntimeError("水印输出为空")
 
-    sent = await bot.send_document(
+    sent = await bot.send_photo(
         chat_id=upload_chat_id,
-        document=BufferedInputFile(output_bytes, filename="watermarked.png"),
+        photo=BufferedInputFile(output_bytes, filename="watermarked.png"),
     )
-    watermarked_file_id = sent.document.file_id if sent.document else None
+    watermarked_file_id = sent.photo[-1].file_id if sent.photo else None
     if not watermarked_file_id:
         raise RuntimeError("上传水印图片后未取得新的 file_id")
 

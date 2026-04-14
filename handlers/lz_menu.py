@@ -4787,7 +4787,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         else:
             text = (
                 "你的小懒觉会员过期或未更新会员限期(会有时间差)。\r\n\r\n"
-                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员\r\n\r\n"
+                f"目前你的小懒觉会员期有效为期 {human_ts}，可点选下方按钮更新或兑换小懒觉会员\r\n\r\n"
             )
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -4954,7 +4954,11 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id, protect_content=is_protect_content)
                 if result and not result.get('ok'):
-                    await callback.answer(result.get('message'), show_alert=True)
+                    try:
+                        await callback.answer(result.get('message'), show_alert=True)
+                    except Exception as e:
+                        await lz_var.bot.send_message(chat_id=from_user_id, text=result.get('message'), parse_mode="HTML")
+                        pass
                     return
             elif file_type == "photo" or file_type == "p":  
                 send_content_kwargs["photo"] = file_id

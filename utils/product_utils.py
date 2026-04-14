@@ -318,7 +318,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     
     return {'review_status': review_status , 'result_send': retGuild}
 
-async def get_product_material(content_id: int, transaction_id:int | None):
+async def get_product_material(content_id: int, transaction_id: int | None = None):
     from lz_db import db  # 延迟导入避免循环依赖
         # ✅ 统一在这里连一次
     # await db.connect()

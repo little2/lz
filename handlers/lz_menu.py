@@ -4782,12 +4782,12 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         if not expire_ts_int:
             text = (
                 f"你目前不是小懒觉会员，或是会员已过期。将以原价 {fee} 兑换此资源\r\n\r\n"
-                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员\r\n\r\n"
             )
         else:
             text = (
                 "你的小懒觉会员过期或未更新会员限期(会有时间差)。\r\n\r\n"
-                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员"
+                f"目前你的小懒觉会员期有效期为 {human_ts}，可点选下方按钮更新或兑换小懒觉会员\r\n\r\n"
             )
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -4812,7 +4812,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         timer.lap("2753 是小懒觉会员")
         
         try:
-            reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts_int)}"
+            reply_text = f"你是小懒觉会员，此资源优惠 {discount_amount} 积分，只需要支付 {xlj_final_price} 积分。\r\n\r\n目前你的小懒觉会员期有效期为 {_fmt_ts(expire_ts_int)}\r\n\r\n"
         except Exception:
             pass
 

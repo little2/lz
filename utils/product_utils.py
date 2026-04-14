@@ -4,6 +4,7 @@ from aiogram import Bot
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, InputMediaAudio
+from aiogram.types import BufferedInputFile
 from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
 from lz_mysql import MySQLPool
@@ -21,6 +22,7 @@ import time
 import io
 import hashlib
 from aiogram.fsm.storage.base import StorageKey
+from watermark.watermark_workflow import WatermarkWorkflow, WatermarkWorkflowParams
 
 _pending_pin_cleanup: dict[tuple[int, int], float] = {}
 _pending_pin_lock = asyncio.Lock()
@@ -1315,7 +1317,19 @@ async def check_and_fix_sora_valid_state2(limit: int = 1000) -> Dict[str, Any]:
 
 
 
-async def build_product_material(rows):   
+async def build_product_material(
+    rows,
+    *,
+    bot: Optional[Bot] = None,
+    upload_chat_id: Optional[int] = None,
+    transaction_id: Optional[int] = None,
+):
+    if bot is None:
+        bot = lz_var.bot
+
+    if upload_chat_id is None:
+        upload_chat_id = lz_var.x_man_bot_id
+
     # 遍历结果
     send_group = []
     send_sub_group=[]
@@ -1347,10 +1361,26 @@ async def build_product_material(rows):
                 send_sub_group=[]  
                 
             if item['file_type'] == "pp":
-                item["file_id"] = 'new'
-                item["file_type"] = "p"
 
-                pass
+
+                if bot is not None and upload_chat_id is not None and transaction_id is not None:
+                    source_file_id = item["file_id"]
+                    wm_result = await watermark_from_file_id(
+                        bot=bot,
+                        source_file_id=source_file_id,
+                        upload_chat_id=upload_chat_id,
+                        transaction_id=int(transaction_id),
+                        enable_invisible_watermark=True,
+                        enable_pattern_watermark=True,
+                        visible_mode="single",
+                        visible_position="bottom_left",
+                        visible_text=str(transaction_id),
+                        visible_opacity=0.15,
+                        visible_font_scale=0.55,
+                        visible_thickness=1,
+                    )
+                    item["file_id"] = wm_result['watermarked_file_id']
+                item["file_type"] = "p"
 
             current = 'pv'    
             send_sub_group.append(
@@ -1406,6 +1436,90 @@ async def build_product_material(rows):
         }
     }
         
+
+
+async def watermark_from_file_id(
+    bot: Bot,
+    source_file_id: str,
+    upload_chat_id: int,
+    transaction_id: int,
+    *,
+    enable_invisible_watermark: bool = True,
+    enable_pattern_watermark: bool = True,
+    visible_mode: str = "none",
+    visible_position: str = "bottom_right",
+    visible_text: Optional[str] = None,
+    fullscreen_text: Optional[str] = None,
+    visible_font_path: Optional[str] = None,
+    visible_opacity: float = 0.25,
+    visible_font_scale: float = 0.5,
+    visible_thickness: int = 1,
+    fullscreen_opacity: float = 0.12,
+    fullscreen_font_scale: float = 0.9,
+    fullscreen_thickness: int = 1,
+    fullscreen_angle: float = -30,
+    fullscreen_x_gap: int = 220,
+    fullscreen_y_gap: int = 140,
+) -> dict:
+    """
+    透过 Telegram file_id 抓图，加上水印后再上传，回传新的 file_id。
+    """
+    file_meta = await bot.get_file(source_file_id)
+    file_path = getattr(file_meta, "file_path", None)
+    if not file_path:
+        raise ValueError("无法从 file_id 取得 file_path")
+
+    input_buf = io.BytesIO()
+    await bot.download_file(file_path, destination=input_buf)
+    input_bytes = input_buf.getvalue()
+    if not input_bytes:
+        raise RuntimeError("下载原图失败：内容为空")
+
+    params = WatermarkWorkflowParams(
+        transaction_id=transaction_id,
+        input_bytes=input_bytes,
+        return_output_bytes=True,
+        output_format="png",
+        enable_invisible_watermark=enable_invisible_watermark,
+        enable_pattern_watermark=enable_pattern_watermark,
+        visible_mode=visible_mode,
+        visible_position=visible_position,
+        visible_text=visible_text,
+        fullscreen_text=fullscreen_text,
+        visible_font_path=visible_font_path,
+        visible_opacity=visible_opacity,
+        visible_font_scale=visible_font_scale,
+        visible_thickness=visible_thickness,
+        fullscreen_opacity=fullscreen_opacity,
+        fullscreen_font_scale=fullscreen_font_scale,
+        fullscreen_thickness=fullscreen_thickness,
+        fullscreen_angle=fullscreen_angle,
+        fullscreen_x_gap=fullscreen_x_gap,
+        fullscreen_y_gap=fullscreen_y_gap,
+    )
+
+    workflow_result = await WatermarkWorkflow.run(params)
+    output_bytes = workflow_result.get("output_bytes")
+    if not output_bytes:
+        raise RuntimeError("水印输出为空")
+
+    sent = await bot.send_document(
+        chat_id=upload_chat_id,
+        document=BufferedInputFile(output_bytes, filename="watermarked.png"),
+    )
+    watermarked_file_id = sent.document.file_id if sent.document else None
+    if not watermarked_file_id:
+        raise RuntimeError("上传水印图片后未取得新的 file_id")
+
+    return {
+        "source_file_id": source_file_id,
+        "watermarked_file_id": watermarked_file_id,
+        "upload_chat_id": upload_chat_id,
+        "workflow": workflow_result,
+    }
+
+
+
 
 async def sync_table(
     table: str,

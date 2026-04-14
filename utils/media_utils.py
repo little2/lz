@@ -24,6 +24,24 @@ class ProductPreviewFSM(StatesGroup):
 class Media:
 
     @classmethod
+    async def safe_callback_answer(
+        cls,
+        callback,
+        *,
+        text: str | None = None,
+        show_alert: bool = False,
+    ) -> bool:
+        """Safely answer callback query; ignore expiry/invalid query errors."""
+        try:
+            await callback.answer(text=text, show_alert=show_alert)
+            return True
+        except TelegramBadRequest as e:
+            msg = str(e).lower()
+            if "query is too old" in msg or "query id is invalid" in msg:
+                return False
+            raise
+
+    @classmethod
     def _dump_reply_markup(cls, markup: InlineKeyboardMarkup | None) -> Any:
         if not markup:
             return None
@@ -502,7 +520,7 @@ class Media:
                 # 盒子数量（组数）
                 box_quantity = len(box_dict)  
                 if ( box_quantity <= 1):
-                    await callback.answer()
+                    await cls.safe_callback_answer(callback)
                     return
 
 
@@ -596,7 +614,7 @@ class Media:
                     print(f"[media_box] edit message failed: {e}", flush=True)
 
                 # 可选：给个轻量反馈，去掉“加载中”状态
-                await callback.answer()
+                await cls.safe_callback_answer(callback)
 
 
 

@@ -5,8 +5,8 @@ import io
 from pathlib import Path
 from typing import Optional
 
-from aiogram import Bot
-from aiogram.types import BufferedInputFile
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import BufferedInputFile, Message
 
 from lz_mysql import MySQLPool
 from watermark.watermark_workflow import WatermarkWorkflow, WatermarkWorkflowParams
@@ -38,6 +38,16 @@ async def watermark_file_id_with_aiogram(
     visible_position: str = "bottom_right",
     visible_text: Optional[str] = None,
     fullscreen_text: Optional[str] = None,
+    visible_font_path: Optional[str] = None,
+    visible_opacity: float = 0.25,
+    visible_font_scale: float = 0.5,
+    visible_thickness: int = 1,
+    fullscreen_opacity: float = 0.12,
+    fullscreen_font_scale: float = 0.9,
+    fullscreen_thickness: int = 1,
+    fullscreen_angle: float = -30,
+    fullscreen_x_gap: int = 220,
+    fullscreen_y_gap: int = 140,
 ) -> dict:
     """
     透过 Telegram file_id 抓图，加上水印后再上传，回传新的 file_id。
@@ -64,6 +74,16 @@ async def watermark_file_id_with_aiogram(
         visible_position=visible_position,
         visible_text=visible_text,
         fullscreen_text=fullscreen_text,
+        visible_font_path=visible_font_path,
+        visible_opacity=visible_opacity,
+        visible_font_scale=visible_font_scale,
+        visible_thickness=visible_thickness,
+        fullscreen_opacity=fullscreen_opacity,
+        fullscreen_font_scale=fullscreen_font_scale,
+        fullscreen_thickness=fullscreen_thickness,
+        fullscreen_angle=fullscreen_angle,
+        fullscreen_x_gap=fullscreen_x_gap,
+        fullscreen_y_gap=fullscreen_y_gap,
     )
 
     workflow_result = await WatermarkWorkflow.run(params)
@@ -125,6 +145,80 @@ async def run_aiogram_demo() -> None:
         )
         print("===== AIOGRAM FILE_ID WATERMARK RESULT =====", flush=True)
         print(pretty(result), flush=True)
+
+
+async def run_aiogram_polling() -> None:
+    """
+    以 polling 模式运行，收到图片后自动加水印并回传新 file_id。
+    """
+    bot_token = os.getenv("BOT_TOKEN")
+    transaction_id_raw = os.getenv("TRANSACTION_ID")
+
+
+    bot_token = "5982516833:AAFYBjWsVJ9zeLZYKx9mvEnEB2OsPgw_-ow"
+    transaction_id_raw = 1027576
+
+
+    if not bot_token:
+        raise ValueError("缺少 BOT_TOKEN")
+
+    transaction_id = int(transaction_id_raw) if transaction_id_raw else TRANSACTION_ID
+
+    dp = Dispatcher()
+
+    @dp.message(F.photo)
+    async def on_photo(message: Message) -> None:
+        try:
+            source_file_id = message.photo[-1].file_id
+            result = await watermark_file_id_with_aiogram(
+                bot=message.bot,
+                source_file_id=source_file_id,
+                upload_chat_id=message.chat.id,
+                transaction_id=transaction_id,
+                enable_invisible_watermark=True,
+                enable_pattern_watermark=True,
+                visible_mode="single",
+                visible_position="bottom_left",
+                visible_text=str(transaction_id),
+                visible_opacity=0.15,
+                visible_font_scale=0.55,
+                visible_thickness=1,
+            )
+            await message.reply(
+                f"watermarked_file_id: {result['watermarked_file_id']}"
+            )
+        except Exception as e:
+            await message.reply(f"处理失败: {e}")
+
+    @dp.message(F.document)
+    async def on_document(message: Message) -> None:
+        doc = message.document
+        if not doc:
+            return
+
+        mime_type = (doc.mime_type or "").lower()
+        if not mime_type.startswith("image/"):
+            return
+
+        try:
+            result = await watermark_file_id_with_aiogram(
+                bot=message.bot,
+                source_file_id=doc.file_id,
+                upload_chat_id=message.chat.id,
+                transaction_id=transaction_id,
+                enable_invisible_watermark=True,
+                enable_pattern_watermark=True,
+                visible_mode="none",
+            )
+            await message.reply(
+                f"watermarked_file_id: {result['watermarked_file_id']}"
+            )
+        except Exception as e:
+            await message.reply(f"处理失败: {e}")
+
+    async with Bot(token=bot_token) as bot:
+        print("Polling started. Send photo or image document to watermark.", flush=True)
+        await dp.start_polling(bot)
 
 
 async def build_cases():
@@ -369,9 +463,16 @@ async def main():
 
 
 if __name__ == "__main__":
-    # RUN_MODE=aiogram 时走 file_id 模式；默认维持原本验证流程。
+    # RUN_MODE=aiogram: file_id demo
+    # RUN_MODE=polling: 收图即加水印
+    # 其他: 维持原本验证流程
     run_mode = os.getenv("RUN_MODE", "verify").strip().lower()
+
+    run_mode = "polling"
+
     if run_mode == "aiogram":
         asyncio.run(run_aiogram_demo())
+    elif run_mode == "polling":
+        asyncio.run(run_aiogram_polling())
     else:
         asyncio.run(main())

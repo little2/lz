@@ -4110,7 +4110,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
             elif file_type == "album" or file_type == "a":
                 rows = await AnanBOTPool.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
                
-                productInfomation = await build_product_material(rows)
+                productInfomation = await build_product_material(rows, content_id=content_id)
                 print(f"发送相册 {productInfomation}")
                 await Media.send_media_group(callback_query, productInfomation, 1, content_id, source_id)
         except Exception as e:

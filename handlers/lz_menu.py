@@ -4921,9 +4921,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
                
             except Exception as e:
-                print(f"❌ 发送兑换通知失败: {e}", flush=True)
-
-       
+                print(f"❌ 发送兑换通知失败: {e}", flush=True)       
         elif result.get('status') == 'reward_self':
             
             reply_text += f"✅ 这是你自己的资源"
@@ -4941,6 +4939,9 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             timer.lap(f"资源类型{file_type}处理")
 
             if file_type == "album" or file_type == "a":
+
+                transaction_data = result.get("transaction_data")
+                print(f"transaction_data = {transaction_data}")
                
                 productInfomation = await get_product_material(content_id)
                 if not productInfomation:
@@ -5193,106 +5194,6 @@ async def handle_media_box(callback: CallbackQuery, state: FSMContext):
     await Media.send_media_group(callback, productInfomation, box_id, content_id,source_id)
     await callback.answer()
 
-@router.callback_query(F.data.startswith("media_box_old:"))
-async def handle_media_box(callback: CallbackQuery, state: FSMContext):
-    reply_to_message_id = None
-    if callback.message and callback.message.reply_to_message:
-        reply_to_message_id = callback.message.reply_to_message.message_id
-    _, content_id, box_id, quantity = callback.data.split(":")
-    from_user_id = callback.from_user.id
-
-    # ===== 你原本的业务逻辑（保留） =====
-    source_id = None
-    productInfomation = await get_product_material(content_id)
-    material_status = productInfomation.get("material_status")
-    total_quantity = material_status.get("total", 0)
-    box_dict = material_status.get("box", {})  # dict: {1:{...}, 2:{...}}
-    # 盒子数量（组数）
-    box_quantity = len(box_dict)  
-
-
-    return_media = await _build_mediagroup_box(box_id, source_id, content_id, material_status)
-    feedback_kb = return_media.get("feedback_kb")
-    text = return_media.get("text")
-    quantity = int(quantity) if quantity else 0
-
-    rows = productInfomation.get("rows", [])
-    await lz_var.bot.send_media_group(
-        chat_id=from_user_id,
-        media=rows[(int(box_id)-1)],
-        # reply_to_message_id=reply_to_message_id
-    )
-    # ==================================
-
-    msg = callback.message
-    original_text = msg.text or msg.caption or ""
-
-    # ✅ 2) 取出所有按钮，找到 text 等于 box_id（或 callback_data 末段等于 box_id）的按钮，把文字加上 "[V]"
-    kb = msg.reply_markup
-    new_rows: list[list[InlineKeyboardButton]] = []
-
-    if kb and kb.inline_keyboard:
-        for row in kb.inline_keyboard:
-            new_row = []
-            for btn in row:
-                # 去掉已有的 "[V]"，避免重复标记
-                base_text = btn.text.lstrip()
-                if base_text.startswith("✅"):
-                    _, _, _, btn_quantity = btn.callback_data.split(":")
-                    quantity = quantity+ int(btn_quantity)
-                   
-                    print(f"✅{btn}") 
-                    # base_text_pure = base_text[3:].lstrip()
-                    # sent_quantity = len(material_status.get("box",{}).get(int(base_text_pure),{}).get("file_ids",[])) if material_status else 0
-
-                # 判断是否为目标按钮（文字等于 box_id 或 callback_data 的最后一段等于 box_id）
-                is_target = (base_text == box_id)
-                if not is_target and btn.callback_data:
-                    try:
-                        is_target = (btn.callback_data.split(":")[-1] == box_id)
-                    except Exception:
-                        is_target = False
-
-                # 目标按钮加上 "[V]" 前缀，其他按钮保持/移除多余的前缀
-                new_btn_text = f"✅ {base_text}" if is_target else base_text
-
-                # 用 pydantic v2 的 model_copy 复制按钮，仅更新文字，其他字段（url、callback_data 等）保持不变
-                new_btn = btn.model_copy(update={"text": new_btn_text})
-                new_row.append(new_btn)
-            new_rows.append(new_row)
-
-    new_markup = InlineKeyboardMarkup(inline_keyboard=new_rows) if new_rows else kb
-
-
-    # ✅ 1) 取出 callback 内原消息文字，并在后面加 "123"
-    
-    
-    new_text = f"💡当前 {quantity}/{total_quantity} 个，第 {box_id}/{box_quantity} 页"
-
-    # ✅ 3) 编辑这条原消息（有文字用 edit_text；若是带 caption 的媒体则用 edit_caption）
-    try:
-        if(total_quantity > quantity):
-            await lz_var.bot.send_message(
-                chat_id=from_user_id,
-                text=new_text,
-                reply_markup=new_markup,
-                parse_mode="HTML",
-                reply_to_message_id=reply_to_message_id
-            )
-
-        await msg.delete()
-
-        # if msg.text is not None:
-           
-        #     await msg.edit_text(new_text, reply_markup=new_markup)
-        # else:
-        #     await msg.edit_caption(new_text, reply_markup=new_markup)
-    except Exception as e:
-        # 可选：记录一下，避免因“内容未变更”等报错中断流程
-        print(f"[media_box] edit message failed: {e}", flush=True)
-
-    # 可选：给个轻量反馈，去掉“加载中”状态
-    await callback.answer()
 
 
 

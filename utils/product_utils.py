@@ -4,7 +4,7 @@ from aiogram import Bot
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, InputMediaAudio
-from aiogram.types import BufferedInputFile
+from aiogram.types import FSInputFile
 from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
 from lz_mysql import MySQLPool
@@ -21,6 +21,8 @@ import asyncio
 import time
 import io
 import hashlib
+import tempfile
+import os
 from aiogram.fsm.storage.base import StorageKey
 from watermark.watermark_workflow import WatermarkWorkflow, WatermarkWorkflowParams
 
@@ -1587,44 +1589,46 @@ async def watermark_from_file_id(
     if not file_path:
         raise ValueError("无法从 file_id 取得 file_path")
 
-    input_buf = io.BytesIO()
-    await bot.download_file(file_path, destination=input_buf)
-    input_bytes = input_buf.getvalue()
-    if not input_bytes:
-        raise RuntimeError("下载原图失败：内容为空")
+    with tempfile.TemporaryDirectory(prefix="lz_wm_") as temp_dir:
+        input_path = os.path.join(temp_dir, "input_image")
+        output_path = os.path.join(temp_dir, "watermarked.png")
 
-    params = WatermarkWorkflowParams(
-        transaction_id=transaction_id,
-        input_bytes=input_bytes,
-        return_output_bytes=True,
-        output_format="png",
-        enable_invisible_watermark=enable_invisible_watermark,
-        enable_pattern_watermark=enable_pattern_watermark,
-        visible_mode=visible_mode,
-        visible_position=visible_position,
-        visible_text=visible_text,
-        fullscreen_text=fullscreen_text,
-        visible_font_path=visible_font_path,
-        visible_opacity=visible_opacity,
-        visible_font_scale=visible_font_scale,
-        visible_thickness=visible_thickness,
-        fullscreen_opacity=fullscreen_opacity,
-        fullscreen_font_scale=fullscreen_font_scale,
-        fullscreen_thickness=fullscreen_thickness,
-        fullscreen_angle=fullscreen_angle,
-        fullscreen_x_gap=fullscreen_x_gap,
-        fullscreen_y_gap=fullscreen_y_gap,
-    )
+        await bot.download_file(file_path, destination=input_path)
+        if not os.path.exists(input_path) or os.path.getsize(input_path) == 0:
+            raise RuntimeError("下载原图失败：内容为空")
 
-    workflow_result = await WatermarkWorkflow.run(params)
-    output_bytes = workflow_result.get("output_bytes")
-    if not output_bytes:
-        raise RuntimeError("水印输出为空")
+        params = WatermarkWorkflowParams(
+            transaction_id=transaction_id,
+            input_path=input_path,
+            output_path=output_path,
+            return_output_bytes=False,
+            output_format="png",
+            enable_invisible_watermark=enable_invisible_watermark,
+            enable_pattern_watermark=enable_pattern_watermark,
+            visible_mode=visible_mode,
+            visible_position=visible_position,
+            visible_text=visible_text,
+            fullscreen_text=fullscreen_text,
+            visible_font_path=visible_font_path,
+            visible_opacity=visible_opacity,
+            visible_font_scale=visible_font_scale,
+            visible_thickness=visible_thickness,
+            fullscreen_opacity=fullscreen_opacity,
+            fullscreen_font_scale=fullscreen_font_scale,
+            fullscreen_thickness=fullscreen_thickness,
+            fullscreen_angle=fullscreen_angle,
+            fullscreen_x_gap=fullscreen_x_gap,
+            fullscreen_y_gap=fullscreen_y_gap,
+        )
 
-    sent = await bot.send_photo(
-        chat_id=upload_chat_id,
-        photo=BufferedInputFile(output_bytes, filename="watermarked.png"),
-    )
+        workflow_result = await WatermarkWorkflow.run(params)
+        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+            raise RuntimeError("水印输出为空")
+
+        sent = await bot.send_photo(
+            chat_id=upload_chat_id,
+            photo=FSInputFile(output_path, filename="watermarked.png"),
+        )
     watermarked_file_id = sent.photo[-1].file_id if sent.photo else None
     if not watermarked_file_id:
         raise RuntimeError("上传水印图片后未取得新的 file_id")

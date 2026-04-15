@@ -334,6 +334,121 @@ async def get_product_material(content_id: int, transaction_id: int | None = Non
         await sync_album_items(content_id)
         # print(f"❌ get_product_material: no rows for content_id={content_id}", flush=True)
         return await get_product_material(content_id, transaction_id=transaction_id)
+
+
+async def sync_bot() -> Dict[str, Any]:
+    """
+    单向同步：以 MySQL 为源，将 bot 记录 upsert 到 PostgreSQL。
+
+    仅同步符合以下条件的记录：
+      SELECT * FROM bot WHERE bot_id != user_id AND bot_token != ''
+    """
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    conn, cur = await MySQLPool.get_conn_cursor()
+    mysql_rows: List[Dict[str, Any]] = []
+    try:
+        await cur.execute(
+            """
+            SELECT *
+            FROM `bot`
+            WHERE bot_id != user_id 
+              AND bot_token != ''
+            """
+        )
+        mysql_rows = await cur.fetchall()
+    except Exception as e:
+        print(f"[sync_bot] MySQL query failed: {e}", flush=True)
+        mysql_rows = []
+    finally:
+        await MySQLPool.release(conn, cur)
+
+    summary = {
+        "mysql_count": len(mysql_rows),
+        "pg_upserted": 0,
+        "pg_failed": 0,
+    }
+
+    if not mysql_rows:
+        print(f"[sync_bot] Done (no data): {summary}", flush=True)
+        return summary
+
+    await PGPool.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bot (
+            bot_id BIGINT PRIMARY KEY,
+            bot_token TEXT NOT NULL,
+            bot_name VARCHAR(30),
+            user_id BIGINT,
+            bot_root VARCHAR(30),
+            bot_title VARCHAR(120) NOT NULL,
+            work_status VARCHAR(10),
+            phone VARCHAR(30),
+            memo TEXT,
+            api_id BIGINT,
+            api_hash TEXT
+        )
+        """
+    )
+
+    upsert_sql = """
+        INSERT INTO bot (
+            bot_id,
+            bot_token,
+            bot_name,
+            user_id,
+            bot_root,
+            bot_title,
+            work_status,
+            phone,
+            memo,
+            api_id,
+            api_hash
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT (bot_id)
+        DO UPDATE SET
+            bot_token = EXCLUDED.bot_token,
+            bot_name = EXCLUDED.bot_name,
+            user_id = EXCLUDED.user_id,
+            bot_root = EXCLUDED.bot_root,
+            bot_title = EXCLUDED.bot_title,
+            work_status = EXCLUDED.work_status,
+            phone = EXCLUDED.phone,
+            memo = EXCLUDED.memo,
+            api_id = EXCLUDED.api_id,
+            api_hash = EXCLUDED.api_hash
+    """
+
+    for row in mysql_rows:
+        try:
+            await PGPool.execute(
+                upsert_sql,
+                row.get("bot_id"),
+                row.get("bot_token") or "",
+                row.get("bot_name"),
+                row.get("user_id"),
+                row.get("bot_root"),
+                row.get("bot_title") or "",
+                row.get("work_status"),
+                row.get("phone"),
+                row.get("memo"),
+                row.get("api_id"),
+                row.get("api_hash"),
+            )
+            summary["pg_upserted"] += 1
+            print(f"[sync_bot] bot_id={row.get('bot_id')} upserted successfully", flush=True)
+        except Exception as e:
+            summary["pg_failed"] += 1
+            print(f"[sync_bot] PG upsert failed for bot_id={row.get('bot_id')}: {e}", flush=True)
+
+    print(f"[sync_bot] Done: {summary}", flush=True)
+    return summary
         
 
 # == 找到文件里已有的占位 ==
@@ -1340,7 +1455,7 @@ async def build_product_material(
     current = None
     ready_status = True
     for item in rows:
-        print(f"item=>{item}\r\n", flush=True)
+        # print(f"item=>{item}\r\n", flush=True)
         
 
         if len(send_sub_group)>=10:

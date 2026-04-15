@@ -66,7 +66,7 @@ from utils.tpl import Tplate
 from utils.string_utils import LZString
 from utils.product_utils import build_product_material,sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
-from utils.product_utils import sync_table_by_pks,sync_album_items, should_cleanup_pinned_service_message
+from utils.product_utils import sync_bot, sync_table_by_pks,sync_album_items, should_cleanup_pinned_service_message
 from utils.action_gate import ActionGate
 
 
@@ -4453,9 +4453,6 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         print(f"❌ handle_sora_page error: {e}")
         await callback.answer("⚠️ 翻页失败", show_alert=True)
 
-
-
-
 @router.callback_query(F.data.startswith("copymenu:"))
 async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     content_id = callback.data.split(":")[1]
@@ -4955,10 +4952,14 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id, protect_content=is_protect_content)
                 if result and not result.get('ok'):
                     try:
-                        await callback.answer(result.get('message'), show_alert=True)
+                        print("text",flush=True)
+                        await lz_var.bot.send_message(chat_id=from_user_id, text=result.get('message'), parse_mode="HTML")
+                        # await callback.answer(result.get('message'), show_alert=True)
+                        print("text2",flush=True)
                     except Exception as e:
                         await lz_var.bot.send_message(chat_id=from_user_id, text=result.get('message'), parse_mode="HTML")
                         pass
+                    
                     return
             elif file_type == "photo" or file_type == "p":  
                 send_content_kwargs["photo"] = file_id
@@ -5561,6 +5562,19 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
 async def handle_jieba_export(message: Message | None = None):
     await export_lexicon_files(message=message, output_dir=".", force=True)
 
+
+
+
+
+@router.message(Command("sync_bot"))
+async def handle_sync_bot(message: Message, state: FSMContext):
+
+    try:
+        await sync_bot()
+    except Exception as e:
+        print(f"❌ 同步 Bot 失败: {e}", flush=True)
+  
+
 @router.message(Command("sync"))
 async def handle_sync(message: Message, state: FSMContext):
     # 使用 MySQL 找出所有 table user_collection, 并利用 sync_table_by_pks进行同步
@@ -5579,8 +5593,6 @@ async def handle_sync(message: Message, state: FSMContext):
         except Exception as e:
             print(f"❌ 同步表 {table} 失败: {e}", flush=True)
    
-
-
 KICK_KEYWORDS = {
     "luzai": [
         "鲁仔帮我找",
@@ -5611,8 +5623,6 @@ def strip_keywords(text: str, keywords: list[str]) -> str:
         result = re.sub(re.escape(k), "", result)
     # 清理多余空白
     return result.strip()
-
-
 
 @router.message(F.text)
 async def handle_private_text(message: Message, state: FSMContext):

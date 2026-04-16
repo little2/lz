@@ -24,6 +24,26 @@ class ProductPreviewFSM(StatesGroup):
 class Media:
 
     @classmethod
+    async def _notify_lack_file_uid_rows(cls, lack_file_uid_rows: list[str], max_count: int = 100):
+        sent_count = 0
+        for fuid in lack_file_uid_rows:
+            sent_count += 1
+            try:
+                await lz_var.bot.send_message(
+                    chat_id=lz_var.x_man_bot_id,
+                    text=f"{fuid}"
+                )
+            except Exception as e:
+                print(f"⚠️ 背景通知缺少资源失败 {fuid}: {e}", flush=True)
+
+            print(f"缺少 {fuid}")
+
+            if sent_count >= max_count:
+                break
+
+            await asyncio.sleep(0.7)
+
+    @classmethod
     async def safe_callback_answer(
         cls,
         callback,
@@ -476,21 +496,10 @@ class Media:
 
         if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
             lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
-            kack_qty = 0
-            for fuid in lack_file_uid_rows:
-                kack_qty = kack_qty+1
-                await lz_var.bot.send_message(
-                    chat_id=lz_var.x_man_bot_id,
-                    text=f"{fuid}"
-                )
-                print(f"缺少 {fuid}")
-                await asyncio.sleep(0.7)
-
-                if kack_qty > 7:
-                    break
+            asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=100))
 
             print(f"资源同步中，请稍后再试，请看看别的资源吧(-{len(lack_file_uid_rows)})", flush=True)        
-            return {'ok':False,'message':f'资源同步中，请稍后再试，可以先看看别的资源吧(-{len(lack_file_uid_rows)})'}
+            return {'ok':False,'message':f'资源同步中，请稍后再试，可以先看看别的资源吧( 请 {len(lack_file_uid_rows)} 秒后重试)'}
         # print(f"1896=>{productInfomation}")
         rows = productInfomation.get("rows", [])
         # print(f"rows={rows}", flush=True)

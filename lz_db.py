@@ -202,105 +202,6 @@ class DB:
         return phrase_q, and_q
 
 
-    # BAckup
-    async def search_keyword_page_plain_old(self, keyword_str: str, last_id: int = 0, limit: int = 3000):
-        # 1) 归一化 + cache
-        await self._ensure_pool()
-        query = self._normalize_query(keyword_str)
-        cache_key = f"searchkey:{query}:{last_id}:{limit}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
-
-        # 2) 替换同义词 + 分词
-        tokens = list(jieba.cut(keyword_str))
-        print("Tokens after jieba cut:", tokens)
-
-        # 3) token 级同义词归一化
-        tokens = LexiconManager.normalize_tokens(tokens)
-        print("Tokens after synonym normalization:", tokens)
-
-        # 4) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
-        tokens = LexiconManager.filter_stop_words(tokens)
-        print("Tokens after stop-word filter:", tokens)
-
-
-        phrase_q, and_q = self._build_tsqueries_from_tokens(tokens)
-        if not and_q:
-            return []
-
-        # 4) 保护 limit
-        limit = max(1, min(3000, int(limit)))
-
-        where_parts = []
-        params = []
-
-        # ===== 先统一决定参数顺序 =====
-        # current_idx 用来管理 $1, $2, $3...
-        current_idx = 1
-        phrase_idx = None
-        and_idx = None
-
-        cond = []
-
-        if phrase_q:
-            phrase_idx = current_idx
-            params.append(phrase_q)
-            cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${phrase_idx})")
-            current_idx += 1
-
-        # and_q 一定存在
-        and_idx = current_idx
-        params.append(and_q)
-        cond.append(f"content_seg_tsv @@ to_tsquery('simple', ${and_idx})")
-        current_idx += 1
-
-        where_parts.append("(" + " OR ".join(cond) + ")")
-
-        # 分页条件：id < last_id
-        if last_id > 0:
-            last_id_idx = current_idx
-            where_parts.append(f"id < ${last_id_idx}")
-            params.append(last_id)
-            current_idx += 1
-
-        # LIMIT 的占位符
-        limit_idx = current_idx
-        params.append(limit)
-
-        # ===== rank 表达式：有 phrase 就加权，没有就只用 AND rank =====
-        if phrase_idx is not None:
-            rank_expr = f"""
-                GREATEST(
-                    COALESCE(ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${phrase_idx})), 0) * 1.5,
-                    ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${and_idx}))
-                )
-            """
-        else:
-            rank_expr = f"ts_rank_cd(content_seg_tsv, to_tsquery('simple', ${and_idx}))"
-
-        sql = f"""
-            SELECT
-                id,
-                source_id,
-                file_type,
-                content,
-                {rank_expr} AS rank
-            FROM sora_content
-            WHERE {' AND '.join(where_parts)} AND valid_state >= 8
-            ORDER BY rank DESC, id DESC
-            LIMIT ${limit_idx}
-        """
-
-        print("SQL:", sql, "PARAMS:", params, flush=True)
-
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            rows = await conn.fetch(sql, *params)
-
-        result = [dict(r) for r in rows]
-        # ttl=300 秒（5 分钟）
-        self.cache.set(cache_key, result, ttl=CACHE_TTL)
-        return result
 
     async def search_keyword_page_plain(self, keyword_str: str, last_id: int = 0, limit: int = 10000):
         # 1) 归一化 + cache
@@ -317,15 +218,15 @@ class DB:
 
         # 2) 分词
         tokens = list(jieba.cut(keyword_str))
-        print("Tokens after jieba cut:", tokens)
+        # print("Tokens after jieba cut:", tokens)
 
         # 3) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
         tokens = LexiconManager.filter_stop_words(tokens)
-        print("Tokens after stop-word filter:", tokens)
+        # print("Tokens after stop-word filter:", tokens)
 
         # 4) 同义词叠加：每个 token -> [本词 + 全部同义词]
         token_groups = LexiconManager.expand_tokens(tokens)
-        print("Token groups after synonym expand:", token_groups)
+        # print("Token groups after synonym expand:", token_groups)
 
         # 5) 生成 tsquery：用 OR 组构成 phrase_q / and_q
         phrase_q, and_q = self._build_tsqueries_from_token_groups(token_groups)

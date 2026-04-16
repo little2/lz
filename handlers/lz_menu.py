@@ -2015,7 +2015,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         if search_result and current_pos<=0:
             try:
                 current_pos = get_index_by_source_id(search_result, source_id) 
-                print(f"搜索结果总数: {len(search_result)}", flush=True)
+                # print(f"搜索结果总数: {len(search_result)}", flush=True)
             except Exception as e:
                 print(f"❌ 取得索引失败：{e}", flush=True)
     
@@ -5625,6 +5625,12 @@ async def handle_private_text(message: Message, state: FSMContext):
             await handle_search_component(message, state, keyword)
         else:
             try:
+                '''
+                如果不是私聊，則不處理
+                '''
+                if message.chat.type != "private":
+                    return
+
                 print(f"【Telethon】没有匹配到任何关键词{text}", flush=True)
                 aes = AESCrypto(AES_KEY)
                 decoded = aes.aes_decode(text)

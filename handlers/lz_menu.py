@@ -5641,7 +5641,7 @@ async def handle_private_text(message: Message, state: FSMContext):
                 if message.chat.type != "private":
                     return
 
-                print(f"【Telethon】没有匹配到任何关键词{text}", flush=True)
+                
                 aes = AESCrypto(AES_KEY)
                 decoded = aes.aes_decode(text)
                 # 如果 decoded 是纯数字，且长度小于 10，且大于 0，则认为是 content_id
@@ -5652,6 +5652,9 @@ async def handle_private_text(message: Message, state: FSMContext):
                     print(f"【Telethon】载入内容成功，准备发送消息", flush=True)
                    
                     await _load_content(message, state, content_id, ["f", -1])
-                
+                else:
+                    print(f"【Telethon】没有匹配到任何关键词{text}", flush=True)
+
+
             except Exception as e:
                 print(f"【Telethon】解析文本失败: {e}", flush=True)

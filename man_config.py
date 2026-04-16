@@ -1,0 +1,10 @@
+import os
+from dotenv import load_dotenv
+import json
+
+load_dotenv(dotenv_path='.man.env')
+
+
+API_HASH="254bd1f456264b81e8b48db4cb927239"
+API_ID="25254811"
+USER_SESSION="1AZWarzQBu5RAyHl00Ed7YiytJm4AKoO-mgPsAuJfiCWtgGOwRS5cgcRSIC_DGpWYGDixINoF6pUgnFv_cu98nFoxTPFmbfpfV7prYDuvlOfHMMxXf7Zn14SGUwsjV3THWrNIpNYkgcX0642GpY2WZxz6IfqP9g3K5dv4buhl6tqIKOHFOY2FMJVZvICi1p1ZC7HZSaAt6nUT4KxycAmh3LL0jAvQM2NXmk1MkLQtoqjkKuYjrX1AZcfKcHbWkUxAgtG1Tm07HAjvD6oG9NGXMBxJoC7Mjd1qiYE57HG5XoYZ0lAskv-ctsqXAQ7CJVDEP-qn8hZrVhqbPOwCFsE4HEXl8nkGzMY="

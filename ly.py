@@ -11,7 +11,7 @@ import aiohttp
 
 from lz_mysql import MySQLPool
 
-import lz_var
+
 from pg_stats_db import PGStatsDB
 from group_stats_tracker import GroupStatsTracker
 

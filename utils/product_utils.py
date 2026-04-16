@@ -24,7 +24,7 @@ import hashlib
 import tempfile
 import os
 from aiogram.fsm.storage.base import StorageKey
-from watermark.watermark_workflow import WatermarkWorkflow, WatermarkWorkflowParams
+
 
 _pending_pin_cleanup: dict[tuple[int, int], float] = {}
 _pending_pin_lock = asyncio.Lock()
@@ -1584,6 +1584,7 @@ async def watermark_from_file_id(
     """
     透过 Telegram file_id 抓图，加上水印后再上传，回传新的 file_id。
     """
+    from watermark.watermark_workflow import WatermarkWorkflow, WatermarkWorkflowParams
     file_meta = await bot.get_file(source_file_id)
     file_path = getattr(file_meta, "file_path", None)
     if not file_path:

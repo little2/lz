@@ -88,13 +88,17 @@ router = Router()
 
 def refresh_setting() -> str:
     global UPLOADER_BOT_NAME
+    
 
     remote_setting = _fetch_remote_bot_setting()
-    latest_name = (remote_setting or {}).get('publish_bot_name')
+   
+    
+    latest_name = (remote_setting or {}).get('uploader_bot_name')
     if latest_name:
         UPLOADER_BOT_NAME = latest_name
-
+    print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
     lz_var.uploader_bot_name = UPLOADER_BOT_NAME
+    print(f"🔄 Refreshed setting: UPLOADER_BOT_NAME={UPLOADER_BOT_NAME}-{lz_var.uploader_bot_name}", flush=True)
     return UPLOADER_BOT_NAME
 
 
@@ -398,62 +402,6 @@ async def handle_update_thumb(content_id, file_id,state):
 
 
 
-# # == 主菜单 ==
-# def main_menu_keyboard():
-#     keyboard = [
-#         [
-#             InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
-#             InlineKeyboardButton(text="🏆 排行", callback_data="ranking"),
-#         ],
-#     ]
-
-#     # 仅在 dev 环境显示「资源橱窗」
-#     if ENVIRONMENT == "dev":
-#         keyboard.append([
-#             InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
-#             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
-#         ])
-#     else:
-#         keyboard.append([
-#             InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history"),
-#         ])
-
-#     keyboard.append([
-#         InlineKeyboardButton(
-#             text="📤 上传资源",
-#             url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
-#         )
-#     ])
-
-#     keyboard.append([
-#         InlineKeyboardButton(
-#             text="🐲 小龙阳",
-#             url=f"https://t.me/xiaolongyang002bot?start=map"
-#         )
-#     ])
-
-
-
-#     return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-    
-
-
-
-
-#     # return InlineKeyboardMarkup(inline_keyboard=[
-#     #     [
-#     #         InlineKeyboardButton(text="🔍 搜索", callback_data="search"),
-#     #         InlineKeyboardButton(text="🏆 排行", callback_data="ranking")
-#     #     ],
-#     #     [
-#     #         InlineKeyboardButton(text="🪟 资源橱窗", callback_data="collection"),
-#     #         InlineKeyboardButton(text="🕑 我的历史", callback_data="my_history")
-#     #     ],
-#     #     # [InlineKeyboardButton(text="🎯 猜你喜欢", callback_data="guess_you_like")],
-#     #     [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
-       
-#     # ])
 
 # == 搜索菜单 ==
 def search_menu_keyboard():
@@ -1398,7 +1346,7 @@ def guess_menu_keyboard():
 # == 资源上传菜单 ==
 def upload_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")],
+        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{lz_var.uploader_bot_name}?start=upload")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 

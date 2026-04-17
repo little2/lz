@@ -488,7 +488,7 @@ class LYBase:
         keyboard.append([
             InlineKeyboardButton(
                 text="📤 上传资源",
-                url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload"
+                url=f"https://t.me/{lz_var.uploader_bot_name}?start=upload"
             )
         ])
 

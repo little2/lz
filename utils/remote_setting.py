@@ -9,6 +9,7 @@ CACHE_FILE = Path(__file__).resolve().parent / 'remote_setting_cache.json'
 
 def _load_local_setting() -> dict:
     try:
+        
         if CACHE_FILE.exists():
             with CACHE_FILE.open('r', encoding='utf-8') as f:
                 data = json.load(f)
@@ -29,12 +30,13 @@ def _fetch_remote_bot_setting() -> dict:
     url = SETTING_URL
     if not url:
         return _load_local_setting()
-
+    print(f"Fetching remote setting from {url}...", flush=True)
     try:
         with request.urlopen(url, timeout=5) as resp:
             payload = resp.read().decode("utf-8", errors="ignore")
             data = json.loads(payload or "{}")
             if isinstance(data, dict):
+                print("Fetched remote setting successfully.")
                 _save_local_setting(data)
                 return data
             return _load_local_setting()

@@ -137,13 +137,16 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         lz_var.publish_bot_name = publish_me.username
    
     if lz_var.uploader_bot_name is None:
+        print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
         mebot = await lz_var.bot.get_me()
         lz_var.uploader_bot_name = mebot.username
 
     # 注意，会在 .lz.env
     if UPLOADER_BOT_NAME is None:
+        print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
         lz_var.uploader_bot_name = lz_var.uploader_bot_name
     else:
+        print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
         lz_var.uploader_bot_name = UPLOADER_BOT_NAME
 
     retGuild = None

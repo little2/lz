@@ -36,7 +36,7 @@ class Media:
             except Exception as e:
                 print(f"⚠️ 背景通知缺少资源失败 {fuid}: {e}", flush=True)
 
-            print(f"缺少 {fuid}")
+            print(f">缺少 {fuid}")
 
             if sent_count >= max_count:
                 break

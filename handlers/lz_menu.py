@@ -47,7 +47,7 @@ from typing import Coroutine
 import asyncio
 import os
 from lz_db import db
-from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS,UPLOADER_BOT_NAME, VALKEY_URL
+from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS, VALKEY_URL, UPLOADER_BOT_NAME
 import lz_var
 import random
 
@@ -68,6 +68,7 @@ from utils.product_utils import build_product_material,sync_sora,sync_product_by
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
 from utils.product_utils import sync_bot, sync_table_by_pks,sync_album_items, should_cleanup_pinned_service_message
 from utils.action_gate import ActionGate
+from utils.remote_setting import _fetch_remote_bot_setting
 
 
 
@@ -83,6 +84,18 @@ from urllib.parse import quote as url_quote
 
 
 router = Router()
+
+
+def refresh_setting() -> str:
+    global UPLOADER_BOT_NAME
+
+    remote_setting = _fetch_remote_bot_setting()
+    latest_name = (remote_setting or {}).get('publish_bot_name')
+    if latest_name:
+        UPLOADER_BOT_NAME = latest_name
+
+    lz_var.uploader_bot_name = UPLOADER_BOT_NAME
+    return UPLOADER_BOT_NAME
 
 
 @router.message(F.pinned_message)
@@ -1403,6 +1416,13 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
         print(f"⚠️ 已通知管理员: {r}", flush=True)
         await message.answer("⚠️ 加载皮肤失败")
        
+
+@router.message(Command("update_setting"))
+async def handle_update_setting(message: Message, state: FSMContext):
+    latest_name = refresh_setting()
+
+    await message.answer(f"✅ 已更新 UPLOADER_BOT_NAME: {latest_name}")
+
 
     
 

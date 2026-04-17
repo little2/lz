@@ -2,9 +2,10 @@ import os
 from dotenv import load_dotenv
 import json
 
+
 load_dotenv(dotenv_path='.lz.env')
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
+UPLOADER_BOT_NAME = os.getenv("UPLOADER_BOT_NAME", "")
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
 
 BOT_MODE = os.getenv("BOT_MODE", "polling").lower()
@@ -31,6 +32,10 @@ RESULTS_PER_PAGE = 6
 CACHE_TTL = 300  # 緩存時間，單位秒
 
 config = {}
+
+
+
+
 # 嘗試載入 JSON 並合併參數
 try:
     configuration_json = json.loads(os.getenv('CONFIGURATION', '') or '{}')
@@ -56,7 +61,7 @@ MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))
 
 META_BOT        = config.get('meta_bot', os.getenv('META_BOT', ''))
-UPLOADER_BOT_NAME = config.get('uploader_bot_name', os.getenv('UPLOADER_BOT_NAME', ''))
+
 PUBLISH_BOT_NAME = config.get('publish_bot_name', os.getenv('PUBLISH_BOT_NAME', ''))
 KEY_USER_ID     = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
 KEY_USER_PHONE = config.get('key_user_phone', os.getenv('KEY_USER_PHONE', ''))

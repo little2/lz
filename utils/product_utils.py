@@ -7,6 +7,7 @@ from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, 
 from aiogram.types import FSInputFile
 from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
+from utils.remote_setting import _load_local_setting
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
 from lz_config import AES_KEY,UPLOADER_BOT_NAME
@@ -135,19 +136,22 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     if lz_var.publish_bot_name is None:
         publish_me = await _bot.get_me()
         lz_var.publish_bot_name = publish_me.username
-   
-    if lz_var.uploader_bot_name is None:
-        print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
-        mebot = await lz_var.bot.get_me()
-        lz_var.uploader_bot_name = mebot.username
 
-    # 注意，会在 .lz.env
-    if UPLOADER_BOT_NAME is None:
+    uploader_bot_name = lz_var.uploader_bot_name
+    if not uploader_bot_name:
+        local_setting = _load_local_setting()
+        uploader_bot_name = (local_setting or {}).get("uploader_bot_name")
+
+    if not uploader_bot_name:
+        uploader_bot_name = UPLOADER_BOT_NAME
+
+    if not uploader_bot_name:
         print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
-        lz_var.uploader_bot_name = lz_var.uploader_bot_name
-    else:
-        print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
-        lz_var.uploader_bot_name = UPLOADER_BOT_NAME
+        mebot = await _bot.get_me()
+        uploader_bot_name = mebot.username
+
+    lz_var.uploader_bot_name = uploader_bot_name
+    print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
 
     retGuild = None
     review_status = None

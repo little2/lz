@@ -93,3 +93,26 @@ class TwoLevelCache:
             print(f"TwoLevelCache: delete L2 failed for key={key}, error={e}")
             return
 
+    async def delete_prefix(self, prefix: str):
+        # 1) 清 L1 中匹配前缀的 key
+        try:
+            store = getattr(self.l1, "_store", None)
+            if store:
+                keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(prefix)]
+                for key in keys_to_delete:
+                    self.l1.delete(key)
+        except Exception as e:
+            print(f"TwoLevelCache: delete_prefix L1 failed for prefix={prefix}, error={e}")
+
+        # 2) 清 L2 中匹配前缀的 key
+        try:
+            pattern = self._k(f"{prefix}*")
+            keys_to_delete = []
+            async for key in self.r.scan_iter(match=pattern):
+                keys_to_delete.append(key)
+
+            if keys_to_delete:
+                await self.r.delete(*keys_to_delete)
+        except Exception as e:
+            print(f"TwoLevelCache: delete_prefix L2 failed for prefix={prefix}, error={e}")
+

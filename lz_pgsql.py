@@ -138,13 +138,38 @@ class PGPool:
 
 
     @classmethod
-    async def delete_cache(cls, prefix: str):
+    async def delete_cache(cls, key: str, use_prefix: bool = True):
         """
-        删除 cache 中以 prefix 开头的 key。
+        删除缓存。
+
+        - use_prefix=True: 删除以 key 开头的所有缓存键
+        - use_prefix=False: 仅精确删除 key 本身
+
         - MemoryCache: 无 keys() 接口，因此从内部 _store 取 key
         - TwoLevelCache: 仅清 L1（L2 依业务需要可扩展批量删；目前保持轻量，不阻塞）
         """
         if not cls.cache:
+            return
+
+        if use_prefix and hasattr(cls.cache, "delete_prefix"):
+            await cls.cache.delete_prefix(key)
+            print(f"✅ 已清理 PostgreSQL 前缀缓存: {key}", flush=True)
+            return
+
+        if not use_prefix:
+            try:
+                if hasattr(cls.cache, "delete"):
+                    cls.cache.delete(key)
+                else:
+                    l1 = getattr(cls.cache, "l1", None)
+                    if l1 is None:
+                        l1 = cls.cache
+                    store = getattr(l1, "_store", None)
+                    if store is not None:
+                        store.pop(key, None)
+                print(f"✅ 已精确清理 PostgreSQL 缓存: {key}", flush=True)
+            except Exception:
+                pass
             return
 
         # 统一拿到 L1 的 store（兼容 MemoryCache / TwoLevelCache）
@@ -156,16 +181,18 @@ class PGPool:
         if not store:
             return
 
-        keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(prefix)]
+        keys_to_delete = [k for k in list(store.keys()) if str(k).startswith(key)]
         for k in keys_to_delete:
             try:
                 # TwoLevelCache / MemoryCache 都支持 delete(key)
                 if hasattr(cls.cache, "delete"):
-                    await cls.cache.delete(k)
+                    cls.cache.delete(k)
                 else:
                     store.pop(k, None)
             except Exception:
                 pass
+
+        print(f"✅ 已清理 PostgreSQL 前缀缓存: {key}", flush=True)
 
     # ========= 工具 =========
     @classmethod
@@ -1133,6 +1160,63 @@ class PGPool:
 
         finally:
             await cls.release(conn)
+
+    @classmethod
+    async def delete_user_collection(
+        cls,
+        collection_id: int,
+        user_id: int,
+    ) -> Dict[str, Any]:
+        await cls.ensure_pool()
+
+        conn = None
+        try:
+            conn = await cls.acquire()
+            row = await conn.fetchrow(
+                """
+                SELECT id, user_id
+                FROM user_collection
+                WHERE id = $1
+                LIMIT 1
+                """,
+                int(collection_id),
+            )
+            if not row:
+                return {"ok": "", "status": "not_found", "id": collection_id}
+
+            owner_user_id = int(row["user_id"])
+            if owner_user_id != int(user_id):
+                return {"ok": "", "status": "forbidden", "id": collection_id}
+
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM user_collection_file WHERE collection_id = $1",
+                    int(collection_id),
+                )
+                await conn.execute(
+                    "DELETE FROM user_collection_favorite WHERE user_collection_id = $1",
+                    int(collection_id),
+                )
+                result = await conn.execute(
+                    "DELETE FROM user_collection WHERE id = $1 AND user_id = $2",
+                    int(collection_id),
+                    int(user_id),
+                )
+
+            try:
+                deleted_rows = int(str(result).split()[-1])
+            except Exception:
+                deleted_rows = 0
+
+            return {
+                "ok": "1" if deleted_rows else "",
+                "status": "deleted" if deleted_rows else "not_found",
+                "id": collection_id,
+            }
+        except Exception as e:
+            return {"ok": "", "status": "error", "error": str(e), "id": collection_id}
+        finally:
+            await cls.release(conn)
   
     @classmethod
     async def list_user_collections(
@@ -1143,7 +1227,7 @@ class PGPool:
         if cls.cache:
             cached = await cls.cache.get(cache_key)
             if cached:
-                # print(f"🔹 PG MemoryCache hit for {cache_key}")
+                print(f"🔹 PG cache hit for {cache_key}")
                 cls.cache.set(cache_key, cached, ttl=300)
                 return cached
 

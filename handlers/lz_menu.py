@@ -505,6 +505,9 @@ async def on_title_input(message: Message, state: FSMContext):
         await message.reply("⚠️ 标题长度需为 1~255，请重新输入。")
         return
 
+
+
+
     # 1) 更新数据库
     await MySQLPool.update_user_collection(collection_id=cid, title=text)
 
@@ -518,12 +521,19 @@ async def on_title_input(message: Message, state: FSMContext):
         print(f"⚠️ 删除用户输入失败: {e}", flush=True)
 
 
-    cache_key = f"user:clt:{user_id}:50:0"
-    await PGPool.delete_cache(cache_key)
+
 
     # 3) 刷新锚点消息的文本与按钮
     await _build_clt_edit(cid, anchor_message,state)
     await state.clear()
+    perpage = (RESULTS_PER_PAGE+1)
+    cache_key = f"user:clt:{user_id}:{perpage}:0"
+    await PGPool.delete_cache(cache_key,False)
+    cache_key = f"user:clt:{user_id}:"
+    await PGPool.delete_cache(cache_key)
+    
+
+
 
 # ===== 资源橱窗 : 简介 =====
 
@@ -1340,7 +1350,7 @@ def upload_menu_keyboard():
     ])
 
 
-@router.message()
+@router.message(F.pinned_message)
 async def delete_pin_service_message(message: Message):
     # 判断：这是一条 pin 服务消息
     if message.pinned_message:
@@ -1560,7 +1570,6 @@ async def handle_search_component(message: Message, state: FSMContext, keyword:s
         })
 
 # == 启动指令 ==
-@debug
 @router.message(Command("start"))
 async def handle_start(message: Message, state: FSMContext, command: Command = Command("start")):
     # 删除 /start 这个消息
@@ -1594,12 +1603,22 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         elif parts[0] == "rci":    #remove_collect_item
             date = await state.get_data()
             clt_id = date.get("collection_id")
-            handle_message = date.get("message")
+            handle_message = date.get("message") or date.get("menu_message") or date.get("current_message")
   
             print(f"State data: {date}", flush=True)
-            
-            content_id = parts[1]
-            page = int(parts[2]) or 0
+
+            if len(parts) >= 4:
+                clt_id = clt_id or parts[1]
+                content_id = parts[2]
+                page = int(parts[3]) if parts[3].isdigit() else 0
+            else:
+                content_id = parts[1]
+                page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+
+            if clt_id is None:
+                await message.answer("⚠️ 这个删除链接缺少资源橱窗上下文，请从资源橱窗页面重新进入后再操作。")
+                return
+
             await MySQLPool.remove_content_from_user_collection(int(clt_id), int(content_id))
 
             
@@ -1617,19 +1636,34 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
                 await message.answer("这个资源橱窗暂时没有收录文件", show_alert=True)
                 return
 
-            await _edit_caption_or_text(
-                handle_message,
-                text=result.get("caption"),
-                reply_markup=result.get("reply_markup"),
-                state= state
-            )
+            if handle_message:
+                await _edit_caption_or_text(
+                    handle_message,
+                    text=result.get("caption"),
+                    reply_markup=result.get("reply_markup"),
+                    state= state
+                )
+            else:
+                new_message = await message.answer(
+                    result.get("caption"),
+                    parse_mode="HTML",
+                    reply_markup=result.get("reply_markup"),
+                    disable_web_page_preview=True,
+                )
+                await MenuBase.set_menu_status(state, {
+                    "current_message": new_message,
+                    "menu_message": new_message,
+                    "collection_id": int(clt_id),
+                    "current_chat_id": new_message.chat.id,
+                    "current_message_id": new_message.message_id,
+                })
             print(f"删除资源橱窗项目 ID: {content_id} {page} {clt_id}")
             pass
         elif parts[0] == "clt":    #remove_collection_item
             collection_id = parts[1]
-            print(f"437>{collection_id}")
+            # print(f"437>{collection_id}")
             collection_info  = await _build_clt_info(cid=collection_id, user_id=user_id, mode='view', ops='handle_clt_fav')
-            print(f"439>{collection_info}")
+            # print(f"439>{collection_info}")
 
             # await message.answer_photo(
             #     photo=product_info['cover_file_id'],
@@ -1639,25 +1673,43 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
 
             if collection_info.get("success") is False:
-                await message.answer(collection_info.get("message"), show_alert=True)
+                await message.answer(collection_info.get("message"))
                 return
             elif collection_info.get("photo"):
-                # await callback.message.edit_media(media=collection_info.get("photo"), caption=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
-                
-
-                await lz_var.bot.send_photo(
+                new_message = await lz_var.bot.send_photo(
                     chat_id=user_id,
                     caption = collection_info.get("caption"),
                     photo=collection_info.get("photo"),
                     reply_markup=collection_info.get("reply_markup"),
                     parse_mode="HTML")
+
+                await MenuBase.set_menu_status(state, {
+                    "current_message": new_message,
+                    "menu_message": new_message,
+                    "collection_id": int(collection_id),
+                    "current_chat_id": new_message.chat.id,
+                    "current_message_id": new_message.message_id,
+                })
                 
 
     
                 
                 return
             else:
-                await message.edit_text(text=collection_info.get("caption"), reply_markup=collection_info.get("reply_markup"))
+                new_message = await message.answer(
+                    text=collection_info.get("caption"),
+                    reply_markup=collection_info.get("reply_markup"),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+
+                await MenuBase.set_menu_status(state, {
+                    "current_message": new_message,
+                    "menu_message": new_message,
+                    "collection_id": int(collection_id),
+                    "current_chat_id": new_message.chat.id,
+                    "current_message_id": new_message.message_id,
+                })
 
 
             pass
@@ -3559,16 +3611,16 @@ async def handle_ranking_earn(callback: CallbackQuery,state: FSMContext):
 # ====== 通用：分页列表键盘（mine / fav）======
 
 async def _load_collections_rows(user_id: int, page: int, mode: str):
-    PAGE_SIZE = 6
-    offset = page * PAGE_SIZE
+   
+    offset = page * RESULTS_PER_PAGE
     if mode == "mine":
-        rows = await PGPool.list_user_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
+        rows = await PGPool.list_user_collections(user_id=user_id, limit=RESULTS_PER_PAGE + 1, offset=offset)
     elif mode == "fav":
-        rows = await PGPool.list_user_favorite_collections(user_id=user_id, limit=PAGE_SIZE + 1, offset=offset)
+        rows = await PGPool.list_user_favorite_collections(user_id=user_id, limit=RESULTS_PER_PAGE + 1, offset=offset)
     else:
         rows = []
-    has_next = len(rows) > PAGE_SIZE
-    return rows[:PAGE_SIZE], has_next
+    has_next = len(rows) > RESULTS_PER_PAGE
+    return rows[:RESULTS_PER_PAGE], has_next
 
 def _collection_btn_text(row: dict) -> str:
     cid   = row.get("id")
@@ -3800,10 +3852,11 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
     print(f"ret==>{ret}")
     cid = ret.get("id")
     if cid is None:
-        await callback.answer("创建资源橱窗失败，请稍后再试", show_alert=True)
+        await callback.answer("❌创建资源橱窗失败，请稍后再试", show_alert=True)
         return
     await sync_table_by_pks("user_collection", "id", [cid])
-    cache_key = f"user:clt:{user_id}:50:0"
+    await PGPool.delete_cache(f"user:clt:{user_id}:{(RESULTS_PER_PAGE+1)}:0",False)
+    cache_key = f"user:clt:{user_id}:"  #以此开头的要删除 
     await PGPool.delete_cache(cache_key)
     print(f">>> Deleted cache for key: {cache_key}")
 
@@ -3827,6 +3880,75 @@ async def handle_clt_create(callback: CallbackQuery, state: FSMContext):
         state= state
     )
     await MySQLPool.delete_cache(f"collection_info_{cid}")
+
+
+@router.callback_query(F.data.regexp(r"^clt:del:\d+:\d+(?::([A-Za-z]+))?$"))
+async def handle_clt_delete(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split(":")
+    cid = int(parts[2])
+    user_id = callback.from_user.id
+    action = parts[4] if len(parts) > 4 else "ask"
+
+    if action == "ask":
+       
+        await PGPool.delete_cache(f"user:clt:{user_id}:{(RESULTS_PER_PAGE+1)}:0",False)
+        await PGPool.delete_cache(f"user:clt:{user_id}:")
+        await callback.message.edit_reply_markup(reply_markup=_build_clt_delete_confirm_keyboard(cid))
+        await callback.answer("⚠️ 请再次确认是否删除")
+        return
+
+    if action == "cancel":
+        await callback.message.edit_reply_markup(
+            reply_markup=_build_clt_info_keyboard(cid, is_fav=False, mode='edit', ops='handle_clt_my')
+        )
+        await callback.answer("已取消删除")
+        return
+
+    if action != "confirm":
+        await callback.answer("参数错误", show_alert=True)
+        return
+
+    ret = await MySQLPool.delete_user_collection(collection_id=cid, user_id=user_id)
+    status = ret.get("status")
+
+    if status == "forbidden":
+        await callback.answer("❌ 你没有权限删除这个资源橱窗", show_alert=True)
+        return
+
+    if status == "not_found":
+
+
+        await callback.answer("⚠️ 这个资源橱窗已不存在", show_alert=True)        
+        
+    elif status == "error":
+        await callback.answer("❌ 删除资源橱窗失败，请稍后再试", show_alert=True)
+        print(f"❌ delete_user_collection error: {ret.get('error')}", flush=True)
+        return
+
+    pg_ret = await PGPool.delete_user_collection(collection_id=cid, user_id=user_id)
+    if pg_ret.get("status") == "error":
+        print(f"⚠️ sync delete user_collection to PG failed: {pg_ret.get('error')}", flush=True)
+
+    await PGPool.delete_cache(f"user:clt:{user_id}:{(RESULTS_PER_PAGE+1)}:0",False)
+    await PGPool.delete_cache(f"user:clt:{user_id}:")
+    await PGPool.delete_cache(f"fav:clt:{user_id}:")    
+    await MySQLPool.delete_cache(f"user:clt:{user_id}:")
+    await MySQLPool.delete_cache(f"fav:clt:{user_id}:")
+    await MySQLPool.delete_cache(f"collection_info_{cid}")
+
+
+
+    await _edit_caption_or_text(
+        photo=lz_var.skins['clt_my']['file_id'],
+        msg=callback.message,
+        text="资源橱窗已删除，以下是你的资源橱窗列表 (重整后更新)",
+        reply_markup=await build_collections_keyboard(user_id=user_id, page=0, mode="mine"),
+        state=state,
+    )
+
+
+
+    await callback.answer("✅ 已删除资源橱窗")
 
 @router.callback_query(F.data == "clt_favorite")
 async def handle_clt_favorite(callback: CallbackQuery,state: FSMContext):
@@ -3920,6 +4042,17 @@ def _build_clt_info_caption(rec: dict) -> str:
     )
 
 
+def _build_clt_delete_confirm_keyboard(cid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⚠️ 确认删除", callback_data=f"clt:del:{cid}:0:confirm"),
+                InlineKeyboardButton(text="↩️ 取消", callback_data=f"clt:del:{cid}:0:cancel"),
+            ]
+        ]
+    )
+
+
 #collection > 资源橱窗 Partal > 资源橱窗列表 CollectionList > [单一资源橱窗页 CollectionDetail] > 显示资源橱窗内容 CollectItemList 或 编辑资源橱窗 CollectionEdit
 def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: str = 'handle_clt_fav') -> InlineKeyboardMarkup:
     kb_rows: list[list[InlineKeyboardButton]] = []
@@ -3937,11 +4070,12 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
 
     if mode == 'edit':
         nav_row.append(InlineKeyboardButton(text="🔧 编辑", callback_data=f"clt:edit:{cid}:0:k"))
+        nav_row.append(InlineKeyboardButton(text="❌ 删除", callback_data=f"clt:del:{cid}:0:ask"))
     else: 
         fav_text = "❌ 取消收藏" if is_fav else "🩶 收藏"
         nav_row.append(InlineKeyboardButton(text=fav_text, callback_data=f"uc:fav:{cid}"))
 
-    nav_row.append(InlineKeyboardButton(text="🚀 推广", callback_data=f"promote_clt:{cid}"))
+    
 
     
 
@@ -3949,11 +4083,12 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
         kb_rows.append(nav_row)  
 
     shared_url = f"https://t.me/{lz_var.bot_username}?start=clt_{cid}"
-    kb_rows.append([
-        InlineKeyboardButton(text="🔗 复制链结", copy_text=CopyTextButton(text=shared_url)),
-        InlineKeyboardButton(text="📤 上传橱窗", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upclt_{cid}")
-        ])
-
+    nav_row2: list[InlineKeyboardButton] = []
+    nav_row2.append(InlineKeyboardButton(text="🔗 复制链结", copy_text=CopyTextButton(text=shared_url)))
+    nav_row2.append(InlineKeyboardButton(text="📤 上传橱窗", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upclt_{cid}"))
+    nav_row2.append(InlineKeyboardButton(text="🚀 推广", callback_data=f"promote_clt:{cid}"))
+    if nav_row2:
+        kb_rows.append(nav_row2)  
   
 
 
@@ -4017,7 +4152,28 @@ async def _build_clt_info( cid: int, user_id: int, mode: str = 'view', ops:str =
     rec = await PGPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
     if not rec:
         # return await message.answer("⚠️ 未找到该收藏")
-        return {"success": False, "message": "未找到该收藏"}
+        await PGPool.delete_cache(f"collection_info_{cid}")
+        await PGPool.delete_cache(f"user:clt:{user_id}:")
+        return {"success": False, "message": "未找到该收藏 (4094)"}
+
+    owner_user_id = int(rec.get("user_id") or 0)
+    public_flag = int(rec.get("is_public") or 0)
+    has_permission = int(user_id) == owner_user_id or int(user_id) in ADMIN_IDS
+
+
+
+    print(f"collection {cid} info: public_flag={public_flag}, owner_user_id={owner_user_id}, current_user_id={user_id}, has_permission={has_permission}, ADMIN_IDS={ADMIN_IDS}", flush=True)
+
+    if public_flag == 0 and not has_permission:
+        return {
+            "success": True,
+            "caption": "⚠️ 这个资源橱窗未公开",
+            "reply_markup": InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 返回收藏的资源橱窗", callback_data="clt_favorite")]
+                ]
+            ),
+        }
         
     
     # 是否已收藏（用于按钮文案）
@@ -4142,7 +4298,7 @@ async def _get_clti_list(cid,page,user_id,mode):
         stag = "cm"
         print(f"mode={mode}")
         if mode == 'list':
-            fix_href = f'<a href="https://t.me/{lz_var.bot_username}?start=rci_{f.get("id")}_{page}">❌</a> '
+            fix_href = f'<a href="https://t.me/{lz_var.bot_username}?start=rci_{cid}_{f.get("id")}_{page}">❌</a> '
             stag = "cm"
         elif mode == 'flist':
             fix_href = ''
@@ -4173,7 +4329,7 @@ async def handle_uc_info(callback: CallbackQuery,state: FSMContext):
     bot_name = getattr(lz_var, "bot_username", None) or "luzaitestbot"
     rec = await PGPool.get_collection_detail_with_cover(collection_id=cid, bot_name=bot_name)
     if not rec:
-        await callback.answer("未找到该收藏", show_alert=True); return
+        await callback.answer("未找到该收藏 (4250)", show_alert=True); return
     is_fav = await PGPool.is_collection_favorited(user_id=callback.from_user.id, collection_id=cid)
     await _edit_caption_or_text(callback.message, text=_build_clt_info_caption(rec), reply_markup=_build_clt_info_keyboard(cid, is_fav),state= state)
     await callback.answer()

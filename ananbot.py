@@ -3635,8 +3635,8 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
     await bot.set_my_commands(
         commands=[
             # BotCommand(command="s", description="使用搜索"),
-            BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
             BotCommand(command="start", description="首页菜单"),
+            BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
             # BotCommand(command="sub", description="订阅通知"),
             # BotCommand(command="me", description="查看积分"),
             # BotCommand(command="rank", description="排行"),

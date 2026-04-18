@@ -74,7 +74,7 @@ class MenuBase:
 async def _pin_and_delete_service_message(_bot: Bot, chat_id: int, message_id: int) -> None:
     """置顶并登记待清理目标，交由 pinned_message 事件处理器删除系统提示。"""
     async with _pending_pin_lock:
-        _pending_pin_cleanup[(int(chat_id), int(message_id))] = time.time() + 30
+        _pending_pin_cleanup[(int(chat_id), int(message_id))] = time.time() + 15
 
     await _bot.pin_chat_message(
         chat_id=chat_id,

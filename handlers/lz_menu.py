@@ -1340,6 +1340,16 @@ def upload_menu_keyboard():
     ])
 
 
+@router.message()
+async def delete_pin_service_message(message: Message):
+    # 判断：这是一条 pin 服务消息
+    if message.pinned_message:
+        try:
+            await message.delete()
+        except Exception as e:
+            print(f"删除 pin 提示失败: {e}")
+
+
 @router.message(Command("reload"))
 async def handle_reload(message: Message, state: FSMContext, command: Command = Command("reload")):
     load_result = await Tplate.load_or_create_skins(if_del=True, get_file_ids_fn=PGPool.get_file_id_by_file_unique_id)

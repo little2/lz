@@ -55,7 +55,7 @@ USER_SESSION    = str(API_ID) + 'session_name'  # 确保与上传的会话文件
 MYSQL_HOST      = config.get('db_host', os.getenv('MYSQL_DB_HOST', 'localhost'))
 MYSQL_USER      = config.get('db_user', os.getenv('MYSQL_DB_USER', ''))
 MYSQL_PASSWORD  = config.get('db_password', os.getenv('MYSQL_DB_PASSWORD', ''))
-MYSQL_DB        = config.get('db_name', os.getenv('MYSQL_DB_NAME', ''))
+MYSQL_DB        = config.get('db_name') or os.getenv('MYSQL_DB_NAME') or os.getenv('MYSQL_DB', '')
 MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))

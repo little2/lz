@@ -29,5 +29,4 @@ ranking_earn.html
 watermark_verify_output/
 input.png
 man_last_message_id.txt
-
-utils/remote_setting_cache.json
+cache/

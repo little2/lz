@@ -54,6 +54,9 @@ class LzFSM(StatesGroup):
 
 lz_var.skins = {}  # 皮肤配置
 
+from shared_config import SharedConfig
+SharedConfig.load()
+
 
 def create_user_client():
     if SESSION_STRING:
@@ -291,12 +294,7 @@ async def main():
         await close_bot_session(bot, "Bot")
         return
 
-    # 启动时先更新一次远端设置（与 /update_setting 行为一致）
-    try:
-        refreshed_name = lz_menu.refresh_setting()
-        print(f"✅ 启动已更新 UPLOADER_BOT_NAME: {refreshed_name}", flush=True)
-    except Exception as e:
-        print(f"⚠️ 启动更新设置失败: {e}", flush=True)
+
     
     # user_client = create_user_client()
     # lz_var.user_client = user_client

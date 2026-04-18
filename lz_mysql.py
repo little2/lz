@@ -64,6 +64,8 @@ class MySQLPool(LYBase):
 
         async with cls._lock:
             if cls._pool is None:
+                if not MYSQL_DB:
+                    raise RuntimeError("MYSQL_DB is empty; set db_name, MYSQL_DB_NAME, or MYSQL_DB before initializing MySQLPool")
                 cls._pool = await aiomysql.create_pool(
                     host=MYSQL_HOST,
                     user=MYSQL_USER,

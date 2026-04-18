@@ -7,7 +7,7 @@ from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, 
 from aiogram.types import FSInputFile
 from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
-from utils.remote_setting import _load_local_setting
+
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
 from lz_config import AES_KEY,UPLOADER_BOT_NAME
@@ -25,7 +25,8 @@ import hashlib
 import tempfile
 import os
 from aiogram.fsm.storage.base import StorageKey
-
+from shared_config import SharedConfig
+SharedConfig.load()
 
 _pending_pin_cleanup: dict[tuple[int, int], float] = {}
 _pending_pin_lock = asyncio.Lock()
@@ -133,25 +134,12 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     """
     _bot = bot or lz_var.bot
 
-    if lz_var.publish_bot_name is None:
-        publish_me = await _bot.get_me()
-        lz_var.publish_bot_name = publish_me.username
+    global SharedConfig
+    publish_bot_name = SharedConfig.get("publish_bot_name") or ""
+    uploader_bot_name = SharedConfig.get("uploader_bot_name") or ""
 
-    uploader_bot_name = lz_var.uploader_bot_name
-    if not uploader_bot_name:
-        local_setting = _load_local_setting()
-        uploader_bot_name = (local_setting or {}).get("uploader_bot_name")
 
-    if not uploader_bot_name:
-        uploader_bot_name = UPLOADER_BOT_NAME
 
-    if not uploader_bot_name:
-        print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
-        mebot = await _bot.get_me()
-        uploader_bot_name = mebot.username
-
-    lz_var.uploader_bot_name = uploader_bot_name
-    print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
 
     retGuild = None
     review_status = None
@@ -203,22 +191,21 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
         content = await Tplate.pure_text_tpl(tpl_data)
 
-
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="👀 看看先",
-                    url=f"https://t.me/{lz_var.publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
+                    url=f"https://t.me/{publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
                 ),
                 InlineKeyboardButton(
                     text="🐥 上传鲁馆",
-                    url=f"https://t.me/{lz_var.uploader_bot_name}?start=upload"
+                    url=f"https://t.me/{uploader_bot_name}?start=upload"
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="🔎 进阶搜索",
-                    url=f"https://t.me/{lz_var.publish_bot_name}?start=search"
+                    url=f"https://t.me/{publish_bot_name}?start=search"
                 )
             ],          
         ])
@@ -285,7 +272,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
 
         tpl_data["text"] = content
-        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{lz_var.publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
+        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
         tpl_data["bot_name"] = 'luzai4001bot'
         tpl_data["business_type"] = 'xlj'
         tpl_data["content_id"] = tpl_data.get("id")

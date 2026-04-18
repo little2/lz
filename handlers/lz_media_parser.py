@@ -21,6 +21,9 @@ router = Router()
 
 from utils.media_utils import Media
 
+from shared_config import SharedConfig
+SharedConfig.load()
+
 def parse_caption_json(caption: str):
     try:
         data = json.loads(caption)
@@ -218,11 +221,13 @@ async def handle_media_message(message: Message, state: FSMContext):
 
     if current_state is None and user_id != lz_var.x_man_bot_id and message.chat.type == "private":
 
+        updater_bot_name = SharedConfig.get("uploader_bot_name") or "unknown_bot"
+
         kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🤖 鲁仔三号", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upload")]
+                [InlineKeyboardButton(text="🤖 鲁仔三号", url=f"https://t.me/{updater_bot_name}?start=upload")]
             ])
 
-        await message.reply(f"为了让机器人的效率最高，上传资源请找鲁仔三号 @{UPLOADER_BOT_NAME}",parse_mode="HTML", reply_markup=kb)
+        await message.reply(f"为了让机器人的效率最高，上传资源请找鲁仔三号 @{updater_bot_name}",parse_mode="HTML", reply_markup=kb)
         print(
             f"[MEDIA] 普通媒体进入 handle_media_message | "
             f"user={user_id} state={current_state}",

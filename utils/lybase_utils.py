@@ -1,147 +1,10 @@
-# # transaction_mixin.py
-# import time
-
-# class LYBase:
-
-
-#     @classmethod
-#     async def transaction_log(cls, transaction_data):
-      
-#         # timer.lap("get_conn_cursor")
-#         conn, cur = await cls.get_conn_cursor()
-#         # timer.lap("get_conn_cursor-END")
-#         # print(f"🔍 处理交易记录: {transaction_data}")
-
-#         user_info_row = None
-
-#         if transaction_data.get('transaction_description', '') == '':
-#             return {'ok': '', 'status': 'no_description', 'transaction_data': transaction_data}
-
-        
-#         try:
-#             # 构造 WHERE 条件
-#             where_clauses = []
-#             params = []
-
-#             if transaction_data.get('sender_id', '') != '':
-#                 where_clauses.append('sender_id = %s')
-#                 params.append(transaction_data['sender_id'])
-
-#             if transaction_data.get('receiver_id', '') != '':
-#                 where_clauses.append('receiver_id = %s')
-#                 params.append(transaction_data['receiver_id'])
-
-#             where_clauses.append('transaction_type = %s')
-#             params.append(transaction_data['transaction_type'])
-
-#             where_clauses.append('transaction_description = %s')
-#             params.append(transaction_data['transaction_description'])
-
-#             where_sql = ' AND '.join(where_clauses)
-
-#             # 查询是否已有相同记录
-#             # timer.lap("查询是否已有相同记录")
-
-#             await cur.execute(f"""
-#                 SELECT transaction_id FROM transaction
-#                 WHERE {where_sql}
-#                 LIMIT 1
-#             """, params)
-
-#             # timer.lap("查询是否已有相同记录END")
-
-#             transaction_result = await cur.fetchone()
-
-#             if transaction_result and transaction_result.get('transaction_id'):
-#                 return {'ok': '1', 'status': 'exist', 'transaction_data': transaction_result}
-
-#             # 禁止自己打赏自己
-#             if transaction_data.get('sender_id') == transaction_data.get('receiver_id'):
-#                 return {'ok': '', 'status': 'reward_self', 'transaction_data': transaction_data}
-
-#             # 更新 sender point
-#             if transaction_data.get('sender_id', '') != '' and transaction_data.get('sender_fee', 0) != 0:
-
-               
-#                 try:
-#                     await cur.execute("""
-#                         SELECT * 
-#                         FROM user 
-#                         WHERE user_id = %s
-#                         LIMIT 0, 1
-#                     """, (transaction_data['sender_id'],))
-#                     user_info_row = await cur.fetchone()
-#                 except Exception as e:
-#                     print(f"⚠️ 数据库执行出错: {e}")
-#                     user_info_row = None
-            
-#                 if not user_info_row or user_info_row['point'] < abs(transaction_data['sender_fee']):
-#                     return {'ok': '', 'status': 'insufficient_funds', 'transaction_data': transaction_data, 'user_info': user_info_row}
-#                 else:
-
-#                     if transaction_data['sender_fee'] > 0:
-#                         transaction_data['sender_fee'] = transaction_data['sender_fee'] * (-1)
-#                     # 扣除 sender point
-#                     await cur.execute("""
-#                         UPDATE user
-#                         SET point = point + %s
-#                         WHERE user_id = %s
-#                     """, (transaction_data['sender_fee'], transaction_data['sender_id']))
-
-               
-
-#             # 更新 receiver point，如果不在 block list
-#             if transaction_data.get('receiver_id', '') != '':
-#                 if not await cls.in_block_list(transaction_data['receiver_id']):
-#                     await cur.execute("""
-#                         UPDATE user
-#                         SET point = point + %s
-#                         WHERE user_id = %s
-#                     """, (transaction_data['receiver_fee'], transaction_data['receiver_id']))
-
-#             # 插入 transaction 记录
-#             transaction_data['transaction_timestamp'] = int(time.time())
-
-#             insert_columns = ', '.join(transaction_data.keys())
-#             insert_placeholders = ', '.join(['%s'] * len(transaction_data))
-#             insert_values = list(transaction_data.values())
-
-#             # timer.lap("INSERT")
-
-#             await cur.execute(f"""
-#                 INSERT INTO transaction ({insert_columns})
-#                 VALUES ({insert_placeholders})
-#             """, insert_values)
-
-#             transaction_id = cur.lastrowid
-#             transaction_data['transaction_id'] = transaction_id
-
-#             # 可选的 transaction_cache 插入
-#             # if transaction_data['transaction_type'] == 'award':
-#             #     await cur.execute("""
-#             #         INSERT INTO transaction_cache (sender_id, receiver_id, transaction_type, transaction_timestamp)
-#             #         VALUES (%s, %s, %s, %s)
-#             #     """, (
-#             #         transaction_data['sender_id'],
-#             #         transaction_data['receiver_id'],
-#             #         transaction_data['transaction_type'],
-#             #         transaction_data['transaction_timestamp']
-#             #     ))
-
-#             return {'ok': '1', 'status': 'insert', 'transaction_data': transaction_data,'user_info': user_info_row}
-
-#         finally:
-#             await cls.release(conn, cur)
-
 import lz_var
 from lz_config import ENVIRONMENT, UPLOADER_BOT_NAME, PUBLISH_BOT_NAME
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
 from datetime import datetime
-
-
-
 import time
+from shared_config import SharedConfig
+SharedConfig.load()
 
 class LYBase:
 
@@ -470,32 +333,40 @@ class LYBase:
 
     @classmethod
     def main_menu_keyboard(cls):
+
+    
+        publish_bot_name = SharedConfig.get("publish_bot_name") or ""
+        uploader_bot_name = SharedConfig.get("uploader_bot_name") or ""
+        guider_bot_name = SharedConfig.get("guider_bot_name") or ""
+
+
+
         keyboard = [
             [
-                InlineKeyboardButton(text="🔍 搜索", url=f"https://t.me/{lz_var.publish_bot_name}?start=search", callback_data="search"),
-                InlineKeyboardButton(text="🏆 排行", url=f"https://t.me/{lz_var.publish_bot_name}?start=rank",callback_data="ranking"),
+                InlineKeyboardButton(text="🔍 搜索", url=f"https://t.me/{publish_bot_name}?start=search", callback_data="search"),
+                InlineKeyboardButton(text="🏆 排行", url=f"https://t.me/{publish_bot_name}?start=rank",callback_data="ranking"),
             ],
         ]
 
         # 仅在 dev 环境显示「资源橱窗」 PUBLISH_BOT_TOKEN
   
         keyboard.append([
-            InlineKeyboardButton(text="🪟 资源橱窗", url=f"https://t.me/{lz_var.publish_bot_name}?start=collection",callback_data="collection"),
-            InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{lz_var.publish_bot_name}?start=history", callback_data="my_history"),
+            InlineKeyboardButton(text="🪟 资源橱窗", url=f"https://t.me/{publish_bot_name}?start=collection",callback_data="collection"),
+            InlineKeyboardButton(text="🕑 我的历史", url=f"https://t.me/{publish_bot_name}?start=history", callback_data="my_history"),
         ])
 
 
         keyboard.append([
             InlineKeyboardButton(
                 text="📤 上传资源",
-                url=f"https://t.me/{lz_var.uploader_bot_name}?start=upload"
+                url=f"https://t.me/{uploader_bot_name}?start=upload"
             )
         ])
 
         keyboard.append([
             InlineKeyboardButton(
                 text="🐲 小龙阳",
-                url=f"https://t.me/{lz_var.guider_bot_name}?start=map"
+                url=f"https://t.me/{guider_bot_name}?start=map"
             )
         ])
 

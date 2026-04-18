@@ -68,8 +68,9 @@ from utils.product_utils import build_product_material,sync_sora,sync_product_by
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
 from utils.product_utils import sync_bot, sync_table_by_pks,sync_album_items, should_cleanup_pinned_service_message
 from utils.action_gate import ActionGate
-from utils.remote_setting import _fetch_remote_bot_setting
 
+from shared_config import SharedConfig
+SharedConfig.load()
 
 
 from pathlib import Path
@@ -86,20 +87,7 @@ from urllib.parse import quote as url_quote
 router = Router()
 
 
-def refresh_setting() -> str:
-    global UPLOADER_BOT_NAME
-    
 
-    remote_setting = _fetch_remote_bot_setting()
-   
-    
-    latest_name = (remote_setting or {}).get('uploader_bot_name')
-    if latest_name:
-        UPLOADER_BOT_NAME = latest_name
-    print(f"uploader==>{lz_var.uploader_bot_name}", flush=True)
-    lz_var.uploader_bot_name = UPLOADER_BOT_NAME
-    print(f"🔄 Refreshed setting: UPLOADER_BOT_NAME={UPLOADER_BOT_NAME}-{lz_var.uploader_bot_name}", flush=True)
-    return UPLOADER_BOT_NAME
 
 
 @router.message(F.pinned_message)
@@ -1345,8 +1333,9 @@ def guess_menu_keyboard():
 
 # == 资源上传菜单 ==
 def upload_menu_keyboard():
+    uploader_bot_name = SharedConfig.get("uploader_bot_name") or ""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{lz_var.uploader_bot_name}?start=upload")],
+        [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{uploader_bot_name}?start=upload")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
 
@@ -1367,9 +1356,8 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
 
 @router.message(Command("update_setting"))
 async def handle_update_setting(message: Message, state: FSMContext):
-    latest_name = refresh_setting()
-
-    await message.answer(f"✅ 已更新 UPLOADER_BOT_NAME: {latest_name}")
+    SharedConfig.load()
+    await message.answer(f"✅ 已更新 UPLOADER_BOT_NAME: {SharedConfig.get('uploader_bot_name')}")
 
 
     

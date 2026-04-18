@@ -3,8 +3,7 @@ import os
 import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
-
-import requests
+from urllib import error, request
 
 SETTING_URL = os.getenv('SETTING_URL')
 
@@ -28,9 +27,13 @@ class SharedConfig:
         """
         从远端 API 下载 JSON
         """
-        response = requests.get(cls.API_URL, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        try:
+            with request.urlopen(cls.API_URL, timeout=10) as response:
+                payload = response.read().decode("utf-8", errors="ignore")
+        except error.URLError:
+            raise
+
+        data = json.loads(payload or "{}")
 
         if not isinstance(data, dict):
             raise ValueError("API 返回格式不是 dict")

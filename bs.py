@@ -1228,7 +1228,8 @@ def tpl(stock_row,user_id):
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="◀️",url=f"https://t.me/tangest2_bot?start=ref_7681995255"),  
+                    # InlineKeyboardButton(text="◀️",url=f"https://t.me/tangest2_bot?start=ref_7681995255"),  
+                    InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
                     InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
                     InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
                 ],

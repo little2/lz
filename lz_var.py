@@ -26,7 +26,7 @@ x_bk_man_bot_id = 7606450690
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
 
 helper_bot_name = 'lyjwcbot'
-guider_bot_name = 'xiaolongyang003bot'
+guider_bot_name = 'xiaolongyang005bot'
 publish_bot_name: str = None 
 uploader_bot_name: str = None  #
 

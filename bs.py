@@ -883,6 +883,15 @@ async def handle_media_message(message: Message, bot: Bot):
         )
         return 
 
+    # 新增限制，只收来自 7294369541 的转发
+    if message.forward_from and message.forward_from.id != 7294369541:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text="🙏 施主，贫僧只收来自「贝壳邮局」的转发，望施主莫怪。",
+            reply_to_message_id=message.message_id,
+        )
+        return
+
     # 文件名 / caption 用来当展示文字
     file_name = video.file_name or ""
     caption = file_name or (message.caption or "")

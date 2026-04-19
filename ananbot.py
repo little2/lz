@@ -57,6 +57,7 @@ import time
 from pathlib import Path
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
+from shared_config import SharedConfig
 from lexicon_manager import LexiconManager
 
 
@@ -3637,6 +3638,7 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
             # BotCommand(command="s", description="使用搜索"),
             BotCommand(command="start", description="首页菜单"),
             BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
+            
             # BotCommand(command="sub", description="订阅通知"),
             # BotCommand(command="me", description="查看积分"),
             # BotCommand(command="rank", description="排行"),
@@ -3650,6 +3652,16 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
 
 
 
+
+
+@dp.message(F.chat.type == "private", Command("update_setting"))
+async def handle_update_setting(message: Message, state: FSMContext):
+    try:
+        SharedConfig.load(True)
+        await message.answer("✅ 共享设定已更新。")
+    except Exception as e:
+        print(f"⚠️ update_setting failed: {e}", flush=True)
+        await message.answer("⚠️ 更新共享设定失败，请稍后重试。")
 
 
 ############

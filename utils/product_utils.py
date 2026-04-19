@@ -231,7 +231,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 )
                 print("  📌 已置顶贤师楼(讨论)频道消息", flush=True)
             except Exception as pin_e:
-                print(f"  ⚠️ 萨莱区消息发送成功，但置顶失败: {pin_e}", flush=True)
+                print(f"  ⚠️ 贤师楼消息发送成功，但置顶失败: {pin_e}", flush=True)
 
 
             print(f"  ✅ 发送到贤师楼(讨论)频道成功", flush=True)

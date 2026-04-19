@@ -883,8 +883,17 @@ async def handle_media_message(message: Message, bot: Bot):
         )
         return 
 
-    # 新增限制，只收来自 7294369541 的转发
-    if message.forward_from and message.forward_from.id != 7294369541:
+    # print(f"{message}")
+
+    # 只收来自指定来源的转发
+    forward_user_id = None
+    if message.forward_origin and getattr(message.forward_origin, "type", "") == "user":
+        sender_user = getattr(message.forward_origin, "sender_user", None)
+        forward_user_id = getattr(sender_user, "id", None)
+    elif message.forward_from:
+        forward_user_id = message.forward_from.id
+
+    if forward_user_id != 7294369541:
         await bot.send_message(
             chat_id=message.chat.id,
             text="🙏 施主，贫僧只收来自「贝壳邮局」的转发，望施主莫怪。",

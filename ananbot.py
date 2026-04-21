@@ -26,7 +26,7 @@ from aiogram.types import (
  
 
 
-from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest
+from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest, TelegramUnauthorizedError
 from utils.tpl import Tplate
 from aiogram.enums import ChatAction,ContentType
 from aiogram.filters import Command,CommandObject
@@ -59,12 +59,18 @@ from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
 from shared_config import SharedConfig
 from lexicon_manager import LexiconManager
+SharedConfig.load()
+
+publish_bot_token = SharedConfig.get("publish_bot_token", PUBLISH_BOT_TOKEN)
+my_bot_token = SharedConfig.get("my_bot_token", BOT_TOKEN)
 
 
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=my_bot_token)
 lz_var.bot = bot
 
-publish_bot = Bot(token=PUBLISH_BOT_TOKEN)
+
+publish_bot = Bot(token=publish_bot_token)
+
 
 switchbot = Bot(token=SWITCHBOT_TOKEN)
 lz_var.switchbot = switchbot
@@ -6221,16 +6227,15 @@ async def keep_alive_ping():
 async def main():
     logging.basicConfig(level=logging.INFO)
     global bot_username, publish_bot, PUBLISH_BOT_USERNAME
-    bot_username = await get_bot_username()
-    print(f"\r\n===================================\r\n🤖 当前 bot 用户名：@{bot_username}")
-    
-    me = await publish_bot.get_me()
-    PUBLISH_BOT_USERNAME = me.username
-    lz_var.publish_bot_name = PUBLISH_BOT_USERNAME
-
-
-   # ✅ 初始化 MySQL 连接池
     try:
+        bot_username = await get_bot_username()
+        print(f"\r\n===================================\r\n🤖 当前 bot 用户名：@{bot_username}")
+
+        me = await publish_bot.get_me()
+        PUBLISH_BOT_USERNAME = me.username
+        lz_var.publish_bot_name = PUBLISH_BOT_USERNAME
+
+        # ✅ 初始化 MySQL 连接池
         await AnanBOTPool.init_pool()
         await MySQLPool.init_pool()
 
@@ -6287,6 +6292,10 @@ async def main():
 
             print("【Aiogram】Bot（纯 Bot-API） 已启动，监听私聊＋群组媒体。", flush=True)
             await dp.start_polling(bot)  # Aiogram 轮询
+    except TelegramUnauthorizedError as e:
+        print("❌ Telegram 授权失败：请检查 BOT_TOKEN / PUBLISH_BOT_TOKEN / SWITCHBOT_TOKEN 是否正确", flush=True)
+        print(f"❌ 详细错误：{e}", flush=True)
+        raise
     finally:
         try:
             await MySQLPool.close()

@@ -2351,6 +2351,7 @@ async def _load_content(message:Message, state:FSMContext ,content_id, parts):
 @router.callback_query(F.data.startswith("sora_operation:"))
 async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext):
     # 解析 content_id
+    uploader_bot_name = SharedConfig.get("uploader_bot_name", UPLOADER_BOT_NAME)
    
     try:
         _, content_id_str = callback.data.split(":", 1)
@@ -2425,7 +2426,7 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
         encoded = aes.aes_encode(content_id)
     
         rows_kb.append([
-            InlineKeyboardButton(text="📝 编辑", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=r_{encoded}")
+            InlineKeyboardButton(text="📝 编辑", url=f"https://t.me/{uploader_bot_name}?start=r_{encoded}")
         ])
     else:
         rows_kb.append([
@@ -2456,6 +2457,7 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
 
 @router.callback_query(F.data.startswith("sora_op:return_edit:"))
 async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext):
+    uploader_bot_name = SharedConfig.get("uploader_bot_name", UPLOADER_BOT_NAME)
     try:
         _, _, content_id_str = callback.data.split(":", 2)
         content_id = int(content_id_str)
@@ -2488,12 +2490,12 @@ async def handle_sora_op_return_edit(callback: CallbackQuery, state: FSMContext)
     rows_kb: list[list[InlineKeyboardButton]] = []
 
     rows_kb.append([
-        InlineKeyboardButton(text="📝 编辑", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=r_{encoded}")
+        InlineKeyboardButton(text="📝 编辑", url=f"https://t.me/{uploader_bot_name}?start=r_{encoded}")
     ])
 
     kb = InlineKeyboardMarkup(inline_keyboard=rows_kb)
 
-    tip = f"✅ 已退回编辑。\n请使用 @{UPLOADER_BOT_NAME} 修改资料，修改完成后需重新审核才能上架。"
+    tip = f"✅ 已退回编辑。\n请使用 @{uploader_bot_name} 修改资料，修改完成后需重新审核才能上架。"
 
     # 退回后仍停留在管理页，或你也可以直接返回上一页（这里先停留）
     await _edit_caption_or_text(callback.message, text=tip, reply_markup=kb, state=state)
@@ -4055,6 +4057,7 @@ def _build_clt_delete_confirm_keyboard(cid: int) -> InlineKeyboardMarkup:
 
 #collection > 资源橱窗 Partal > 资源橱窗列表 CollectionList > [单一资源橱窗页 CollectionDetail] > 显示资源橱窗内容 CollectItemList 或 编辑资源橱窗 CollectionEdit
 def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: str = 'handle_clt_fav') -> InlineKeyboardMarkup:
+    uploader_bot_name = SharedConfig.get("uploader_bot_username", UPLOADER_BOT_NAME)
     kb_rows: list[list[InlineKeyboardButton]] = []
 
     print(f"ops={ops}")
@@ -4085,7 +4088,7 @@ def _build_clt_info_keyboard(cid: int, is_fav: bool, mode: str = 'view', ops: st
     shared_url = f"https://t.me/{lz_var.bot_username}?start=clt_{cid}"
     nav_row2: list[InlineKeyboardButton] = []
     nav_row2.append(InlineKeyboardButton(text="🔗 复制链结", copy_text=CopyTextButton(text=shared_url)))
-    nav_row2.append(InlineKeyboardButton(text="📤 上传橱窗", url=f"https://t.me/{UPLOADER_BOT_NAME}?start=upclt_{cid}"))
+    nav_row2.append(InlineKeyboardButton(text="📤 上传橱窗", url=f"https://t.me/{uploader_bot_name}?start=upclt_{cid}"))
     nav_row2.append(InlineKeyboardButton(text="🚀 推广", callback_data=f"promote_clt:{cid}"))
     if nav_row2:
         kb_rows.append(nav_row2)  
@@ -5047,7 +5050,8 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
 
 
         feedback_kb = None
-        if UPLOADER_BOT_NAME and source_id:
+        uploader_bot_name = SharedConfig.get("uploader_bot_username", UPLOADER_BOT_NAME)
+        if uploader_bot_name and source_id:
             feedback_kb = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
         try:
             send_content_kwargs = dict(chat_id=from_user_id, reply_markup=feedback_kb, protect_content=is_protect_content)
@@ -5142,14 +5146,16 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
         print(f"❌ 交易失败，未知状态: {result}", flush=True)
         # await callback.message.reply(reply_text, parse_mode="HTML")
         return
+    
 async def build_after_redeem_buttons(content_id,source_id,file_type,ret_content):
+    uploader_bot_name = SharedConfig.get("uploader_bot_username", UPLOADER_BOT_NAME)
     rows_kb: list[list[InlineKeyboardButton]] = []
 
     bottom_row = []
     bottom_row.append(
         InlineKeyboardButton(
             text="⚠️ 我要打假",
-            url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+            url=f"https://t.me/{uploader_bot_name}?start=s_{source_id}"
         )
     )
 
@@ -5286,13 +5292,13 @@ async def _build_mediagroup_box(page,source_id,content_id,material_status):
             [
                 InlineKeyboardButton(
                     text="⚠️ 我要打假",
-                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+                    url=f"https://t.me/{uploader_bot_name}?start=s_{source_id}"
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="⚠️ 跳回列表",
-                    url=f"https://t.me/{UPLOADER_BOT_NAME}?start=s_{source_id}"
+                    url=f"https://t.me/{uploader_bot_name}?start=s_{source_id}"
                 )
             ]
         )

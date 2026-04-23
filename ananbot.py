@@ -518,7 +518,9 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     file_id = product_info.get('m_file_id')
     anonymous_mode = product_info.get('anonymous_mode',1)
     owner_user_id = product_info.get('owner_user_id') or 0
-    file_type = product_info.get('file_type', '')
+    
+    product_type = product_info.get('product_type', '')
+    file_type = product_type if product_type else product_info.get('file_type', '')  # 优先用 product_type 字段（兼容老数据）
     content = product_info.get('content', '')
     
     aes = AESCrypto(AES_KEY)
@@ -569,7 +571,8 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     if(product_info['tag']  and product_info['tag'].strip() != ''):
         preview_text += f"\n\n<i>{product_info['tag']}</i>"
 
-    if product_info['file_type'] in ['a', 'album']:
+    print(f"🔍 file_type={file_type} for content_id={content_id}", flush=True)
+    if file_type in ['a', 'album']:
         content_list = await get_list(content_id)
         if(content_list  and content_list.strip() != ''):
             preview_text += f"\n\n{content_list}"
@@ -635,7 +638,7 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
                 ]
             ]
 
-        if product_info['file_type'] in ['document', 'album','d','a']:
+        if file_type in ['document', 'album','d','a']:
             buttons.append([
                 InlineKeyboardButton(text="🔒 密码", callback_data=f"set_password:{content_id}")
             ])
@@ -4134,7 +4137,7 @@ async def handle_review_button(callback_query: CallbackQuery, state: FSMContext)
             elif file_type == "album" or file_type == "a":
                 rows = await AnanBOTPool.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
                
-                productInfomation = await build_product_material(rows, content_id=content_id)
+                productInfomation = await build_product_material(rows)
                 print(f"发送相册 {productInfomation}")
                 await Media.send_media_group(callback_query, productInfomation, 1, content_id, source_id)
         except Exception as e:

@@ -64,7 +64,7 @@ from utils.aes_crypto import AESCrypto
 from utils.media_utils import Media
 from utils.tpl import Tplate
 from utils.string_utils import LZString
-from utils.product_utils import build_product_material,sync_sora,sync_product_by_user
+from utils.product_utils import sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
 from utils.product_utils import sync_bot, sync_table_by_pks,sync_album_items
 from utils.action_gate import ActionGate

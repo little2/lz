@@ -218,8 +218,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             try:
                 await _bot.pin_chat_message(
                     chat_id=-1001926574189,
-                    message_id=int(retGuild.message_id),
-                    disable_notification=True,
+                    message_id=int(retGuild.message_id)
                 )
                 print("  📌 已置顶萨莱区消息", flush=True)
             except Exception as pin_e:

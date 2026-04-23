@@ -898,6 +898,7 @@ async def handle_media_message(message: Message, bot: Bot):
             chat_id=message.chat.id,
             text="🙏 施主，贫僧只收来自「贝壳邮局」的转发，望施主莫怪。",
             reply_to_message_id=message.message_id,
+            protect_content=True,  # 防止被二次转发后暴露给非目标用户
         )
         return
 

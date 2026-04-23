@@ -28,8 +28,6 @@ from aiogram.fsm.storage.base import StorageKey
 from shared_config import SharedConfig
 SharedConfig.load()
 
-_pending_pin_cleanup: dict[tuple[int, int], float] = {}
-_pending_pin_lock = asyncio.Lock()
 _tw2s = OpenCC("tw2s")
 
 class MenuBase:
@@ -70,39 +68,6 @@ class MenuBase:
         await storage.set_data(key, storage_data)
 
     
-
-async def _pin_and_delete_service_message(_bot: Bot, chat_id: int, message_id: int) -> None:
-    """置顶并登记待清理目标，交由 pinned_message 事件处理器删除系统提示。"""
-    async with _pending_pin_lock:
-        _pending_pin_cleanup[(int(chat_id), int(message_id))] = time.time() + 15
-
-    await _bot.pin_chat_message(
-        chat_id=chat_id,
-        message_id=message_id,
-        disable_notification=True,
-    )
-
-
-async def should_cleanup_pinned_service_message(chat_id: int, pinned_target_message_id: int) -> bool:
-    """判断某条 pinned_message 系统消息是否属于本次自动清理范围。"""
-    now = time.time()
-    key = (int(chat_id), int(pinned_target_message_id))
-
-    async with _pending_pin_lock:
-        expired_keys = [k for k, ttl in _pending_pin_cleanup.items() if ttl < now]
-        for k in expired_keys:
-            _pending_pin_cleanup.pop(k, None)
-
-        if key in _pending_pin_cleanup:
-            _pending_pin_cleanup.pop(key, None)
-            return True
-
-    return False
-
-
-
-
-
     #     await MenuBase.set_menu_status(state, {
     #     "current_chat_id": menu_message.chat.id,
     #     "current_messsage_id": menu_message.message_id,
@@ -224,10 +189,10 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
             )
 
             try:
-                await _pin_and_delete_service_message(
-                    _bot,
-                    int(tpl_data["guild_chat_id"]),
-                    int(retGuild.message_id),
+                await _bot.pin_chat_message(
+                    chat_id=int(tpl_data["guild_chat_id"]),
+                    message_id=int(retGuild.message_id),
+                    disable_notification=True,
                 )
                 print("  📌 已置顶贤师楼(讨论)频道消息", flush=True)
             except Exception as pin_e:
@@ -251,10 +216,10 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 reply_markup=kb
             )
             try:
-                await _pin_and_delete_service_message(
-                    _bot,
-                    -1001926574189,
-                    int(retGuild.message_id),
+                await _bot.pin_chat_message(
+                    chat_id=-1001926574189,
+                    message_id=int(retGuild.message_id),
+                    disable_notification=True,
                 )
                 print("  📌 已置顶萨莱区消息", flush=True)
             except Exception as pin_e:

@@ -2645,7 +2645,7 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
             return await callback_query.answer("⚠️ 未找到对应商品，审核失败", show_alert=True)
         
         product_row['review_status'] = review_status  # 更新当前上下文的状态，供后续逻辑使用
-        spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
+        spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row, send_only_ly=True))
         
 
     except Exception as e:
@@ -2931,14 +2931,19 @@ async def _reject_content(product_row, reject_reason):
         
 
 
-async def _approve_content(product_row):
+async def _publish_content_and_notify_owner(product_row,  send_only_ly=False):
     global publish_bot
 
-
-    
     product_info = product_row.get("product_info") or {}
     content_id = product_info.get("id")
-    owner_user_id = product_info.get("owner_user_id")
+    owner_user_id = int(product_info.get("owner_user_id") or 0)
+    
+    if send_only_ly:
+        if owner_user_id !=0 and owner_user_id !=None and owner_user_id !=666666:
+            #如果有user_id，代表不是龙阳库的 
+            return
+
+
     result_send = await _send_to_topic(content_id)
     resource_board_url = ''
 
@@ -3032,12 +3037,13 @@ async def _sync_pg(content_id:int):
     except Exception as e:
         logging.exception(f"同步 content_id={content_id} 到 PG 失败: {e}")
 
-async def refine_sync_send(content_id,product_row):
+async def refine_sync_send(content_id, product_row, send_only_ly=False):
     # 为了要改善数据库还没更新，就被寄送到发布频道的问题
     await AnanBOTPool.refine_product_content(content_id)
     
     await _sync_pg(content_id)
-    await _approve_content(product_row)
+    
+    await _publish_content_and_notify_owner(product_row,send_only_ly)
 
 ############
 #  content     

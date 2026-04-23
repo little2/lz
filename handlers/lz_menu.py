@@ -91,15 +91,20 @@ router = Router()
 
 
 @router.message(F.pinned_message)
-async def handle_cleanup_pinned_service_message(message: Message):
+async def delete_pin_service_message(message: Message):
     pinned = getattr(message, "pinned_message", None)
     if not pinned:
         return
 
-    should_delete = await should_cleanup_pinned_service_message(
-        chat_id=message.chat.id,
-        pinned_target_message_id=pinned.message_id,
-    )
+    try:
+        should_delete = await should_cleanup_pinned_service_message(
+            chat_id=message.chat.id,
+            pinned_target_message_id=pinned.message_id,
+        )
+    except Exception as e:
+        print(f"⚠️ 判断是否清理 pin 提示失败，跳过删除: {e}", flush=True)
+        return
+
     if not should_delete:
         return
 
@@ -114,15 +119,20 @@ async def handle_cleanup_pinned_service_message(message: Message):
 
 
 @router.channel_post(F.pinned_message)
-async def handle_cleanup_pinned_service_channel_post(message: Message):
+async def delete_pin_service_channel_post(message: Message):
     pinned = getattr(message, "pinned_message", None)
     if not pinned:
         return
 
-    should_delete = await should_cleanup_pinned_service_message(
-        chat_id=message.chat.id,
-        pinned_target_message_id=pinned.message_id,
-    )
+    try:
+        should_delete = await should_cleanup_pinned_service_message(
+            chat_id=message.chat.id,
+            pinned_target_message_id=pinned.message_id,
+        )
+    except Exception as e:
+        print(f"⚠️ 频道判断是否清理 pin 提示失败，跳过删除: {e}", flush=True)
+        return
+
     if not should_delete:
         return
 
@@ -1348,16 +1358,6 @@ def upload_menu_keyboard():
         [InlineKeyboardButton(text="📤 上传资源", url=f"https://t.me/{uploader_bot_name}?start=upload")],
         [InlineKeyboardButton(text="🔙 返回首页", callback_data="go_home")],
     ])
-
-
-@router.message(F.pinned_message)
-async def delete_pin_service_message(message: Message):
-    # 判断：这是一条 pin 服务消息
-    if message.pinned_message:
-        try:
-            await message.delete()
-        except Exception as e:
-            print(f"删除 pin 提示失败: {e}")
 
 
 @router.message(Command("reload"))

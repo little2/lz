@@ -1714,7 +1714,16 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
         elif parts[0] == "history":
             await do_handle_my_history(message,state, mode="photo")    
            
+        elif parts[0] == "home":
+            current_message = await MySQLPool.show_main_menu(message) 
             
+            # await message.answer("👋 欢迎使用 LZ 机器人！请选择操作：", reply_markup=main_menu_keyboard())
+            await MenuBase.set_menu_status(state, {
+                "current_chat_id": current_message.chat.id,
+                "current_message_id": current_message.message_id,
+                "current_message": current_message,
+                "menu_message": current_message
+            })
         
         else:
             await message.answer(f"📦 你提供的参数是：`{param}`", parse_mode="HTML")

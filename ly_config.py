@@ -28,11 +28,7 @@ except Exception as e:
 API_ID          = int(config.get('api_id', os.getenv('API_ID', 0)))
 API_HASH        = config.get('api_hash', os.getenv('API_HASH', ''))
 SESSION_STRING  = os.getenv("USER_SESSION_STRING")
-
-
 PHONE_NUMBER    = config.get('phone_number', os.getenv('PHONE_NUMBER', ''))
-
-
 MYSQL_HOST      = config.get('db_host', os.getenv('MYSQL_DB_HOST', 'localhost'))
 MYSQL_USER      = config.get('db_user', os.getenv('MYSQL_DB_USER', ''))
 MYSQL_PASSWORD  = config.get('db_password', os.getenv('MYSQL_DB_PASSWORD', ''))

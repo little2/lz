@@ -3,8 +3,7 @@ from lz_config import ENVIRONMENT, UPLOADER_BOT_NAME, PUBLISH_BOT_NAME
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime
 import time
-from shared_config import SharedConfig
-SharedConfig.load()
+
 
 class LYBase:
 
@@ -333,7 +332,8 @@ class LYBase:
 
     @classmethod
     def main_menu_keyboard(cls):
-
+        from shared_config import SharedConfig
+        SharedConfig.load()
     
         publish_bot_name = SharedConfig.get("publish_bot_name") or ""
         uploader_bot_name = SharedConfig.get("uploader_bot_name") or ""

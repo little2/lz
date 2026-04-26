@@ -99,6 +99,17 @@ def today_sgt() -> date:
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
+
+def sanitize_photo_caption(caption: str) -> str:
+    """移除 caption 中包含 `Posted by` 的整行。"""
+    # 先移除 `🛒`（含）之後的內容
+    if "🛒" in caption:
+        caption = caption.split("🛒", 1)[0]
+
+    lines = caption.splitlines()
+    cleaned_lines = [line for line in lines if "posted by" not in line.lower()]
+    return "\n".join(cleaned_lines).strip()
+
 # ==========================
 # PostgreSQL 封装
 # ==========================
@@ -849,8 +860,17 @@ async def handle_media_message(message: Message, bot: Bot):
     #     print(f"[Bot] copy_message error: {e}")
 
     if message.photo:
-        print(f"photo=>{message.photo}",flush=True)
-        print(f"photo=>{message.photo[-1]}",flush=True)
+        photo_caption = sanitize_photo_caption((message.caption or "").strip())
+        sender = message.from_user
+        sender_id = sender.id if sender else None
+        sender_name = sender.full_name if sender else "unknown"
+        largest_photo = message.photo[-1]
+
+        print(
+            f"[Bot] photo received: sender_id={sender_id}, sender_name={sender_name}, "
+            f"caption={photo_caption!r}, file_id={largest_photo.file_id}",
+            flush=True,
+        )
 
     # 2) 只有 video 才参与“兑换池”
     if not message.video:

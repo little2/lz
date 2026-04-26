@@ -1017,6 +1017,60 @@ class PGPool:
 
 
     @classmethod
+    async def get_product_list(cls) -> List[Dict[str, Any]]:
+        """
+        查询某个最近上传历史（PostgreSQL 版本）
+
+        对应 MySQL 版：
+            SELECT sc.id, sc.source_id, sc.file_type, sc.content
+            FROM product p
+            LEFT JOIN sora_content sc ON p.content_id = sc.id
+            WHERE p.owner_user_id = ? AND sc.valid_state != 4
+            ORDER BY sc.id DESC
+        """
+
+        cache_key = f"pg:history:upload:recent"
+
+        # 内存缓存（短期，减轻 DB 压力）
+        if cls.cache:
+            cached = await cls.cache.get(cache_key)
+            if cached:
+                
+                print(f"🔹 PG MemoryCache hit for {cache_key}")
+                cls.cache.set(cache_key, cached, ttl=300)
+                return cached
+
+        await cls.ensure_pool()
+        conn = await cls.acquire()
+        try:
+            sql = """
+                SELECT
+                    sc.id,
+                    sc.source_id,
+                    sc.file_type,
+                    sc.content
+                FROM product p
+                LEFT JOIN sora_content sc
+                    ON p.content_id = sc.id
+                WHERE  sc.valid_state NOT IN (0, 4)
+                ORDER BY p.id DESC LIMIT 999
+            """
+            rows = await conn.fetch(sql)
+            result = [dict(r) for r in rows] if rows else []
+
+            if cls.cache:
+                cls.cache.set(cache_key, result, ttl=300)
+                print(f"🔹 PG MemoryCache set for {cache_key}, {len(result)} items")
+
+            return result
+        except Exception as e:
+            print(f"⚠️ [PG] get_product_list 出错: {e}", flush=True)
+            return []
+        finally:
+            await cls.release(conn)
+
+
+    @classmethod
     async def upsert_product_bulk_from_mysql(cls, rows: List[Dict[str, Any]]) -> int:
         """
         将 MySQL 的 product 记录批量 upsert 到 PostgreSQL 的 public.product 表。

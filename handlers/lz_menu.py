@@ -1654,7 +1654,7 @@ async def handle_start(message: Message, state: FSMContext, command: Command = C
 
 
             pass
-        elif (parts[0] in ["f", "fd", "ul", "cm", "cf"]):
+        elif (parts[0] in ["f", "fd", "ul", "cm", "cf","pr"]):
             content_id = 0
             search_key_index = parts[1]
             encoded = "_".join(parts[2:])  # 剩下的部分重新用 _ 拼接
@@ -1768,6 +1768,10 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         stag = "cf"
     elif search_from == 'fd':   
         stag = "fd"
+    elif search_from == 'pr':   
+        stag = "pr"
+
+
     elif search_from == 'ul':   
         stag = "ul"
     else:
@@ -1831,6 +1835,8 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         elif stag == 'fd':
             # 我的兑换   
             search_result = await PGPool.search_history_redeem(search_key_index)
+        elif stag == 'pr':
+            search_result = await PGPool.get_product_list()
         elif stag == 'ul':   
             search_result = await PGPool.search_history_upload(search_key_index)
             
@@ -1845,7 +1851,18 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 # print(f"搜索结果总数: {len(search_result)}", flush=True)
             except Exception as e:
                 print(f"❌ 取得索引失败：{e}", flush=True)
-    
+    else:
+        if stag == 'pr':
+           
+            search_result = await PGPool.get_product_list()
+            print(f"产品列表总数: {len(search_result)} {current_pos}", flush=True)
+            if search_result and current_pos<=0:
+                try:
+                    current_pos = get_index_by_source_id(search_result, source_id) 
+                    # print(f"搜索结果总数: {len(search_result)}", flush=True)
+                    print(f"产品列表总数: {len(search_result)} {current_pos}", flush=True)
+                except Exception as e:
+                    print(f"❌ 取得索引失败2：{e}", flush=True)
     
    
     if file_id or file_type in ['album', 'a']:
@@ -2067,7 +2084,7 @@ async def _load_content(message:Message, state:FSMContext ,content_id, parts):
         
     product_info = None
     try:
-        if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
+        if (parts[0] in ["f","fd", "ul", "cm", "cf", "pr"]):
             if parts[0] == "f" and content_id == 0:
                 print(f"{content_id}")
                 product_info = await _build_pagination_action('pageid', search_key_index, 0, state)
@@ -2106,7 +2123,7 @@ async def _load_content(message:Message, state:FSMContext ,content_id, parts):
     try:
         print(f"688:Product Info", flush=True)
         if product_info and product_info['ok']:
-            if (parts[0] in ["f","fd", "ul", "cm", "cf"]):
+            if (parts[0] in ["f","fd", "ul", "cm", "cf", "pr"]):
                 # date = await state.get_data()
                 # clti_message = date.get("menu_message")
                 try:
@@ -4304,6 +4321,11 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
             if not result:
                 await callback.answer("⚠️ 上传纪录为空", show_alert=True)
                 return   
+        elif search_from == "pr":
+            result = await PGPool.get_product_list()
+            if not result:
+                await callback.answer("⚠️ 近期列表为空", show_alert=True)
+                return
 
 
         print(f"Prefetch sora_media for pagination: {search_from}", flush=True)
@@ -4358,23 +4380,24 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         reply_markup = product_info.get("reply_markup")
 
        
-        try:    
-            result_edit_media=await callback.message.edit_media(
-                media={
-                    "type": "photo",
-                    "media": thumb_file_id,
-                    "caption": ret_content,
-                    "parse_mode": "HTML"
-                },
-                reply_markup=reply_markup
+        try:
+            # 当 cover_file_id 为空时，自动退回到 caption/text 编辑，避免 edit_media 参数校验失败
+            result_edit_media = await _edit_caption_or_text(
+                msg=callback.message,
+                text=ret_content,
+                reply_markup=reply_markup,
+                photo=thumb_file_id,
+                state=state,
+                mode="edit",
             )
 
-            await MenuBase.set_menu_status(state, {
-                "current_message": result_edit_media,
-                "menu_message": result_edit_media,
-                "current_chat_id": result_edit_media.chat.id,
-                "current_message_id": result_edit_media.message_id
-            })
+            if result_edit_media and hasattr(result_edit_media, "chat") and hasattr(result_edit_media, "message_id"):
+                await MenuBase.set_menu_status(state, {
+                    "current_message": result_edit_media,
+                    "menu_message": result_edit_media,
+                    "current_chat_id": result_edit_media.chat.id,
+                    "current_message_id": result_edit_media.message_id
+                })
 
           
             
@@ -5370,10 +5393,12 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         #     space += "ㅤ" * pad_len  # 用中点撑宽（最通用，Telegram 不会过滤）
         # ret_content += f"{space}"
 
-
+       
         if search_key_index:
             # print(f"🔍 载入搜索附加信息: {search_key_index} from {search_from}")
-            if search_from == "cm" or search_from == "cf":
+            if search_from == "pr":
+                ret_content += f"\r\n🕔 近期上传\n\n"
+            elif search_from == "cm" or search_from == "cf":
                 
                 clt_info = await PGPool.get_user_collection_by_id(collection_id=int(search_key_index))
                 

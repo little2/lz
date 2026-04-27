@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timezone, timedelta, date
@@ -109,6 +110,60 @@ def sanitize_photo_caption(caption: str) -> str:
     lines = caption.splitlines()
     cleaned_lines = [line for line in lines if "posted by" not in line.lower()]
     return "\n".join(cleaned_lines).strip()
+
+
+def parse_json_caption(caption: str) -> Optional[dict[str, Any]]:
+    """若 caption 是 JSON 物件則回傳 dict，否則回傳 None。"""
+    text = (caption or "").strip()
+    if not text:
+        return None
+
+    try:
+        data = json.loads(text)
+    except Exception:
+        return None
+
+    if isinstance(data, dict):
+        return data
+    return None
+
+
+def extract_inline_buttons(message: Message) -> dict[str, Any]:
+    """
+    解析訊息上的 inline keyboard。
+    特別擷取文字包含「复制链接」的按鈕連結（url / copy_text）。
+    """
+    result: dict[str, Any] = {
+        "buttons": [],
+        "copy_link_targets": [],
+    }
+
+    markup = getattr(message, "reply_markup", None)
+    rows = getattr(markup, "inline_keyboard", None)
+    if not rows:
+        return result
+
+    for row in rows:
+        for btn in row:
+            btn_text = getattr(btn, "text", "") or ""
+            btn_url = getattr(btn, "url", None)
+            btn_copy_text_obj = getattr(btn, "copy_text", None)
+            btn_copy_text = getattr(btn_copy_text_obj, "text", None) if btn_copy_text_obj else None
+
+            result["buttons"].append(
+                {
+                    "text": btn_text,
+                    "url": btn_url,
+                    "copy_text": btn_copy_text,
+                }
+            )
+
+            if "复制链接" in btn_text:
+                target = btn_url or btn_copy_text
+                if target:
+                    result["copy_link_targets"].append(target)
+
+    return result
 
 # ==========================
 # PostgreSQL 封装
@@ -860,17 +915,36 @@ async def handle_media_message(message: Message, bot: Bot):
     #     print(f"[Bot] copy_message error: {e}")
 
     if message.photo:
-        photo_caption = sanitize_photo_caption((message.caption or "").strip())
+        raw_caption = (message.caption or "").strip()
+        json_caption = parse_json_caption(raw_caption)
+        photo_caption = sanitize_photo_caption(raw_caption)
         sender = message.from_user
         sender_id = sender.id if sender else None
         sender_name = sender.full_name if sender else "unknown"
         largest_photo = message.photo[-1]
+        # button_info = extract_inline_buttons(message)
+        # copy_link_targets = button_info["copy_link_targets"]
 
         print(
-            f"[Bot] photo received: sender_id={sender_id}, sender_name={sender_name}, "
-            f"caption={photo_caption!r}, file_id={largest_photo.file_id}",
+            f"[Bot1] photo received: sender_id={sender_id}, sender_name={sender_name}, "
+            f"caption={photo_caption!r}, file_id={largest_photo.file_id}, file_unique_id={largest_photo.file_unique_id}",
             flush=True,
         )
+        # print(f"[Bot2] photo buttons: {button_info['buttons']}", flush=True)
+        # if copy_link_targets:
+        #     print(f"[Bot3] photo copy-link targets: {copy_link_targets}", flush=True)
+        if json_caption is not None:
+            # print(f"[Bot4] photo json caption keys: {list(json_caption.keys())}", flush=True)
+            for k, v in json_caption.items():
+                if k == "caption":
+                    photo_caption = sanitize_photo_caption(v)
+                    print(f"[Bot5] photo json caption {k} => {photo_caption}", flush=True)
+                elif k == "inline_buttons":
+                    copy_link_targets = v.get("copy_link_targets", []) if isinstance(v, dict) else []
+                    first_target = copy_link_targets[0] if copy_link_targets else None
+                    print(f"[Bot5] photo json caption {k} first_target => {first_target}", flush=True)
+                else:    
+                    print(f"[Bot5] photo json caption {k} => {v}", flush=True)
 
     # 2) 只有 video 才参与“兑换池”
     if not message.video:

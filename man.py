@@ -16,6 +16,7 @@ class GroupMediaForwarder:
 		target_group: int | str,
 		forward_to: str,
 		start_message_id: int = 1,
+		caption_json_mode: bool = False,
 		state_file: Path | None = None,
 		white_list_group_1: list[str] | None = None,
 		white_list_group_2: list[str] | None = None,
@@ -24,6 +25,7 @@ class GroupMediaForwarder:
 		self.target_group = target_group
 		self.forward_to = forward_to
 		self.default_start_message_id = start_message_id
+		self.caption_json_mode = caption_json_mode
 		self.state_file = state_file or Path(__file__).with_name("man_last_message_id.txt")
 		self.white_list_group_1 = white_list_group_1 or []
 		self.white_list_group_2 = white_list_group_2 or []
@@ -97,6 +99,82 @@ class GroupMediaForwarder:
 		state_data[str(self.target_group)] = message_id
 		self._write_state_data(state_data)
 
+	@staticmethod
+	def _extract_button_info(message) -> dict:
+		"""解析按鈕資訊，並特別提取「复制链接」按鈕連結。"""
+		buttons = []
+		copy_link_targets = []
+
+		rows = getattr(message, "buttons", None)
+		if rows:
+			for row in rows:
+				for btn in row:
+					text = getattr(btn, "text", "") or ""
+					url = getattr(btn, "url", None)
+					copy_text = getattr(btn, "copy_text", None)
+					button_obj = getattr(btn, "button", None)
+					if not url and button_obj is not None:
+						url = getattr(button_obj, "url", None)
+					if copy_text is None and button_obj is not None:
+						copy_text = getattr(button_obj, "copy_text", None)
+
+					# 某些封裝下 copy_text 可能是物件，實際值在 .text
+					if copy_text is not None and not isinstance(copy_text, str):
+						copy_text = getattr(copy_text, "text", None)
+
+					buttons.append({
+						"text": text,
+						"url": url,
+						"copy_text": copy_text,
+					})
+
+					if "复制链接" in text:
+						target = copy_text or url
+						if target:
+							copy_link_targets.append(target)
+
+		return {
+			"buttons": buttons,
+			"copy_link_targets": copy_link_targets,
+		}
+
+	@staticmethod
+	def _extract_photo_info(message) -> dict:
+		"""提取 photo 基本資訊。"""
+		photo = getattr(message, "photo", None)
+		if not photo:
+			return {"has_photo": False}
+
+		return {
+			"has_photo": True,
+			"photo_id": getattr(photo, "id", None),
+		}
+
+	def _format_caption(self, message, caption: str) -> str:
+		"""根据配置决定是否将 caption 封装为 JSON。"""
+		if not self.caption_json_mode:
+			return caption
+
+		media_type = "photo" if getattr(message, "photo", None) else (
+			"video" if getattr(message, "video", None) else (
+				"document" if getattr(message, "document", None) else "text"
+			)
+		)
+
+		payload = {
+			"caption": caption,
+			"media_type": media_type,
+			"message_id": getattr(message, "id", None),
+			"sender_id": getattr(message, "sender_id", None),
+			"date": message.date.isoformat() if getattr(message, "date", None) else None,
+		}
+
+		if media_type == "photo":
+			payload["photo"] = self._extract_photo_info(message)
+			payload["inline_buttons"] = self._extract_button_info(message)
+
+		return json.dumps(payload, ensure_ascii=False)
+
 	async def _resolve_source_entity(self, client: TelegramClient):
 		"""
 		解析來源實體：
@@ -125,9 +203,9 @@ class GroupMediaForwarder:
 				"或改用 @username 作为 target_group。"
 			) from exc
 
-	async def _resend_message(self, client: TelegramClient, forward_entity, message) -> None:
+	async def _resend_message(self, client: TelegramClient, forward_entity, message, caption_override: str | None = None) -> None:
 		"""當來源聊天禁止轉傳時，改為下載並重新發送內容。"""
-		caption = message.message or ""
+		caption = caption_override if caption_override is not None else (message.message or "")
 
 		if getattr(message, "media", None):
 			with tempfile.TemporaryDirectory(prefix="man_media_") as tmp_dir:
@@ -190,14 +268,19 @@ class GroupMediaForwarder:
 				if self.is_blacklisted(text):
 					continue
 				if self.classify_text(text) in {"group_1", "group_2"}:
-					try:
-						await client.forward_messages(
-							entity=forward_entity,
-							messages=[message.id],
-							from_peer=source_entity,
-						)
-					except ChatForwardsRestrictedError:
-						await self._resend_message(client, forward_entity, message)
+					formatted_caption = self._format_caption(message, text)
+
+					if self.caption_json_mode:
+						await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
+					else:
+						try:
+							await client.forward_messages(
+								entity=forward_entity,
+								messages=[message.id],
+								from_peer=source_entity,
+							)
+						except ChatForwardsRestrictedError:
+							await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
 					self.write_last_message_id(message.id)
 					await asyncio.sleep(1)
 
@@ -217,6 +300,7 @@ forwarder = GroupMediaForwarder(
 	target_group=-1001907741385,
 	forward_to="ziyuanbudengbot",
 	start_message_id=0,
+	caption_json_mode=False,
 	white_list_group_1=[
 		"时代峰峻","TF家族","佟弋","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞","陈浚铭",
 		"陈思罕","张桂源","朱映宸","杨智岩","严浩翔","沈子航","智恩涵","朱广伦","萌娃","人类幼崽",
@@ -237,6 +321,7 @@ forwarder2 = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="ziyuanbudengbot",
 	start_message_id=0,
+	caption_json_mode=True,
 	white_list_group_1=[
 		"儿子","TF家族","佟弋","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞","陈浚铭",
 		"陈思罕","张桂源","朱映宸","杨智岩","严浩翔","沈子航","智恩涵","朱广伦","萌娃","人类幼崽",
@@ -254,4 +339,4 @@ forwarder2 = GroupMediaForwarder(
 )
 
 if __name__ == "__main__":
-	asyncio.run(forwarder2.run())
+	asyncio.run(forwarder.run())

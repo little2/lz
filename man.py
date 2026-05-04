@@ -5,7 +5,7 @@ import random
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, FloodWaitError
 from telethon.tl.functions.channels import EditBannedRequest
@@ -55,6 +55,9 @@ async def run_health_server() -> None:
 
 
 async def main() -> None:
+	# await run_bot_script("@ccccc000_bot")
+	# await monitor_bot("@ccccc000_bot")
+
 	if FORWARDER_RUN_TARGET in {"1", "forwarder_dy"}:
 		selected_forwarder = forwarder_dy
 		selected_name = "forwarder_dy"
@@ -387,6 +390,7 @@ class GroupMediaForwarder:
 		white_list_group_1: list[str] | None = None,
 		white_list_group_2: list[str] | None = None,
 		black_list: list[str] | None = None,
+		keyword_routes: list[dict] | None = None,
 	) -> None:
 		self.target_group = target_group
 		self.forward_to = forward_to
@@ -400,6 +404,8 @@ class GroupMediaForwarder:
 		self.white_list_group_1 = white_list_group_1 or []
 		self.white_list_group_2 = white_list_group_2 or []
 		self.black_list = black_list or []
+		# keyword_routes: [{"keywords": [...], "chat_id": int|str, "thread_id": int|None}, ...]
+		self.keyword_routes: list[dict] = keyword_routes or []
 
 	# ── 工具方法 ─────────────────────────────────────────────
 
@@ -423,6 +429,17 @@ class GroupMediaForwarder:
 
 	def is_blacklisted(self, text: str) -> bool:
 		return any(kw and kw in text for kw in self.black_list)
+
+	def _match_route(self, text: str) -> dict | None:
+		"""
+		按 keyword_routes 顺序匹配第一条命中路由。
+		路由格式：{"keywords": [...], "chat_id": int|str, "thread_id": int|None}
+		"""
+		for route in self.keyword_routes:
+			for kw in route.get("keywords", []):
+				if kw and kw in text:
+					return route
+		return None
 
 	def _load_state_data(self) -> dict[str, int]:
 		if not self.state_file.exists():
@@ -573,8 +590,8 @@ class GroupMediaForwarder:
 				"或改用 @username 作为 target_group。"
 			) from exc
 
-	async def _resend_message(self, client: TelegramClient, forward_entity, message, caption_override: str | None = None) -> None:
-		"""當來源聊天禁止轉傳時，改為下載並重新發送內容。"""
+	async def _resend_message(self, client: TelegramClient, forward_entity, message, caption_override: str | None = None, reply_to: int | None = None) -> None:
+		"""當來源聊天禁止轉傳時，改為下載並重新發送內容。reply_to 用於指定 thread_id（群组话题）。"""
 		caption = caption_override if caption_override is not None else (message.message or "")
 
 		if getattr(message, "media", None):
@@ -586,6 +603,8 @@ class GroupMediaForwarder:
 						"file": downloaded_path,
 						"caption": caption,
 					}
+					if reply_to is not None:
+						send_kwargs["reply_to"] = reply_to
 
 					# 盡量保留訊息型態
 					if getattr(message, "video", None):
@@ -599,8 +618,10 @@ class GroupMediaForwarder:
 					return
 
 		if caption:
-			await client.send_message(entity=forward_entity, message=caption)
-
+					send_kwargs = {"entity": forward_entity, "message": caption}
+					if reply_to is not None:
+						send_kwargs["reply_to"] = reply_to
+					await client.send_message(**send_kwargs)
 	# ── 核心异步方法 ──────────────────────────────────────────
 
 	async def fetch_messages(self, start_message_id: int, limit: int) -> list[dict]:
@@ -655,6 +676,40 @@ class GroupMediaForwarder:
 					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 					continue
 
+				# ── keyword_routes 优先分流 ──────────────────────────
+				route = self._match_route(text)
+				if route:
+					route_entity = await client.get_entity(route["chat_id"])
+					thread_id: int | None = route.get("thread_id")
+					formatted_caption = self._format_caption(message, text)
+					print(f"[Route] id={message.id} → chat_id={route['chat_id']} thread_id={thread_id}", flush=True)
+					if self.caption_json_mode:
+						await self._resend_message(client, route_entity, message, caption_override=formatted_caption, reply_to=thread_id)
+					else:
+						try:
+							if thread_id is not None:
+								# 转发到话题 thread 需要 resend 方式才能指定 reply_to
+								await self._resend_message(client, route_entity, message, reply_to=thread_id)
+							else:
+								await client.forward_messages(
+									entity=route_entity,
+									messages=[message.id],
+									from_peer=source_entity,
+								)
+						except ChatForwardsRestrictedError:
+							await self._resend_message(client, route_entity, message, reply_to=thread_id)
+					if self.sleep_enabled:
+						sleep_seconds = random.randint(
+							min(self.sleep_min_seconds, self.sleep_max_seconds),
+							max(self.sleep_min_seconds, self.sleep_max_seconds),
+						)
+						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
+						await asyncio.sleep(sleep_seconds)
+					self.write_last_message_id(message.id)
+					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+					continue  # 路由命中后跳过白名单/默认转发逻辑
+
+				# ── 默认白名单转发逻辑 ──────────────────────────────
 				if self.skip_caption_check:
 					should_forward = True
 				else:
@@ -742,6 +797,426 @@ class GroupMediaForwarder:
 			print(f"[Wake] 检测到新消息 latest_id={new_latest_id}，从 message_id={next_start_id} 继续检查。", flush=True)
 
 
+# ════════════════════════════════════════════════════════════════
+#  BotSession — 通用对话原语（send / wait_reply / click）
+# ════════════════════════════════════════════════════════════════
+
+class BotSession:
+	"""
+	管理与单个 bot/群组的对话 session。
+	建议使用 async with 语句，保证 client 自动断开。
+
+	用法：
+	    async with BotSession("@XXHL9Bot") as s:
+	        sent = await s.send("📅 每日签到")
+	        msg  = await s.wait_reply(timeout=30)
+	        if msg:
+	            await s.click(msg, b"do_checkin")
+	"""
+
+	def __init__(self, target: int | str) -> None:
+		self.target = target
+		self._client: TelegramClient | None = None
+		self._entity = None
+
+	async def __aenter__(self) -> "BotSession":
+		self._client = _build_client()
+		await self._client.start()
+		self._entity = await self._client.get_entity(self.target)
+		return self
+
+	async def __aexit__(self, *_) -> None:
+		if self._client:
+			await self._client.disconnect()
+			self._client = None
+
+	# ── 原语方法 ─────────────────────────────────────────────
+
+	async def send(self, text: str):
+		"""发送文字消息，返回已发送的 Message 对象。"""
+		sent = await self._client.send_message(entity=self._entity, message=text)
+		print(f"[BotSession] 已发送 → {self.target} | text={text!r} | message_id={sent.id}", flush=True)
+		return sent
+
+	async def wait_reply(self, timeout: float = 30.0):
+		"""
+		等待对方下一条消息，返回 Message 对象；超时返回 None。
+		同时打印消息文字与按钮列表。
+		"""
+		reply_event: asyncio.Event = asyncio.Event()
+		received: list = []
+
+		async def _handler(event) -> None:
+			received.append(event.message)
+			reply_event.set()
+
+		self._client.add_event_handler(
+			_handler,
+			events.NewMessage(from_users=self._entity.id, incoming=True),
+		)
+		try:
+			await asyncio.wait_for(reply_event.wait(), timeout=timeout)
+		except asyncio.TimeoutError:
+			print(f"[BotSession] 等待回复超时（{timeout}s）← {self.target}", flush=True)
+			return None
+		finally:
+			self._client.remove_event_handler(_handler)
+
+		msg = received[0]
+		text = getattr(msg, "message", None) or ""
+		print(f"[BotSession] 收到回复 ← {self.target} | message_id={msg.id} | text={text!r}", flush=True)
+
+		buttons = _parse_buttons(msg)
+		if buttons:
+			print(f"[BotSession] 回复按钮 ← {self.target} | buttons={buttons}", flush=True)
+		else:
+			print(f"[BotSession] 回复无按钮", flush=True)
+
+		return msg
+
+	async def click(self, msg, data: bytes) -> None:
+		"""点击消息中指定 callback_data 的按钮。"""
+		data_str = data.decode("utf-8", errors="replace")
+		try:
+			result = await msg.click(data=data)
+			print(f"[BotSession] 已点击 data={data_str!r} | result={result}", flush=True)
+		except Exception as exc:
+			print(f"[BotSession] 点击 data={data_str!r} 失败 | error={exc}", flush=True)
+
+	async def click_by_text(self, msg, text: str) -> None:
+		"""按按钮显示文字点击，适用于 data 含动态字段的情况。"""
+		try:
+			result = await msg.click(text=text)
+			print(f"[BotSession] 已点击 text={text!r} | result={result}", flush=True)
+		except Exception as exc:
+			print(f"[BotSession] 点击 text={text!r} 失败 | error={exc}", flush=True)
+
+	def prepare_wait_edit(self) -> "EditWaiter":
+		"""
+		先注册 edit 监听器，再去 click，避免竞态条件（bot edit 速度快于注册）。
+		用法：
+		    waiter = s.prepare_wait_edit()   # 先注册
+		    await s.click_by_text(msg, "xxx")  # 再 click
+		    msg2 = await waiter.wait(timeout=15)  # 再等待
+		"""
+		return EditWaiter(self._client, self._entity.id, self.target)
+
+	async def wait_edit(self, timeout: float = 15.0):
+		"""
+		等待对方编辑（edit）任意一条消息，返回更新后的 Message 对象；超时返回 None。
+		注意：若 bot edit 速度极快，请改用 prepare_wait_edit() 避免竞态。
+		"""
+		return await self.prepare_wait_edit().wait(timeout=timeout)
+
+
+class EditWaiter:
+	"""
+	预注册 MessageEdited 监听器，解决 click 后 bot 立即 edit 的竞态问题。
+	通过 BotSession.prepare_wait_edit() 创建。
+	"""
+
+	def __init__(self, client: TelegramClient, peer_id: int, target: str) -> None:
+		self._client = client
+		self._target = target
+		self._event: asyncio.Event = asyncio.Event()
+		self._received: list = []
+
+		async def _handler(event) -> None:
+			self._received.append(event.message)
+			self._event.set()
+
+		self._handler = _handler
+		client.add_event_handler(
+			_handler,
+			events.MessageEdited(from_users=peer_id, incoming=True),
+		)
+
+	async def wait(self, timeout: float = 15.0):
+		try:
+			await asyncio.wait_for(self._event.wait(), timeout=timeout)
+		except asyncio.TimeoutError:
+			print(f"[BotSession] 等待 edit 超时（{timeout}s）← {self._target}", flush=True)
+			return None
+		finally:
+			self._client.remove_event_handler(self._handler)
+
+		msg = self._received[0]
+		text = getattr(msg, "message", None) or ""
+		print(f"[BotSession] 收到 edit ← {self._target} | message_id={msg.id} | text={text!r}", flush=True)
+		buttons = _parse_buttons(msg)
+		if buttons:
+			print(f"[BotSession] edit 按钮 ← {self._target} | buttons={buttons}", flush=True)
+		return msg
+
+
+def _parse_buttons(msg) -> list[list[dict]]:
+	"""解析消息按钮，返回二维列表 [row][btn] = {text, data, url}。"""
+	rows = getattr(msg, "buttons", None)
+	if not rows:
+		return []
+	result: list[list[dict]] = []
+	for row in rows:
+		row_btns: list[dict] = []
+		for btn in row:
+			btn_text = getattr(btn, "text", "") or ""
+			btn_data = getattr(btn, "data", None)
+			btn_url = getattr(btn, "url", None)
+			btn_obj = getattr(btn, "button", None)
+			if btn_obj is not None:
+				if btn_data is None:
+					btn_data = getattr(btn_obj, "data", None)
+				if btn_url is None:
+					btn_url = getattr(btn_obj, "url", None)
+			if isinstance(btn_data, bytes):
+				btn_data = btn_data.decode("utf-8", errors="replace")
+			row_btns.append({"text": btn_text, "data": btn_data, "url": btn_url})
+		if row_btns:
+			result.append(row_btns)
+	return result
+
+
+# ════════════════════════════════════════════════════════════════
+#  各 Bot 独立脚本
+# ════════════════════════════════════════════════════════════════
+
+class BotScripts:
+	"""集中管理所有 script_ 机器人脚本。"""
+
+	@staticmethod
+	async def _send_only(target: str, text: str, timeout: float = 30.0) -> None:
+		async with BotSession(target) as s:
+			await s.send(text)
+			await s.wait_reply(timeout=timeout)
+
+	@staticmethod
+	async def _find_message_with_button(session: BotSession, text: str, timeout: float = 25.0, poll: float = 1.2):
+		"""轮询最近消息，找到含指定按钮文字的消息。"""
+		if session._client is None:
+			return None
+		deadline = asyncio.get_running_loop().time() + timeout
+		while asyncio.get_running_loop().time() < deadline:
+			async for recent in session._client.iter_messages(session._entity, limit=12):
+				rows = _parse_buttons(recent)
+				if not rows:
+					continue
+				for row in rows:
+					for btn in row:
+						if btn.get("text") == text:
+							print(f"[ccccc000_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							return recent
+			await asyncio.sleep(poll)
+		print(f"[ccccc000_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		return None
+
+	@staticmethod
+	async def script_xxhl9bot() -> None:
+		"""@XXHL9Bot — 每日签到流程"""
+		async with BotSession("@XXHL9Bot") as s:
+			await s.send("📅 每日签到")
+			msg = await s.wait_reply(timeout=30)
+			if not msg:
+				return
+			await s.click(msg, b"do_checkin")
+			await s.wait_reply(timeout=15)
+
+	@staticmethod
+	async def script_aiyynvshen_bot() -> None:
+		await BotScripts._send_only("@AiYYnvshen_bot", "⭐ 今日签到")
+
+	@staticmethod
+	async def script_ainudem2bot() -> None:
+		await BotScripts._send_only("@ainudem2bot", "签到")
+
+	@staticmethod
+	async def script_qqchuchu_bot() -> None:
+		await BotScripts._send_only("@qqchuchu_bot", "📅 每日签到")
+
+	@staticmethod
+	async def script_huuy2024_bot() -> None:
+		await BotScripts._send_only("@HuuY2024_bot", "📆 每日签到")
+
+	@staticmethod
+	async def script_quyi44bot() -> None:
+		await BotScripts._send_only("@quyi44bot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_tuoyi55bot() -> None:
+		await BotScripts._send_only("@tuoyi55bot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_menjjbot() -> None:
+		await BotScripts._send_only("@menjjbot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_linglongai_abot() -> None:
+		await BotScripts._send_only("@linglongai_abot", "📅 签到")
+
+	@staticmethod
+	async def script_tangest2_bot() -> None:
+		"""@tangest2_bot — 设 bio 后签到"""
+		from telethon.tl.functions.account import UpdateProfileRequest
+		client = _build_client()
+		await client.start()
+		try:
+			await client(UpdateProfileRequest(about="https://t.me/tangest2_bot?start=ref_7501358629"))
+			print("[tangest2_bot] bio 已设置", flush=True)
+			await asyncio.sleep(5)
+			entity = await client.get_entity("@tangest2_bot")
+			sent = await client.send_message(entity=entity, message="📅 签到")
+			print(f"[tangest2_bot] 已发送签到 | message_id={sent.id}", flush=True)
+		finally:
+			await client.disconnect()
+
+	@staticmethod
+	async def script_ccccc000_bot() -> None:
+		"""@ccccc000_bot — 浏览作品/点赞/签到流程"""
+		from telethon.tl.functions.account import UpdateProfileRequest
+
+		async with BotSession("@ccccc000_bot") as s:
+			await s.send("/start")
+			menu = await s.wait_reply(timeout=30)
+			if not menu:
+				return
+
+			await s.click_by_text(menu, "🏆 每日排行榜")
+			rank_msg = await s.wait_reply(timeout=30)
+			if not rank_msg:
+				await s.send("🏆 每日排行榜")
+				rank_msg = await s.wait_reply(timeout=30)
+			if not rank_msg:
+				rank_msg = menu
+
+			await s.click_by_text(rank_msg, "🖼️ 浏览作品")
+			browse_msg = await BotScripts._find_message_with_button(s, "❤️ 点赞", timeout=25)
+			if not browse_msg:
+				await s.send("🖼️ 浏览作品")
+				browse_msg = await BotScripts._find_message_with_button(s, "❤️ 点赞", timeout=25)
+			if not browse_msg:
+				browse_msg = rank_msg
+
+			waiter3 = s.prepare_wait_edit()
+			await s.click_by_text(browse_msg, "❤️ 点赞")
+			liked_msg = await waiter3.wait(timeout=8)
+			if not liked_msg:
+				liked_msg = await s.wait_reply(timeout=10)
+
+			if s._client is None:
+				return
+			await s._client(UpdateProfileRequest(about="https://t.me/ccccc000_bot?start=7501358629"))
+			print("[ccccc000_bot] bio 已设置", flush=True)
+
+			await asyncio.sleep(5)
+
+			await s.send("📅 每日免费积分")
+			daily_msg = await s.wait_reply(timeout=30)
+			if not daily_msg:
+				return
+
+			waiter4 = s.prepare_wait_edit()
+			await s.click_by_text(daily_msg, "📅 去签到")
+			await waiter4.wait(timeout=15)
+
+			await s.send("📅 每日免费积分")
+			claim_msg = await s.wait_reply(timeout=30)
+			if not claim_msg:
+				return
+
+			waiter5 = s.prepare_wait_edit()
+			await s.click_by_text(claim_msg, "🎁 领取全部奖励")
+			final_msg = await waiter5.wait(timeout=15)
+			if not final_msg:
+				await s.wait_reply(timeout=10)
+
+	@staticmethod
+	async def script_ftcyy01bot() -> None:
+		"""@ftcyy01bot — 签到领积分流程"""
+		async with BotSession("@ftcyy01bot") as s:
+			await s.send("/start")
+			msg = await s.wait_reply(timeout=30)
+			if not msg:
+				return
+			waiter1 = s.prepare_wait_edit()
+			await s.click_by_text(msg, "积分获取")
+			msg2 = await waiter1.wait(timeout=15)
+			if not msg2:
+				return
+			waiter2 = s.prepare_wait_edit()
+			await s.click_by_text(msg2, "签到领积分")
+			result = await waiter2.wait(timeout=15)
+			if not result:
+				await s.wait_reply(timeout=10)
+
+
+# ── 注册表：target → 脚本函数 ──────────────────────────────────
+
+BOT_SCRIPTS: dict[str, object] = {
+	"@XXHL9Bot": BotScripts.script_xxhl9bot,
+	"@AiYYnvshen_bot": BotScripts.script_aiyynvshen_bot,
+	"@ainudem2bot": BotScripts.script_ainudem2bot,
+	"@qqchuchu_bot": BotScripts.script_qqchuchu_bot,
+	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
+	"@quyi44bot": BotScripts.script_quyi44bot,
+	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
+	"@menjjbot": BotScripts.script_menjjbot,
+	"@tangest2_bot": BotScripts.script_tangest2_bot,
+	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
+	"@linglongai_abot": BotScripts.script_linglongai_abot,
+	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
+}
+
+
+async def run_bot_script(target: str) -> None:
+	"""按 target 查找并执行对应脚本。"""
+	script = BOT_SCRIPTS.get(target)
+	if script is None:
+		print(f"[BotScript] 未找到对应脚本: {target}", flush=True)
+		return
+	print(f"[BotScript] 执行脚本 → {target}", flush=True)
+	await script()
+
+
+async def monitor_bot(target: int | str) -> None:
+	"""
+	持续监控与指定 bot/群组的双向消息，打印文字与按钮，按 Ctrl+C 停止。
+	"""
+	client = _build_client()
+	await client.start()
+	entity = await client.get_entity(target)
+	peer_id = entity.id
+	print(f"[Monitor] 开始监控 {target} (id={peer_id})，按 Ctrl+C 停止。", flush=True)
+
+	@client.on(events.NewMessage(from_users=peer_id, incoming=True))
+	async def _on_incoming(event) -> None:
+		msg = event.message
+		text = getattr(msg, "message", None) or ""
+		print(f"[Monitor] ← BOT  | message_id={msg.id} | text={text!r}", flush=True)
+		buttons = _parse_buttons(msg)
+		if buttons:
+			print(f"[Monitor]   按钮: {buttons}", flush=True)
+
+	@client.on(events.MessageEdited(from_users=peer_id, incoming=True))
+	async def _on_edited(event) -> None:
+		msg = event.message
+		text = getattr(msg, "message", None) or ""
+		print(f"[Monitor] ← BOT (edit) | message_id={msg.id} | text={text!r}", flush=True)
+		buttons = _parse_buttons(msg)
+		if buttons:
+			print(f"[Monitor]   按钮(edit): {buttons}", flush=True)
+		else:
+			print(f"[Monitor]   按钮(edit): 无", flush=True)
+
+	@client.on(events.NewMessage(outgoing=True, chats=peer_id))
+	async def _on_outgoing(event) -> None:
+		msg = event.message
+		text = getattr(msg, "message", None) or ""
+		print(f"[Monitor] → ME   | message_id={msg.id} | text={text!r}", flush=True)
+
+	try:
+		await client.run_until_disconnected()
+	finally:
+		await client.disconnect()
+
+
 # ── 实例配置 ──────────────────────────────────────────────────
 
 forwarder_dy = GroupMediaForwarder(
@@ -753,19 +1228,37 @@ forwarder_dy = GroupMediaForwarder(
 	sleep_enabled=False,
 	sleep_min_seconds=0,
 	sleep_max_seconds=1,
+	keyword_routes=[
+		{
+			"keywords": ["佟弋"],   # 命中任一關鍵字即觸發
+			"chat_id": -1002040191555,          # 目標 chat id
+			"thread_id": 1970,                   # 話題 thread id，不需要填 None
+		},
+		{
+			"keywords": ["陈思罕"],   # 命中任一關鍵字即觸發
+			"chat_id": -1002040191555,          # 目標 chat id
+			"thread_id": 2290,                   # 話題 thread id，不需要填 None
+		},
+		{
+			"keywords": ["陈浚铭"],   # 命中任一關鍵字即觸發
+			"chat_id": -1002040191555,          # 目標 chat id
+			"thread_id": 2013,                   # 話題 thread id，不需要填 None
+		},
+		{"keywords": ["智恩涵"],"chat_id": -1002040191555,"thread_id": 2002,}
+	],
 	white_list_group_1=[
-		"时代峰峻","TF家族","佟弋","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞","陈浚铭",
-		"陈思罕","张桂源","朱映宸","杨智岩","严浩翔","沈子航","智恩涵","朱广伦","萌娃","人类幼崽",
+		"时代峰峻","TF家族","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞",
+		"张桂源","朱映宸","杨智岩","严浩翔","沈子航","朱广伦","萌娃","人类幼崽",
 		"男孩","小宝宝","小孩","韩维辰","星星贴纸","少年感","养成系","练习生","骗你生儿子",
 	],
 	white_list_group_2=[
 		"小男娘","正太","弟弟","初中","男初","南梁",
 	],
 	black_list=[
-		"请叫我柯南君","白肥","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生",
+		"请叫我柯南君","白肥","肉壮","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生",
 		"蜜桃洨小孩","学妹","兵哥","18岁","19岁","遇上歹徒","大学生","薄肌男孩","男高","肌肉",
 		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley",
-		"从地板干到落地窗",
+		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸"
 	],
 )
 

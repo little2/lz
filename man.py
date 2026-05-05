@@ -53,21 +53,41 @@ async def run_health_server() -> None:
 	async with server:
 		await server.serve_forever()
 
+async def run_all_bot():
+	for target in BOT_SCRIPTS:
+		try:
+			await run_bot_script(target)
+		except Exception as e:
+			print(f"[run_all_bot] {target} 执行失败: {e}", flush=True)
+
 
 async def main() -> None:
-	# await run_bot_script("@ccccc000_bot")
-	# await monitor_bot("@ccccc000_bot")
+	# await run_all_bot()
+	# await monitor_bot("@AiFaceSwap01Bot")
+	# await run_bot_script("@AiFaceSwap01Bot")
 
-	if FORWARDER_RUN_TARGET in {"1", "forwarder_dy"}:
-		selected_forwarder = forwarder_dy
-		selected_name = "forwarder_dy"
-	else:
-		selected_forwarder = forwarder_th
-		selected_name = "forwarder_th"
+	forwarder_registry = {
+		"1": ("forwarder_dy", forwarder_dy),
+		"forwarder_dy": ("forwarder_dy", forwarder_dy),
+		"2": ("forwarder_th", forwarder_th),
+		"forwarder_th": ("forwarder_th", forwarder_th),
+		"3": ("forwarder_move", forwarder_move),
+		"forwarder_move": ("forwarder_move", forwarder_move),
+		"4": ("forwarder_move2", forwarder_move2),
+		"forwarder_move2": ("forwarder_move2", forwarder_move2),
+	}
+
+	FORWARDER_RUN_TARGET = "forwarder_dy"
+
+	selected_name, selected_forwarder = forwarder_registry.get(
+		FORWARDER_RUN_TARGET,
+		("forwarder_th", forwarder_th),
+	)
 
 	print(f"[Boot] selected forwarder: {selected_name}", flush=True)
 	await asyncio.gather(
 		selected_forwarder.run(),
+		# forwarder_move.run(),
 		run_health_server(),
 	)
 
@@ -379,7 +399,7 @@ class GroupMediaForwarder:
 	def __init__(
 		self,
 		target_group: int | str,
-		forward_to: str,
+		forward_to: str | int | dict | tuple | list,
 		start_message_id: int = 1,
 		caption_json_mode: bool = False,
 		skip_caption_check: bool = False,
@@ -391,6 +411,7 @@ class GroupMediaForwarder:
 		white_list_group_2: list[str] | None = None,
 		black_list: list[str] | None = None,
 		keyword_routes: list[dict] | None = None,
+		download_fallback_enabled: bool = True,
 	) -> None:
 		self.target_group = target_group
 		self.forward_to = forward_to
@@ -406,6 +427,32 @@ class GroupMediaForwarder:
 		self.black_list = black_list or []
 		# keyword_routes: [{"keywords": [...], "chat_id": int|str, "thread_id": int|None}, ...]
 		self.keyword_routes: list[dict] = keyword_routes or []
+		self.download_fallback_enabled = bool(download_fallback_enabled)
+
+	def _resolve_forward_target(self) -> tuple[int | str, int | None]:
+		"""
+		解析默认 forward_to 目标。
+		支持：
+		- "bot_username" / @username / chat_id(int|str)
+		- {"chat_id": ..., "thread_id": ...}
+		- (chat_id, thread_id) / [chat_id, thread_id]
+		返回：(chat_target, thread_id)
+		"""
+		target = self.forward_to
+
+		if isinstance(target, dict):
+			chat_id = target.get("chat_id")
+			thread_id = target.get("thread_id")
+			if chat_id is None:
+				raise ValueError("forward_to 为 dict 时必须包含 chat_id")
+			return chat_id, (int(thread_id) if thread_id is not None else None)
+
+		if isinstance(target, (tuple, list)):
+			if len(target) < 2:
+				raise ValueError("forward_to 为 tuple/list 时必须为 (chat_id, thread_id)")
+			return target[0], (int(target[1]) if target[1] is not None else None)
+
+		return target, None
 
 	# ── 工具方法 ─────────────────────────────────────────────
 
@@ -562,6 +609,27 @@ class GroupMediaForwarder:
 
 		return json.dumps(payload, ensure_ascii=False)
 
+	@staticmethod
+	def _split_media_caption(caption: str, limit: int = 1024) -> tuple[str, str]:
+		caption = str(caption or "")
+		if len(caption) <= limit:
+			return caption, ""
+		return caption[:limit], caption[limit:]
+
+	@staticmethod
+	def _chunk_text(text: str, chunk_size: int = 4096) -> list[str]:
+		text = str(text or "")
+		if text == "":
+			return []
+		return [text[idx:idx + chunk_size] for idx in range(0, len(text), chunk_size)]
+
+	async def _send_text_chunks(self, client: TelegramClient, forward_entity, text: str, reply_to: int | None = None) -> None:
+		for chunk in self._chunk_text(text):
+			send_kwargs = {"entity": forward_entity, "message": chunk}
+			if reply_to is not None:
+				send_kwargs["reply_to"] = reply_to
+			await client.send_message(**send_kwargs)
+
 	async def _resolve_source_entity(self, client: TelegramClient):
 		"""
 		解析來源實體：
@@ -595,33 +663,45 @@ class GroupMediaForwarder:
 		caption = caption_override if caption_override is not None else (message.message or "")
 
 		if getattr(message, "media", None):
+			media_caption, extra_text = self._split_media_caption(caption)
+			send_kwargs = {
+				"entity": forward_entity,
+				"file": message.media,
+				"caption": media_caption,
+			}
+			if reply_to is not None:
+				send_kwargs["reply_to"] = reply_to
+
+			# 盡量保留訊息型態；優先直接重用 Telegram 端媒體引用，避免大檔先下載到本地。
+			if getattr(message, "video", None):
+				send_kwargs["supports_streaming"] = True
+			if getattr(message, "voice", None):
+				send_kwargs["voice_note"] = True
+			if getattr(message, "video_note", None):
+				send_kwargs["video_note"] = True
+
+			try:
+				await client.send_file(**send_kwargs)
+				if extra_text:
+					await self._send_text_chunks(client, forward_entity, extra_text, reply_to=reply_to)
+				return
+			except Exception as exc:
+				if not self.download_fallback_enabled:
+					print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，且已停用下載重傳 | error={exc}", flush=True)
+					raise
+				print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，改用下載重傳 | error={exc}", flush=True)
+
 			with tempfile.TemporaryDirectory(prefix="man_media_") as tmp_dir:
 				downloaded_path = await client.download_media(message, file=tmp_dir)
 				if downloaded_path:
-					send_kwargs = {
-						"entity": forward_entity,
-						"file": downloaded_path,
-						"caption": caption,
-					}
-					if reply_to is not None:
-						send_kwargs["reply_to"] = reply_to
-
-					# 盡量保留訊息型態
-					if getattr(message, "video", None):
-						send_kwargs["supports_streaming"] = True
-					if getattr(message, "voice", None):
-						send_kwargs["voice_note"] = True
-					if getattr(message, "video_note", None):
-						send_kwargs["video_note"] = True
-
+					send_kwargs["file"] = downloaded_path
 					await client.send_file(**send_kwargs)
+					if extra_text:
+						await self._send_text_chunks(client, forward_entity, extra_text, reply_to=reply_to)
 					return
 
 		if caption:
-					send_kwargs = {"entity": forward_entity, "message": caption}
-					if reply_to is not None:
-						send_kwargs["reply_to"] = reply_to
-					await client.send_message(**send_kwargs)
+			await self._send_text_chunks(client, forward_entity, caption, reply_to=reply_to)
 	# ── 核心异步方法 ──────────────────────────────────────────
 
 	async def fetch_messages(self, start_message_id: int, limit: int) -> list[dict]:
@@ -653,7 +733,8 @@ class GroupMediaForwarder:
 		
 		try:
 			source_entity = await self._resolve_source_entity(client)
-			forward_entity = await client.get_entity(self.forward_to)
+			forward_target, forward_thread_id = self._resolve_forward_target()
+			forward_entity = await client.get_entity(forward_target)
 			last_message_id = start_message_id - 1
 
 			async for message in client.iter_messages(
@@ -725,16 +806,31 @@ class GroupMediaForwarder:
 					print(f"[Forward] id={message.id} 準備轉發", flush=True)
 
 					if self.caption_json_mode:
-						await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
+						await self._resend_message(
+							client,
+							forward_entity,
+							message,
+							caption_override=formatted_caption,
+							reply_to=forward_thread_id,
+						)
 					else:
 						try:
-							await client.forward_messages(
-								entity=forward_entity,
-								messages=[message.id],
-								from_peer=source_entity,
-							)
+							if forward_thread_id is not None:
+								await self._resend_message(client, forward_entity, message, reply_to=forward_thread_id)
+							else:
+								await client.forward_messages(
+									entity=forward_entity,
+									messages=[message.id],
+									from_peer=source_entity,
+								)
 						except ChatForwardsRestrictedError:
-							await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
+							await self._resend_message(
+								client,
+								forward_entity,
+								message,
+								caption_override=formatted_caption,
+								reply_to=forward_thread_id,
+							)
 					if self.sleep_enabled:
 						sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
 						sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
@@ -1052,6 +1148,22 @@ class BotScripts:
 		await BotScripts._send_only("@linglongai_abot", "📅 签到")
 
 	@staticmethod
+	async def script_the1_visionarybot() -> None:
+		await BotScripts._send_only("@the1_visionarybot", "🎰 每日抽奖")
+
+	@staticmethod
+	async def script_jsai1bot() -> None:
+		await BotScripts._send_only("@JSai1bot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_srikitibot() -> None:
+		await BotScripts._send_only("@SrikitiBot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_mengokbot() -> None:
+		await BotScripts._send_only("@mengokbot", "🌍 每日签到")
+
+	@staticmethod
 	async def script_tangest2_bot() -> None:
 		"""@tangest2_bot — 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
@@ -1146,6 +1258,24 @@ class BotScripts:
 			if not result:
 				await s.wait_reply(timeout=10)
 
+	@staticmethod
+	async def script_aifaceswap01bot() -> None:
+		"""@AiFaceSwap01Bot — 点击个人中心后签到"""
+		async with BotSession("@AiFaceSwap01Bot") as s:
+			await s.send("/start")
+			msg = await s.wait_reply(timeout=30)
+			if not msg:
+				return
+			await s.click_by_text(msg, "👤 个人中心")
+			msg2 = await s.wait_reply(timeout=20)
+			if not msg2:
+				return
+			waiter2 = s.prepare_wait_edit()
+			await s.click_by_text(msg2, "📝 签到")
+			result = await waiter2.wait(timeout=15)
+			if not result:
+				await s.wait_reply(timeout=10)
+
 
 # ── 注册表：target → 脚本函数 ──────────────────────────────────
 
@@ -1162,6 +1292,11 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
 	"@linglongai_abot": BotScripts.script_linglongai_abot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
+	"@the1_visionarybot": BotScripts.script_the1_visionarybot,
+	"@mengokbot": BotScripts.script_mengokbot,
+	"@JSai1bot": BotScripts.script_jsai1bot,
+	"@SrikitiBot": BotScripts.script_srikitibot,
+	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,
 }
 
 
@@ -1244,10 +1379,12 @@ forwarder_dy = GroupMediaForwarder(
 			"chat_id": -1002040191555,          # 目標 chat id
 			"thread_id": 2013,                   # 話題 thread id，不需要填 None
 		},
-		{"keywords": ["智恩涵"],"chat_id": -1002040191555,"thread_id": 2002,}
+		{"keywords": ["智恩涵"],"chat_id": -1002040191555,"thread_id": 2002,},
+		{"keywords": ["李煜东"],"chat_id": -1002040191555,"thread_id": 2310,},
+		{"keywords": ["魏子宸"],"chat_id": -1002040191555,"thread_id": 2313,}
 	],
 	white_list_group_1=[
-		"时代峰峻","TF家族","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞",
+		"时代峰峻","TF家族","渣苏感","计铭浩","文铭","铭罕","刘瀚辰",
 		"张桂源","朱映宸","杨智岩","严浩翔","沈子航","朱广伦","萌娃","人类幼崽",
 		"男孩","小宝宝","小孩","韩维辰","星星贴纸","少年感","养成系","练习生","骗你生儿子",
 	],
@@ -1258,7 +1395,7 @@ forwarder_dy = GroupMediaForwarder(
 		"请叫我柯南君","白肥","肉壮","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生",
 		"蜜桃洨小孩","学妹","兵哥","18岁","19岁","遇上歹徒","大学生","薄肌男孩","男高","肌肉",
 		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley",
-		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸"
+		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸","姐姐","小铭同学","北方大公O","马里奥"
 	],
 )
 
@@ -1275,6 +1412,46 @@ forwarder_th = GroupMediaForwarder(
 	white_list_group_2=[],
 	black_list=[],
 )
+
+forwarder_move = GroupMediaForwarder(
+	target_group=-1001714422299,
+	forward_to={"chat_id": -1002055725425, "thread_id": 19},
+	start_message_id=0,
+	caption_json_mode=False,
+	skip_caption_check=False,
+	sleep_enabled=False,
+	sleep_min_seconds=0,
+	sleep_max_seconds=1,
+	keyword_routes=[],
+	white_list_group_1=[
+		"男孩","小宝宝","小孩","儿童","恋童","娈童"
+	],
+	white_list_group_2=[
+		"小男娘","正太","弟弟","初中","男初",
+	],
+	black_list=[],
+)
+
+forwarder_move2 = GroupMediaForwarder(
+	target_group=-1002932561571,
+	forward_to={"chat_id": -1002055725425, "thread_id": 19},
+	start_message_id=0,
+	caption_json_mode=False,
+	skip_caption_check=False,
+	sleep_enabled=False,
+	sleep_min_seconds=0,
+	sleep_max_seconds=1,
+	keyword_routes=[],
+	white_list_group_1=[
+		"小男孩","小宝宝","小孩","儿童","恋童","娈童"
+	],
+	white_list_group_2=[
+		"小男娘","正太","初中","男初",
+	],
+	black_list=[],
+	download_fallback_enabled = False
+)
+
 
 if __name__ == "__main__":
 	asyncio.run(main())

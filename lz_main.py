@@ -264,8 +264,8 @@ async def main():
 
     # 10.2 并行运行 Telethon 与 Aiogram
    
-    my_bot_token = SharedConfig.get("my_bot_token") or BOT_TOKEN
-    switch_bot_token = SharedConfig.get("switch_bot_token") or SWITCHBOT_TOKEN
+    my_bot_token = SharedConfig.get("my_bot_token",BOT_TOKEN)  
+    switch_bot_token = SharedConfig.get("switch_bot_token",SWITCHBOT_TOKEN)
 
     bot = Bot(
         token=my_bot_token,

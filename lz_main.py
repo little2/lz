@@ -261,11 +261,14 @@ async def close_bot_session(bot_instance: Bot | None, label: str):
 #     #     print(f"发送消息给 {SWITCHBOT_USERNAME} 失败：{e}",flush=True)    
   
 async def main():
-    global PUBLISH_BOT_NAME
+
     # 10.2 并行运行 Telethon 与 Aiogram
    
+    my_bot_token = SharedConfig.get("my_bot_token") or BOT_TOKEN
+    switch_bot_token = SharedConfig.get("switch_bot_token") or SWITCHBOT_TOKEN
+
     bot = Bot(
-        token=BOT_TOKEN,
+        token=my_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     
@@ -273,7 +276,7 @@ async def main():
     lz_var.bot = bot
 
     switchbot = Bot(
-        token=SWITCHBOT_TOKEN,
+        token=switch_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
 

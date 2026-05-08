@@ -62,7 +62,7 @@ async def run_all_bot():
 
 
 async def main() -> None:
-	# await run_all_bot()
+	await run_all_bot()
 	# await monitor_bot("@AiFaceSwap01Bot")
 	# await run_bot_script("@AiFaceSwap01Bot")
 
@@ -1124,8 +1124,8 @@ class BotScripts:
 		await BotScripts._send_only("@ainudem2bot", "签到")
 
 	@staticmethod
-	async def script_qqchuchu_bot() -> None:
-		await BotScripts._send_only("@qqchuchu_bot", "📅 每日签到")
+	async def script_AIVision1111_bot_bot() -> None:
+		await BotScripts._send_only("@AIVision1111_bot", "📅 每日签到")
 
 	@staticmethod
 	async def script_huuy2024_bot() -> None:
@@ -1144,8 +1144,16 @@ class BotScripts:
 		await BotScripts._send_only("@menjjbot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_linglongai_abot() -> None:
-		await BotScripts._send_only("@linglongai_abot", "📅 签到")
+	async def script_tuoyi03bot() -> None:
+		await BotScripts._send_only("@tuoyi03bot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_quyi198bot() -> None:
+		await BotScripts._send_only("@quyi198bot", "🌍 每日签到")
+
+	@staticmethod
+	async def script_linglongai_2bot() -> None:
+		await BotScripts._send_only("@linglongai_2bot", "📅 签到")
 
 	@staticmethod
 	async def script_the1_visionarybot() -> None:
@@ -1164,18 +1172,18 @@ class BotScripts:
 		await BotScripts._send_only("@mengokbot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_tangest2_bot() -> None:
-		"""@tangest2_bot — 设 bio 后签到"""
+	async def script_tangest4_bot() -> None:
+		"""@tangest4_bot — 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 		client = _build_client()
 		await client.start()
 		try:
-			await client(UpdateProfileRequest(about="https://t.me/tangest2_bot?start=ref_7501358629"))
-			print("[tangest2_bot] bio 已设置", flush=True)
+			await client(UpdateProfileRequest(about="https://t.me/tangest4_bot?start=ref_7501358629"))
+			print("[tangest4_bot] bio 已设置", flush=True)
 			await asyncio.sleep(5)
-			entity = await client.get_entity("@tangest2_bot")
+			entity = await client.get_entity("@tangest4_bot")
 			sent = await client.send_message(entity=entity, message="📅 签到")
-			print(f"[tangest2_bot] 已发送签到 | message_id={sent.id}", flush=True)
+			print(f"[tangest4_bot] 已发送签到 | message_id={sent.id}", flush=True)
 		finally:
 			await client.disconnect()
 
@@ -1283,14 +1291,16 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@XXHL9Bot": BotScripts.script_xxhl9bot,
 	"@AiYYnvshen_bot": BotScripts.script_aiyynvshen_bot,
 	"@ainudem2bot": BotScripts.script_ainudem2bot,
-	"@qqchuchu_bot": BotScripts.script_qqchuchu_bot,
+	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
 	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
 	"@quyi44bot": BotScripts.script_quyi44bot,
 	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
 	"@menjjbot": BotScripts.script_menjjbot,
-	"@tangest2_bot": BotScripts.script_tangest2_bot,
+	"@tuoyi03bot": BotScripts.script_tuoyi03bot,
+	"@quyi198bot": BotScripts.script_quyi198bot,
+	"@tangest4_bot": BotScripts.script_tangest4_bot,
 	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
-	"@linglongai_abot": BotScripts.script_linglongai_abot,
+	"@linglongai_2bot": BotScripts.script_linglongai_2bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@the1_visionarybot": BotScripts.script_the1_visionarybot,
 	"@mengokbot": BotScripts.script_mengokbot,
@@ -1381,20 +1391,24 @@ forwarder_dy = GroupMediaForwarder(
 		},
 		{"keywords": ["智恩涵"],"chat_id": -1002040191555,"thread_id": 2002,},
 		{"keywords": ["李煜东"],"chat_id": -1002040191555,"thread_id": 2310,},
-		{"keywords": ["魏子宸"],"chat_id": -1002040191555,"thread_id": 2313,}
+		{"keywords": ["魏子宸"],"chat_id": -1002040191555,"thread_id": 2313,},
+		{"keywords": ["朱映宸"],"chat_id": -1002040191555,"thread_id": 1941,},
+		{"keywords": ["骗你生儿子","超萌小正太"],"chat_id": -1002055725425,"thread_id": 12,},
+		{"keywords": ["铭铭小朋友","陈梓铭"],"chat_id": -1002055725425,"thread_id": 2462,},
+		{"keywords": ["南弟爱弹唱"],"chat_id": -1002055725425,"thread_id": 2467,},
 	],
 	white_list_group_1=[
 		"时代峰峻","TF家族","渣苏感","计铭浩","文铭","铭罕","刘瀚辰",
 		"张桂源","朱映宸","杨智岩","严浩翔","沈子航","朱广伦","萌娃","人类幼崽",
-		"男孩","小宝宝","小孩","韩维辰","星星贴纸","少年感","养成系","练习生","骗你生儿子",
+		"男孩","小宝宝","小孩","韩维辰","星星贴纸","少年感","养成系","练习生",
 	],
 	white_list_group_2=[
 		"小男娘","正太","弟弟","初中","男初","南梁",
 	],
 	black_list=[
 		"请叫我柯南君","白肥","肉壮","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生",
-		"蜜桃洨小孩","学妹","兵哥","18岁","19岁","遇上歹徒","大学生","薄肌男孩","男高","肌肉",
-		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley",
+		"蜜桃洨小孩","学妹","兵哥","兵弟","18岁","19岁","遇上歹徒","大学生","薄肌男孩","男高","肌肉","零號",
+		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley","gay","母狗","已婚"
 		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸","姐姐","小铭同学","北方大公O","马里奥"
 	],
 )

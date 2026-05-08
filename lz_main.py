@@ -291,7 +291,7 @@ async def main():
         lz_var.bot_id = me.id
         print(f"✅ Bot {me.id} - {me.username} 已启动", flush=True)
     except Exception as e:
-        print(f"❌ 无法获取 Bot 信息：{e}", flush=True)
+        print(f"❌ 无法获取 Bot 信息：{e} : {my_bot_token}", flush=True)
         # 记得把 Telethon 停掉
         await close_bot_session(switchbot, "SwitchBot")
         await close_bot_session(bot, "Bot")

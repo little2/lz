@@ -1439,25 +1439,25 @@ async def build_product_material(
                 send_sub_group=[]  
                 
             if item['file_type'] == "pp":
-                
-                if bot is not None and upload_chat_id is not None and transaction_id is not None:
-                    print(f"⚠️ [build_product_material] Applying watermark for file_id={item['file_id']} with transaction_id={transaction_id}", flush=True)
-                    source_file_id = item["file_id"]
-                    wm_result = await watermark_from_file_id(
-                        bot=bot,
-                        source_file_id=source_file_id,
-                        upload_chat_id=upload_chat_id,
-                        transaction_id=int(transaction_id),
-                        enable_invisible_watermark=True,
-                        enable_pattern_watermark=True,
-                        visible_mode="single",
-                        visible_position="bottom_left",
-                        visible_text=str(transaction_id),
-                        visible_opacity=0.15,
-                        visible_font_scale=0.55,
-                        visible_thickness=1,
-                    )
-                    item["file_id"] = wm_result['watermarked_file_id']
+                # todo 太大了，不启用了
+                # if bot is not None and upload_chat_id is not None and transaction_id is not None:
+                #     print(f"⚠️ [build_product_material] Applying watermark for file_id={item['file_id']} with transaction_id={transaction_id}", flush=True)
+                #     source_file_id = item["file_id"]
+                #     wm_result = await watermark_from_file_id(
+                #         bot=bot,
+                #         source_file_id=source_file_id,
+                #         upload_chat_id=upload_chat_id,
+                #         transaction_id=int(transaction_id),
+                #         enable_invisible_watermark=True,
+                #         enable_pattern_watermark=True,
+                #         visible_mode="single",
+                #         visible_position="bottom_left",
+                #         visible_text=str(transaction_id),
+                #         visible_opacity=0.15,
+                #         visible_font_scale=0.55,
+                #         visible_thickness=1,
+                #     )
+                #     item["file_id"] = wm_result['watermarked_file_id']
                 item["file_type"] = "p"
 
             current = 'pv'    

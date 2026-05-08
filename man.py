@@ -1393,9 +1393,10 @@ forwarder_dy = GroupMediaForwarder(
 		{"keywords": ["李煜东"],"chat_id": -1002040191555,"thread_id": 2310,},
 		{"keywords": ["魏子宸"],"chat_id": -1002040191555,"thread_id": 2313,},
 		{"keywords": ["朱映宸"],"chat_id": -1002040191555,"thread_id": 1941,},
-		{"keywords": ["骗你生儿子","超萌小正太"],"chat_id": -1002055725425,"thread_id": 12,},
 		{"keywords": ["铭铭小朋友","陈梓铭"],"chat_id": -1002055725425,"thread_id": 2462,},
 		{"keywords": ["南弟爱弹唱"],"chat_id": -1002055725425,"thread_id": 2467,},
+		{"keywords": ["李泽霖","李球球"],"chat_id": -1002055725425,"thread_id": 1808,},
+		{"keywords": ["骗你生儿子","超萌小正太","#骗你生男孩"],"chat_id": -1002055725425,"thread_id": 12,},
 	],
 	white_list_group_1=[
 		"时代峰峻","TF家族","渣苏感","计铭浩","文铭","铭罕","刘瀚辰",

@@ -3671,9 +3671,15 @@ async def handle_bootstrap_command(message: Message, state: FSMContext):
     await handle_update_setting(message, state)
     await handle_reload(message, state)
     await handle_set_comment_command(message, state)
+
+
+    SharedConfig.load(True)
+    r1 = await lz_var.switchbot.send_message(SharedConfig.get("m_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
+    r2 = await lz_var.switchbot.send_message(SharedConfig.get("rely_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
+    r3 = await lz_var.switchbot.send_message(SharedConfig.get("key_man_id"),  f"|_kick_|{lz_var.bot_username}")
+    r4 = await lz_var.switchbot.send_message(SharedConfig.get("x_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
+    await handle_reload(message, state)
     await message.answer("✅ 初始化完成：已执行 /reload , /update_setting 与 /setcommand")
-
-
 
 
 

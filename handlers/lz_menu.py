@@ -1456,10 +1456,17 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
 
 @router.message(Command("bootstrap"))
 async def handle_bootstrap_command(message: Message, state: FSMContext):
+    SharedConfig.load(True)
+      
     await handle_update_setting(message, state)
     await handle_reload(message, state)
     await handle_set_comment_command(message, state)
     
+    r1 = await lz_var.switchbot.send_message(SharedConfig.get("m_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
+    r2 = await lz_var.switchbot.send_message(SharedConfig.get("rely_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
+    r3 = await lz_var.switchbot.send_message(SharedConfig.get("key_man_id"),  f"|_kick_|{lz_var.bot_username}")
+    r4 = await lz_var.switchbot.send_message(SharedConfig.get("x_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
+
     await message.answer("✅ 初始化完成：已执行 /reload , /update_setting 与 /setcommand")
    
 async def handle_search_component(message: Message, state: FSMContext, keyword:str):  

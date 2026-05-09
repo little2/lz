@@ -100,6 +100,7 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     _bot = bot or lz_var.bot
 
     global SharedConfig
+
     publish_bot_name = SharedConfig.get("publish_bot_name") or ""
     uploader_bot_name = SharedConfig.get("uploader_bot_name") or ""
 

@@ -62,7 +62,7 @@ async def run_all_bot():
 
 
 async def main() -> None:
-	await run_all_bot()
+	# await run_all_bot()
 	# await monitor_bot("@AiFaceSwap01Bot")
 	# await run_bot_script("@AiFaceSwap01Bot")
 
@@ -412,6 +412,8 @@ class GroupMediaForwarder:
 		black_list: list[str] | None = None,
 		keyword_routes: list[dict] | None = None,
 		download_fallback_enabled: bool = True,
+		backup_chat_id: int | str | None = None,
+		backup_thread_id: int | None = None,
 	) -> None:
 		self.target_group = target_group
 		self.forward_to = forward_to
@@ -428,6 +430,8 @@ class GroupMediaForwarder:
 		# keyword_routes: [{"keywords": [...], "chat_id": int|str, "thread_id": int|None}, ...]
 		self.keyword_routes: list[dict] = keyword_routes or []
 		self.download_fallback_enabled = bool(download_fallback_enabled)
+		self.backup_chat_id = backup_chat_id
+		self.backup_thread_id = backup_thread_id
 
 	def _resolve_forward_target(self) -> tuple[int | str, int | None]:
 		"""
@@ -766,6 +770,18 @@ class GroupMediaForwarder:
 					print(f"[Route] id={message.id} → chat_id={route['chat_id']} thread_id={thread_id}", flush=True)
 					if self.caption_json_mode:
 						await self._resend_message(client, route_entity, message, caption_override=formatted_caption, reply_to=thread_id)
+						# 若配置了备份位置，将 JSON 也发送到备份 chat
+						if self.backup_chat_id is not None:
+							try:
+								backup_entity = await client.get_entity(self.backup_chat_id)
+								await client.send_message(
+									entity=backup_entity,
+									message=formatted_caption,
+									reply_to=self.backup_thread_id,
+								)
+								print(f"[Backup] id={message.id} JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
+							except Exception as exc:
+								print(f"[Backup] id={message.id} 备份 JSON 失败: {exc}", flush=True)
 					else:
 						try:
 							if thread_id is not None:
@@ -813,6 +829,18 @@ class GroupMediaForwarder:
 							caption_override=formatted_caption,
 							reply_to=forward_thread_id,
 						)
+						# 若配置了备份位置，将 JSON 也发送到备份 chat
+						if self.backup_chat_id is not None:
+							try:
+								backup_entity = await client.get_entity(self.backup_chat_id)
+								await client.send_message(
+									entity=backup_entity,
+									message=formatted_caption,
+									reply_to=self.backup_thread_id,
+								)
+								print(f"[Backup] id={message.id} JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
+							except Exception as exc:
+								print(f"[Backup] id={message.id} 备份 JSON 失败: {exc}", flush=True)
 					else:
 						try:
 							if forward_thread_id is not None:
@@ -1393,6 +1421,8 @@ forwarder_dy = GroupMediaForwarder(
 		{"keywords": ["李煜东"],"chat_id": -1002040191555,"thread_id": 2310,},
 		{"keywords": ["魏子宸"],"chat_id": -1002040191555,"thread_id": 2313,},
 		{"keywords": ["朱映宸"],"chat_id": -1002040191555,"thread_id": 1941,},
+		{"keywords": ["胡阿米"],"chat_id": -1002040191555,"thread_id": 2266,},
+
 		{"keywords": ["铭铭小朋友","陈梓铭"],"chat_id": -1002055725425,"thread_id": 2462,},
 		{"keywords": ["南弟爱弹唱"],"chat_id": -1002055725425,"thread_id": 2467,},
 		{"keywords": ["李泽霖","李球球"],"chat_id": -1002055725425,"thread_id": 1808,},
@@ -1407,7 +1437,8 @@ forwarder_dy = GroupMediaForwarder(
 		"小男娘","正太","弟弟","初中","男初","南梁",
 	],
 	black_list=[
-		"请叫我柯南君","白肥","肉壮","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生",
+		"请叫我柯南君","喜之郎",
+		"白肥","肉壮","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生","嫂子",
 		"蜜桃洨小孩","学妹","兵哥","兵弟","18岁","19岁","遇上歹徒","大学生","薄肌男孩","男高","肌肉","零號",
 		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley","gay","母狗","已婚"
 		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸","姐姐","小铭同学","北方大公O","马里奥"

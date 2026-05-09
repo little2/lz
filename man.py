@@ -934,6 +934,7 @@ class GroupMediaForwarder:
 					formatted_caption = self._format_caption(message, text)
 					print(f"[Forward] id={message.id} 準備轉發", flush=True)
 
+				try:
 					if self.caption_json_mode:
 						await self._resend_message(
 							client,
@@ -962,14 +963,13 @@ class GroupMediaForwarder:
 								reply_to=forward_thread_id,
 								source_entity=source_entity,
 							)
-					if self.sleep_enabled:
-						sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
-						sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
-						sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
-						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
-						await asyncio.sleep(sleep_seconds)
-					else:
-						print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
+				except Exception as exc:
+					print(f"[Forward] id={message.id} 轉發失敗 | error={exc}", flush=True)
+				
+				if self.sleep_enabled:
+					sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
+					sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
+					sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
 
 				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
 				await self.write_last_message_id(
@@ -1593,7 +1593,7 @@ forwarder_dy = GroupMediaForwarder(
 forwarder_th = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="Tin9HutBot",
-	start_message_id=273,
+	start_message_id=274,
 	caption_json_mode=True,
 	skip_caption_check=True,
 	sleep_enabled=True,

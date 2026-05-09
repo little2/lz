@@ -86,11 +86,11 @@ async def main() -> None:
 	)
 
 	print(f"[Boot] selected forwarder: {selected_name}", flush=True)
-	# await asyncio.gather(
-	# 	selected_forwarder.run(),
-	# 	# forwarder_move.run(),
-	# 	run_health_server(),
-	# )
+	await asyncio.gather(
+		selected_forwarder.run(),
+		# forwarder_move.run(),
+		run_health_server(),
+	)
 
 
 	

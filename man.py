@@ -77,7 +77,7 @@ async def main() -> None:
 		"forwarder_move2": ("forwarder_move2", forwarder_move2),
 	}
 
-	FORWARDER_RUN_TARGET = "forwarder_dy"
+	# FORWARDER_RUN_TARGET = "forwarder_move2"
 
 	selected_name, selected_forwarder = forwarder_registry.get(
 		FORWARDER_RUN_TARGET,
@@ -519,6 +519,77 @@ class GroupMediaForwarder:
 
 		return state_data
 
+	async def _load_state_data_from_backup(self, client: TelegramClient | None = None) -> dict[str, int]:
+		if self.backup_chat_id is None:
+			return {}
+
+		own_client = False
+		work_client = client
+		if work_client is None:
+			work_client = _build_client()
+			await work_client.start()
+			own_client = True
+
+		try:
+			backup_entity = await work_client.get_entity(self.backup_chat_id)
+
+			latest_msg = None
+			if self.backup_thread_id is not None:
+				try:
+					async for msg in work_client.iter_messages(
+						backup_entity,
+						limit=1,
+						reply_to=int(self.backup_thread_id),
+					):
+						latest_msg = msg
+						break
+				except TypeError:
+					async for msg in work_client.iter_messages(backup_entity, limit=1):
+						latest_msg = msg
+						break
+			else:
+				async for msg in work_client.iter_messages(backup_entity, limit=1):
+					latest_msg = msg
+					break
+
+			if latest_msg is None:
+				return {}
+
+			text = str(getattr(latest_msg, "message", "") or "").strip()
+			if not text:
+				return {}
+
+			try:
+				data = json.loads(text)
+			except json.JSONDecodeError:
+				return {}
+
+			if not isinstance(data, dict):
+				return {}
+
+			state_data: dict[str, int] = {}
+			for group_key, msg_id in data.items():
+				if isinstance(group_key, str) and isinstance(msg_id, int):
+					state_data[group_key] = msg_id
+
+			return state_data
+		except Exception:
+			return {}
+		finally:
+			if own_client:
+				await work_client.disconnect()
+
+	async def _prepare_state_data(self, client: TelegramClient | None = None) -> dict[str, int]:
+		# 业务启动前先准备状态：优先本地；本地缺失再从 backup 拉取并落地。
+		local_state = self._load_state_data()
+		if local_state:
+			return local_state
+
+		remote_state = await self._load_state_data_from_backup(client=client)
+		if remote_state:
+			self._write_state_data(remote_state)
+		return remote_state
+
 	def _write_state_data(self, data: dict[str, int]) -> None:
 		self.state_file.write_text(
 			json.dumps(data, ensure_ascii=False, indent=2),
@@ -532,10 +603,33 @@ class GroupMediaForwarder:
 			return last_id
 		return self.default_start_message_id
 
-	def write_last_message_id(self, message_id: int) -> None:
+	async def write_last_message_id(
+		self,
+		message_id: int,
+		*,
+		client: TelegramClient | None = None,
+	) -> None:
 		state_data = self._load_state_data()
 		state_data[str(self.target_group)] = message_id
 		self._write_state_data(state_data)
+		state_json_text = json.dumps(state_data, ensure_ascii=False, indent=2)
+
+		# 备份的是 state_data 形成的 JSON，而不是消息 caption。
+		if (
+			self.backup_chat_id is not None
+			and client is not None
+		):
+			try:
+				backup_entity = await client.get_entity(self.backup_chat_id)
+				await self._send_text_chunks(
+					client,
+					backup_entity,
+					state_json_text,
+					reply_to=self.backup_thread_id,
+				)
+				print(f"[Backup] id={message_id} state_data JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
+			except Exception as exc:
+				print(f"[Backup] id={message_id} 备份 state_data JSON 失败: {exc}", flush=True)
 
 	@staticmethod
 	def _extract_button_info(message) -> dict:
@@ -757,7 +851,7 @@ class GroupMediaForwarder:
 				)
 				if not getattr(message, "media", None):
 					print(f"[Skip] id={message.id} 非媒體消息", flush=True)
-					self.write_last_message_id(message.id)
+					await self.write_last_message_id(message.id)
 					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 					continue
 
@@ -770,18 +864,6 @@ class GroupMediaForwarder:
 					print(f"[Route] id={message.id} → chat_id={route['chat_id']} thread_id={thread_id}", flush=True)
 					if self.caption_json_mode:
 						await self._resend_message(client, route_entity, message, caption_override=formatted_caption, reply_to=thread_id)
-						# 若配置了备份位置，将 JSON 也发送到备份 chat
-						if self.backup_chat_id is not None:
-							try:
-								backup_entity = await client.get_entity(self.backup_chat_id)
-								await client.send_message(
-									entity=backup_entity,
-									message=formatted_caption,
-									reply_to=self.backup_thread_id,
-								)
-								print(f"[Backup] id={message.id} JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
-							except Exception as exc:
-								print(f"[Backup] id={message.id} 备份 JSON 失败: {exc}", flush=True)
 					else:
 						try:
 							if thread_id is not None:
@@ -802,7 +884,10 @@ class GroupMediaForwarder:
 						)
 						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
 						await asyncio.sleep(sleep_seconds)
-					self.write_last_message_id(message.id)
+					await self.write_last_message_id(
+						message.id,
+						client=client,
+					)
 					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 					continue  # 路由命中后跳过白名单/默认转发逻辑
 
@@ -829,18 +914,6 @@ class GroupMediaForwarder:
 							caption_override=formatted_caption,
 							reply_to=forward_thread_id,
 						)
-						# 若配置了备份位置，将 JSON 也发送到备份 chat
-						if self.backup_chat_id is not None:
-							try:
-								backup_entity = await client.get_entity(self.backup_chat_id)
-								await client.send_message(
-									entity=backup_entity,
-									message=formatted_caption,
-									reply_to=self.backup_thread_id,
-								)
-								print(f"[Backup] id={message.id} JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
-							except Exception as exc:
-								print(f"[Backup] id={message.id} 备份 JSON 失败: {exc}", flush=True)
 					else:
 						try:
 							if forward_thread_id is not None:
@@ -869,7 +942,10 @@ class GroupMediaForwarder:
 						print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
 
 				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
-				self.write_last_message_id(message.id)
+				await self.write_last_message_id(
+					message.id,
+					client=client,
+				)
 				print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 
 			return last_message_id
@@ -908,6 +984,7 @@ class GroupMediaForwarder:
 			await client.disconnect()
 
 	async def run(self) -> None:
+		await self._prepare_state_data()
 		next_start_id = self.resolve_start_message_id()
 		print(f"[Run] 从 start_message_id={next_start_id} 开始检查。", flush=True)
 
@@ -1469,6 +1546,8 @@ forwarder_move = GroupMediaForwarder(
 	sleep_min_seconds=0,
 	sleep_max_seconds=1,
 	keyword_routes=[],
+	backup_chat_id=-1002030683460,
+	backup_thread_id=208001,
 	white_list_group_1=[
 		"男孩","小宝宝","小孩","儿童","恋童","娈童"
 	],
@@ -1487,6 +1566,8 @@ forwarder_move2 = GroupMediaForwarder(
 	sleep_enabled=False,
 	sleep_min_seconds=0,
 	sleep_max_seconds=1,
+	backup_chat_id=-1002030683460,
+	backup_thread_id=208001,
 	keyword_routes=[],
 	white_list_group_1=[
 		"小男孩","小宝宝","小孩","儿童","恋童","娈童"

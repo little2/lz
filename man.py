@@ -532,7 +532,9 @@ class GroupMediaForwarder:
 			own_client = True
 
 		try:
-			backup_entity = await work_client.get_entity(self.backup_chat_id)
+			# 确保 backup_chat_id 是 int 型，处理负数情况
+			backup_chat_id_int = int(self.backup_chat_id)
+			backup_entity = await work_client.get_entity(backup_chat_id_int)
 
 			latest_msg = None
 			if self.backup_thread_id is not None:
@@ -621,7 +623,9 @@ class GroupMediaForwarder:
 			and client is not None
 		):
 			try:
-				backup_entity = await client.get_entity(self.backup_chat_id)
+				# 确保 backup_chat_id 是 int 型，处理负数情况
+				backup_chat_id_int = int(self.backup_chat_id)
+				backup_entity = await client.get_entity(backup_chat_id_int)
 				await self._send_text_chunks(
 					client,
 					backup_entity,
@@ -629,6 +633,8 @@ class GroupMediaForwarder:
 					reply_to=self.backup_thread_id,
 				)
 				print(f"[Backup] id={message_id} state_data JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
+			except ValueError as ve:
+				print(f"[Backup] id={message_id} backup_chat_id 转换失败: {ve}", flush=True)
 			except Exception as exc:
 				print(f"[Backup] id={message_id} 备份 state_data JSON 失败: {exc}", flush=True)
 
@@ -970,13 +976,10 @@ class GroupMediaForwarder:
 					sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
 					sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
 					sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
-
-				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
-				await self.write_last_message_id(
-					message.id,
-					client=client,
-				)
-				print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+				print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
+				await asyncio.sleep(sleep_seconds)
+			else:
+				print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
 
 			return last_message_id
 		finally:
@@ -1593,7 +1596,7 @@ forwarder_dy = GroupMediaForwarder(
 forwarder_th = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="Tin9HutBot",
-	start_message_id=274,
+	start_message_id=446,
 	caption_json_mode=True,
 	skip_caption_check=True,
 	sleep_enabled=True,

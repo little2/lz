@@ -63,8 +63,9 @@ async def run_all_bot():
 
 async def main() -> None:
 	# await run_all_bot()
-	# await monitor_bot("@AiFaceSwap01Bot")
-	# await run_bot_script("@AiFaceSwap01Bot")
+	# await monitor_bot("@dkeiwfBot")
+	await run_bot_script("@dkeiwfBot")
+	exit()
 
 	forwarder_registry = {
 		"1": ("forwarder_dy", forwarder_dy),
@@ -85,11 +86,11 @@ async def main() -> None:
 	)
 
 	print(f"[Boot] selected forwarder: {selected_name}", flush=True)
-	await asyncio.gather(
-		selected_forwarder.run(),
-		# forwarder_move.run(),
-		run_health_server(),
-	)
+	# await asyncio.gather(
+	# 	selected_forwarder.run(),
+	# 	# forwarder_move.run(),
+	# 	run_health_server(),
+	# )
 
 
 	
@@ -901,6 +902,13 @@ class GroupMediaForwarder:
 								)
 						except ChatForwardsRestrictedError:
 							await self._resend_message(client, route_entity, message, reply_to=thread_id, source_entity=source_entity)
+
+					await self.write_last_message_id(
+						message.id,
+						client=client,
+					)
+					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+
 					if self.sleep_enabled:
 						sleep_seconds = random.randint(
 							min(self.sleep_min_seconds, self.sleep_max_seconds),
@@ -908,11 +916,7 @@ class GroupMediaForwarder:
 						)
 						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
 						await asyncio.sleep(sleep_seconds)
-					await self.write_last_message_id(
-						message.id,
-						client=client,
-					)
-					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+
 					continue  # 路由命中后跳过白名单/默认转发逻辑
 
 				# ── 默认白名单转发逻辑 ──────────────────────────────
@@ -1415,6 +1419,43 @@ class BotScripts:
 			if not result:
 				await s.wait_reply(timeout=10)
 
+	@staticmethod
+	async def script_dkeiwfbot() -> None:
+		"""@dkeiwfBot — 先同意条款，再点每日签到。"""
+		async with BotSession("@dkeiwfBot") as s:
+			await s.send("/start")
+			msg = await s.wait_reply(timeout=30)
+			if not msg:
+				return
+
+			# 1) 点击同意条款，先点 data，失败后按按钮文字兜底。
+			waiter1 = s.prepare_wait_edit()
+			await s.click(msg, b"command=rules&action=agree")
+			msg_after_agree = await waiter1.wait(timeout=12)
+			if not msg_after_agree:
+				agree_btn_msg = None
+				agree_btn_text = None
+				for candidate in ("👍 我同意以上條款", "👍 我同意以上条款"):
+					agree_btn_msg = await BotScripts._find_message_with_button(s, candidate, timeout=10)
+					if agree_btn_msg:
+						agree_btn_text = candidate
+						break
+				if agree_btn_msg and agree_btn_text:
+					waiter1b = s.prepare_wait_edit()
+					await s.click_by_text(agree_btn_msg, agree_btn_text)
+					msg_after_agree = await waiter1b.wait(timeout=20)
+			if not msg_after_agree:
+				msg_after_agree = await BotScripts._find_message_with_button(s, "🧧每日签到", timeout=20)
+			if not msg_after_agree:
+				return
+
+			# 2) 点击：command=sign&action=menu
+			waiter2 = s.prepare_wait_edit()
+			await s.click(msg_after_agree, b"command=sign&action=menu")
+			result = await waiter2.wait(timeout=20)
+			if not result:
+				await s.wait_reply(timeout=10)
+
 
 # ── 注册表：target → 脚本函数 ──────────────────────────────────
 
@@ -1438,6 +1479,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@JSai1bot": BotScripts.script_jsai1bot,
 	"@SrikitiBot": BotScripts.script_srikitibot,
 	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,
+	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
 }
 
 
@@ -1551,12 +1593,12 @@ forwarder_dy = GroupMediaForwarder(
 forwarder_th = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="Tin9HutBot",
-	start_message_id=271,
+	start_message_id=273,
 	caption_json_mode=True,
 	skip_caption_check=True,
 	sleep_enabled=True,
 	sleep_min_seconds=67,
-	sleep_max_seconds=1153,
+	sleep_max_seconds=512,
 	backup_chat_id=-1002030683460,
 	backup_thread_id=208001,	
 	white_list_group_1=[],

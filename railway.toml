@@ -1,0 +1,7 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "pip install -r lz_requirements.txt"
+
+[deploy]
+startCommand = "python lz_main.py"
+restartPolicyType = "ALWAYS"

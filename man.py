@@ -7,7 +7,7 @@ from contextlib import suppress
 from pathlib import Path
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, FloodWaitError
+from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, FloodWaitError, FileReferenceExpiredError
 from telethon.tl.functions.channels import EditBannedRequest
 from telethon.tl.types import ChatBannedRights, InputPeerUser
 
@@ -756,7 +756,15 @@ class GroupMediaForwarder:
 				"或改用 @username 作为 target_group。"
 			) from exc
 
-	async def _resend_message(self, client: TelegramClient, forward_entity, message, caption_override: str | None = None, reply_to: int | None = None) -> None:
+	async def _resend_message(
+		self,
+		client: TelegramClient,
+		forward_entity,
+		message,
+		caption_override: str | None = None,
+		reply_to: int | None = None,
+		source_entity=None,
+	) -> None:
 		"""當來源聊天禁止轉傳時，改為下載並重新發送內容。reply_to 用於指定 thread_id（群组话题）。"""
 		caption = caption_override if caption_override is not None else (message.message or "")
 
@@ -790,7 +798,16 @@ class GroupMediaForwarder:
 				print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，改用下載重傳 | error={exc}", flush=True)
 
 			with tempfile.TemporaryDirectory(prefix="man_media_") as tmp_dir:
-				downloaded_path = await client.download_media(message, file=tmp_dir)
+				try:
+					downloaded_path = await client.download_media(message, file=tmp_dir)
+				except FileReferenceExpiredError:
+					# file reference 过期时，先按同一来源+message.id 重新拉取消息，再重试下载。
+					if source_entity is None or getattr(message, "id", None) is None:
+						raise
+					refreshed_msg = await client.get_messages(source_entity, ids=message.id)
+					if not refreshed_msg or not getattr(refreshed_msg, "media", None):
+						raise
+					downloaded_path = await client.download_media(refreshed_msg, file=tmp_dir)
 				if downloaded_path:
 					send_kwargs["file"] = downloaded_path
 					await client.send_file(**send_kwargs)
@@ -863,12 +880,19 @@ class GroupMediaForwarder:
 					formatted_caption = self._format_caption(message, text)
 					print(f"[Route] id={message.id} → chat_id={route['chat_id']} thread_id={thread_id}", flush=True)
 					if self.caption_json_mode:
-						await self._resend_message(client, route_entity, message, caption_override=formatted_caption, reply_to=thread_id)
+						await self._resend_message(
+							client,
+							route_entity,
+							message,
+							caption_override=formatted_caption,
+							reply_to=thread_id,
+							source_entity=source_entity,
+						)
 					else:
 						try:
 							if thread_id is not None:
 								# 转发到话题 thread 需要 resend 方式才能指定 reply_to
-								await self._resend_message(client, route_entity, message, reply_to=thread_id)
+								await self._resend_message(client, route_entity, message, reply_to=thread_id, source_entity=source_entity)
 							else:
 								await client.forward_messages(
 									entity=route_entity,
@@ -876,7 +900,7 @@ class GroupMediaForwarder:
 									from_peer=source_entity,
 								)
 						except ChatForwardsRestrictedError:
-							await self._resend_message(client, route_entity, message, reply_to=thread_id)
+							await self._resend_message(client, route_entity, message, reply_to=thread_id, source_entity=source_entity)
 					if self.sleep_enabled:
 						sleep_seconds = random.randint(
 							min(self.sleep_min_seconds, self.sleep_max_seconds),
@@ -913,11 +937,12 @@ class GroupMediaForwarder:
 							message,
 							caption_override=formatted_caption,
 							reply_to=forward_thread_id,
+							source_entity=source_entity,
 						)
 					else:
 						try:
 							if forward_thread_id is not None:
-								await self._resend_message(client, forward_entity, message, reply_to=forward_thread_id)
+								await self._resend_message(client, forward_entity, message, reply_to=forward_thread_id, source_entity=source_entity)
 							else:
 								await client.forward_messages(
 									entity=forward_entity,
@@ -931,6 +956,7 @@ class GroupMediaForwarder:
 								message,
 								caption_override=formatted_caption,
 								reply_to=forward_thread_id,
+								source_entity=source_entity,
 							)
 					if self.sleep_enabled:
 						sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)

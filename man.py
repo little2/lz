@@ -532,9 +532,7 @@ class GroupMediaForwarder:
 			own_client = True
 
 		try:
-			# 确保 backup_chat_id 是 int 型，处理负数情况
-			backup_chat_id_int = int(self.backup_chat_id)
-			backup_entity = await work_client.get_entity(backup_chat_id_int)
+			backup_entity = await self._resolve_entity_with_fallback(work_client, self.backup_chat_id)
 
 			latest_msg = None
 			if self.backup_thread_id is not None:
@@ -623,9 +621,7 @@ class GroupMediaForwarder:
 			and client is not None
 		):
 			try:
-				# 确保 backup_chat_id 是 int 型，处理负数情况
-				backup_chat_id_int = int(self.backup_chat_id)
-				backup_entity = await client.get_entity(backup_chat_id_int)
+				backup_entity = await self._resolve_entity_with_fallback(client, self.backup_chat_id)
 				await self._send_text_chunks(
 					client,
 					backup_entity,
@@ -633,8 +629,6 @@ class GroupMediaForwarder:
 					reply_to=self.backup_thread_id,
 				)
 				print(f"[Backup] id={message_id} state_data JSON 已备份至 backup_chat_id={self.backup_chat_id}", flush=True)
-			except ValueError as ve:
-				print(f"[Backup] id={message_id} backup_chat_id 转换失败: {ve}", flush=True)
 			except Exception as exc:
 				print(f"[Backup] id={message_id} 备份 state_data JSON 失败: {exc}", flush=True)
 
@@ -734,6 +728,29 @@ class GroupMediaForwarder:
 			if reply_to is not None:
 				send_kwargs["reply_to"] = reply_to
 			await client.send_message(**send_kwargs)
+
+	@staticmethod
+	async def _resolve_entity_with_fallback(client: TelegramClient, chat_id: int | str):
+		"""
+		解析任意 chat_id 為 entity：
+		1) 先用 get_entity() 直接解析
+		2) 若失敗（不在 session cache），改從 iter_dialogs() 以 id 回退搜尋
+		"""
+		try:
+			return await client.get_entity(int(chat_id))
+		except Exception:
+			pass
+
+		target_abs = abs(int(chat_id))
+		async for dialog in client.iter_dialogs():
+			entity_id = getattr(dialog.entity, "id", None)
+			if entity_id == target_abs:
+				return dialog.entity
+
+		raise ValueError(
+			f"无法解析 chat_id={chat_id}，entity 不在 session cache 也不在 dialogs。"
+			"请先让该账号加入该群组并发送一条消息。"
+		)
 
 	async def _resolve_source_entity(self, client: TelegramClient):
 		"""
@@ -1596,7 +1613,7 @@ forwarder_dy = GroupMediaForwarder(
 forwarder_th = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="Tin9HutBot",
-	start_message_id=446,
+	start_message_id=523,
 	caption_json_mode=True,
 	skip_caption_check=True,
 	sleep_enabled=True,

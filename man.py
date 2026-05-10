@@ -819,8 +819,7 @@ class GroupMediaForwarder:
 				if not self.download_fallback_enabled:
 					print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，且已停用下載重傳 | error={exc}", flush=True)
 					raise
-				
-			print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，改用下載重傳 | error={exc}", flush=True)
+				print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，改用下載重傳 | error={exc}", flush=True)
 
 			with tempfile.TemporaryDirectory(prefix="man_media_") as tmp_dir:
 				try:
@@ -951,33 +950,8 @@ class GroupMediaForwarder:
 				if should_forward:
 					formatted_caption = self._format_caption(message, text)
 					print(f"[Forward] id={message.id} 準備轉發", flush=True)
-					await self.write_last_message_id(
-						message.id,
-						client=client,
-					)
-					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
-
-				try:
-					if self.caption_json_mode:
-						await self._resend_message(
-							client,
-							forward_entity,
-							message,
-							caption_override=formatted_caption,
-							reply_to=forward_thread_id,
-							source_entity=source_entity,
-						)
-					else:
-						try:
-							if forward_thread_id is not None:
-								await self._resend_message(client, forward_entity, message, reply_to=forward_thread_id, source_entity=source_entity)
-							else:
-								await client.forward_messages(
-									entity=forward_entity,
-									messages=[message.id],
-									from_peer=source_entity,
-								)
-						except ChatForwardsRestrictedError:
+					try:
+						if self.caption_json_mode:
 							await self._resend_message(
 								client,
 								forward_entity,
@@ -986,17 +960,43 @@ class GroupMediaForwarder:
 								reply_to=forward_thread_id,
 								source_entity=source_entity,
 							)
-				except Exception as exc:
-					print(f"[Forward] id={message.id} 轉發失敗 | error={exc}", flush=True)
-				
-				if self.sleep_enabled:
-					sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
-					sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
-					sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
-				print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
-				await asyncio.sleep(sleep_seconds)
-			else:
-				print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
+						else:
+							try:
+								if forward_thread_id is not None:
+									await self._resend_message(client, forward_entity, message, reply_to=forward_thread_id, source_entity=source_entity)
+								else:
+									await client.forward_messages(
+										entity=forward_entity,
+										messages=[message.id],
+										from_peer=source_entity,
+									)
+							except ChatForwardsRestrictedError:
+								await self._resend_message(
+									client,
+									forward_entity,
+									message,
+									caption_override=formatted_caption,
+									reply_to=forward_thread_id,
+									source_entity=source_entity,
+								)
+					except Exception as exc:
+						print(f"[Forward] id={message.id} 轉發失敗 | error={exc}", flush=True)
+
+					if self.sleep_enabled:
+						sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
+						sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
+						sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
+						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
+						await asyncio.sleep(sleep_seconds)
+					else:
+						print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
+
+				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
+				await self.write_last_message_id(
+					message.id,
+					client=client,
+				)
+				print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 
 			return last_message_id
 		finally:
@@ -1613,7 +1613,7 @@ forwarder_dy = GroupMediaForwarder(
 forwarder_th = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="Tin9HutBot",
-	start_message_id=523,
+	start_message_id=525,
 	caption_json_mode=True,
 	skip_caption_check=True,
 	sleep_enabled=True,

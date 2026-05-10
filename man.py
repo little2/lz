@@ -819,7 +819,8 @@ class GroupMediaForwarder:
 				if not self.download_fallback_enabled:
 					print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，且已停用下載重傳 | error={exc}", flush=True)
 					raise
-				print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，改用下載重傳 | error={exc}", flush=True)
+				
+			print(f"[Resend] id={getattr(message, 'id', None)} 直接重送媒體失敗，改用下載重傳 | error={exc}", flush=True)
 
 			with tempfile.TemporaryDirectory(prefix="man_media_") as tmp_dir:
 				try:
@@ -891,9 +892,7 @@ class GroupMediaForwarder:
 					flush=True,
 				)
 				if not getattr(message, "media", None):
-					print(f"[Skip] id={message.id} 非媒體消息", flush=True)
-					await self.write_last_message_id(message.id)
-					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+					
 					continue
 
 				# ── keyword_routes 优先分流 ──────────────────────────
@@ -926,11 +925,7 @@ class GroupMediaForwarder:
 						except ChatForwardsRestrictedError:
 							await self._resend_message(client, route_entity, message, reply_to=thread_id, source_entity=source_entity)
 
-					await self.write_last_message_id(
-						message.id,
-						client=client,
-					)
-					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+					
 
 					if self.sleep_enabled:
 						sleep_seconds = random.randint(
@@ -956,6 +951,11 @@ class GroupMediaForwarder:
 				if should_forward:
 					formatted_caption = self._format_caption(message, text)
 					print(f"[Forward] id={message.id} 準備轉發", flush=True)
+					await self.write_last_message_id(
+						message.id,
+						client=client,
+					)
+					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 
 				try:
 					if self.caption_json_mode:

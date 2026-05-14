@@ -62,10 +62,10 @@ async def run_all_bot():
 
 
 async def main() -> None:
-	# await run_all_bot()
+	await run_all_bot()
 	# await monitor_bot("@dkeiwfBot")
 	# await run_bot_script("@dkeiwfBot")
-	# exit()
+	exit()
 
 	forwarder_registry = {
 		"1": ("forwarder_dy", forwarder_dy),

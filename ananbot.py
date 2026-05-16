@@ -2941,6 +2941,8 @@ async def _publish_content_and_notify_owner(product_row,  send_only_ly=False):
     product_info = product_row.get("product_info") or {}
     content_id = product_info.get("id")
     owner_user_id = int(product_info.get("owner_user_id") or 0)
+    publish_bot_name = SharedConfig.get("publish_bot_name", PUBLISH_BOT_USERNAME)
+
     
     if send_only_ly:
         if owner_user_id !=0 and owner_user_id !=None and owner_user_id !=666666:
@@ -2967,7 +2969,7 @@ async def _publish_content_and_notify_owner(product_row,  send_only_ly=False):
 
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
-    resource_url = f"https://t.me/{PUBLISH_BOT_USERNAME}?start=f_-1_{encoded}" 
+    resource_url = f"https://t.me/{publish_bot_name}?start=f_-1_{encoded}" 
 
     shorten_content = LZString.shorten_text(product_info.get('content',''))
 
@@ -2977,7 +2979,7 @@ async def _publish_content_and_notify_owner(product_row,  send_only_ly=False):
             
         🔗 <a href="{resource_url}">资源连结</a>。
 
-        如果您对审核结果有任何疑问，欢迎在透过下方的「教务处小助手」提出。
+        如果您有任何疑问，欢迎在透过下方的「教务处小助手」提出。
         感谢您的理解与支持！
         ''') 
 
@@ -5949,17 +5951,54 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
 
 
 async def premark_thumb(meta):
-    # print(f"[premark]{lz_var.m_man_bot_id}")
-    if lz_var.m_man_bot_id!=0:
-        ret=await lz_var.bot.send_video(
-            chat_id=lz_var.m_man_bot_id,
-            video=meta.get("file_id"),
-            caption=f"|_thumbnail_|{meta.get('file_unique_id')}",
+    raw_chat_id = getattr(lz_var, "m_man_bot_id", 0)
+    try:
+        chat_id = int(str(raw_chat_id).strip())
+    except (TypeError, ValueError):
+        chat_id = 0
+
+    file_id = (meta or {}).get("file_id")
+    file_unique_id = (meta or {}).get("file_unique_id") or ""
+
+    if not file_id:
+        print(
+            f"⚠️ premark_thumb 跳过：file_id 为空, file_unique_id={file_unique_id}",
+            flush=True,
         )
-        # print(f"[premark] Premark sent: {ret}", flush=True)
-        # print(f"[premark] Premark==>{meta}", flush=True)
+        return None
+
+    if chat_id == 0:
+        await lz_var.switchbot.send_message(
+            KEY_USER_ID,
+            "[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) 已启动！",
+        )
+        return None
+
+    ret = await lz_var.bot.send_video(
+        chat_id=chat_id,
+        video=file_id,
+        caption=f"|_thumbnail_|{file_unique_id}",
+    )
+
+    if not ret or not getattr(ret, "message_id", None):
+        print(
+            f"⚠️ premark_thumb 失败: 无法发送预览图消息, chat_id={chat_id}, file_unique_id={file_unique_id}",
+            flush=True,
+        )
+
+        await lz_var.switchbot.send_message(
+            KEY_USER_ID,
+            f"[LZ-Uploader] 预览图机器人(m_man_bot_id) 无法访问或发送消息失败！请检查设置并确保机器人已启动。 chat_id={chat_id}, file_unique_id={file_unique_id}",
+        )
+
+        return None
     else:
-        await lz_var.switchbot.send_message(KEY_USER_ID, f"[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) 已启动！")
+
+        print(
+            f"✅ premark_thumb 成功: chat_id={chat_id}, file_unique_id={file_unique_id}",
+            flush=True,
+        )
+        return ret
        
 
 @dp.message(F.chat.type == "private", F.content_type.in_({ContentType.VIDEO, ContentType.DOCUMENT, ContentType.PHOTO, ContentType.ANIMATION}))

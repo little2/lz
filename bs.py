@@ -1025,7 +1025,7 @@ async def handle_media_message(message: Message, bot: Bot):
         elif message.forward_from:
             forward_user_id = message.forward_from.id
 
-        if forward_user_id != 7294369541:
+        if forward_user_id != 7484645431:
             await bot.send_message(
                 chat_id=message.chat.id,
                 text="🙏 施主，贫僧只收来自「贝壳邮局」的转发，望施主莫怪。",

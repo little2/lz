@@ -65,7 +65,7 @@ async def main() -> None:
 	await run_all_bot()
 	# await monitor_bot("@dkeiwfBot")
 	# await run_bot_script("@dkeiwfBot")
-	exit()
+
 
 	forwarder_registry = {
 		"1": ("forwarder_dy", forwarder_dy),
@@ -1310,9 +1310,7 @@ class BotScripts:
 	async def script_linglongai_2bot() -> None:
 		await BotScripts._send_only("@linglongai_2bot", "📅 签到")
 
-	@staticmethod
-	async def script_the1_visionarybot() -> None:
-		await BotScripts._send_only("@the1_visionarybot", "🎰 每日抽奖")
+
 
 	@staticmethod
 	async def script_jsai1bot() -> None:
@@ -1494,7 +1492,6 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
 	"@linglongai_2bot": BotScripts.script_linglongai_2bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
-	"@the1_visionarybot": BotScripts.script_the1_visionarybot,
 	"@mengokbot": BotScripts.script_mengokbot,
 	"@JSai1bot": BotScripts.script_jsai1bot,
 	"@SrikitiBot": BotScripts.script_srikitibot,
@@ -1504,13 +1501,47 @@ BOT_SCRIPTS: dict[str, object] = {
 
 
 async def run_bot_script(target: str) -> None:
+
+
+
 	"""按 target 查找并执行对应脚本。"""
 	script = BOT_SCRIPTS.get(target)
 	if script is None:
 		print(f"[BotScript] 未找到对应脚本: {target}", flush=True)
 		return
+
+	'''
+	为 #sym:run_bot_script 加一个功能
+	先载入一个本地文档,若不存在则新建
+	从文档中,载入内容为json
+	虫 target 作为索引,取出值
+	该值为上次执行的时间
+	若时间大于20小时或为空,则可以执行,否则则不执行
+	每次成功执行脚本后,将该值写回json文件中,以记录上次执行时间
+	'''
+	import json
+	import os
+	import time
+	json_path = "bot_script_times.json"
+	if os.path.exists(json_path):
+		with open(json_path, "r") as f:
+			data = json.load(f)
+	else:
+		data = {}
+	current_time = time.time()
+	last_time = data.get(target)
+	if last_time is not None and current_time - last_time < 20 * 3600:
+		print(f"[BotScript] 上次执行时间为 {time.ctime(last_time)}，距离现在不足20小时，跳过执行 → {target}", flush=True)
+		return
+
 	print(f"[BotScript] 执行脚本 → {target}", flush=True)
 	await script()
+
+	# 更新执行时间
+	data[target] = current_time
+	with open(json_path, "w") as f:
+		json.dump(data, f)
+		print(f"[BotScript] 更新执行时间 → {target}", flush=True)
 
 
 async def monitor_bot(target: int | str) -> None:
@@ -1611,14 +1642,14 @@ forwarder_dy = GroupMediaForwarder(
 )
 
 forwarder_th = GroupMediaForwarder(
-	target_group=7294369541,
+	target_group=7484645431,
 	forward_to="Tin9HutBot",
 	start_message_id=525,
 	caption_json_mode=True,
 	skip_caption_check=True,
 	sleep_enabled=True,
-	sleep_min_seconds=67,
-	sleep_max_seconds=532,
+	sleep_min_seconds=10,
+	sleep_max_seconds=10,
 	backup_chat_id=-1002030683460,
 	backup_thread_id=208001,	
 	white_list_group_1=[],

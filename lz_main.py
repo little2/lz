@@ -183,13 +183,17 @@ class BlacklistGuardMiddleware(BaseMiddleware):
             stat_date = sgt_now.strftime("%Y-%m-%d")
             if not await MySQLPool.has_spoken_today(user.id, stat_date):
                
+                helper_bot_url = f"https://t.me/{getattr(lz_var, 'helper_bot_name', '')}"
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [types.InlineKeyboardButton(text="🐲 龙阳学院学习中心🌱", url=main_group_url)]
+                        [
+                            types.InlineKeyboardButton(text="🐲 龙阳学院学习中心🌱", url=main_group_url),
+                            types.InlineKeyboardButton(text="🎓 教务处小助手", url=helper_bot_url)
+                        ]
                     ]
                 )
 
-                text = "最近大家应该都感受到 TG 越来越严格了，学院的机器人也已经炸了好几轮。\n花钱换号、换机器人其实还是小事，最麻烦的是大家看资源会越来越不方便。\n\n所以接下来调整为：使用学院服务时，每天至少在中心或学院群发言一句。\n不是想怀疑谁，只是希望用一点点小门槛，让这个小圈圈能更稳定地走下去。\n\n最后也拜托大家，不要为了发言随手丢一句抱怨。\n既然都在这里了，也希望大家能多留一点温度，帮彼此加油一下。"
+                text = "最近大家应该都感受到 TG 越来越严格了，学院的机器人也已经炸了好几轮。\n花钱换号、换机器人其实还是小事，最麻烦的是大家看资源会越来越不方便。\n\n所以接下来调整为：使用学院服务时，每天至少在中心或学院群发言 2 句。\n不是想怀疑谁，只是希望用一点点小门槛，让这个小圈圈能更稳定地走下去。\n\n最后也拜托大家，不要为了发言随手丢一句抱怨。\n既然都在这里了，也希望大家能多留一点温度，帮彼此加油一下。\n\n最后，多发言几句，真有问题找教务处，在群里抱怨的就直接飞了!"
 
                 if isinstance(event, types.CallbackQuery):
                     await event.answer(text, show_alert=True)

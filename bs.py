@@ -1464,7 +1464,11 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
 
     if not is_admin(callback.from_user.id):
         print(f"[Redeem] user_id={user_id} redeeming id={id}",flush=True)
-        new_count = await PGDB.consume_one_quota(user_id, stat_date)
+        if row["file_type"] == "cover":
+            row = await PGDB.get_talking_task(user_id=user_id, stat_date=stat_date)
+            new_count = row["count"] if row else None
+        else:
+            new_count = await PGDB.consume_one_quota(user_id, stat_date)
     else:
         print(f"[Redeem] admin user_id={user_id} redeeming id={id} → no quota consumed",flush=True)
         new_count=1  # 管理员不受兑换限制，直接当作有额度，但不扣除
@@ -1510,7 +1514,7 @@ async def handle_redeem_callback(callback: CallbackQuery, bot: Bot):
         if row["file_type"] == "cover":
             await bot.send_message(
                 chat_id=user_id,
-                text=f"{file_id}",
+                text=f"目前尚无善信随缘布施。若施主日后有所受益，亦可回向一份心意于此。愿施主福慧增长，平安喜乐，诸事顺遂。 {file_id}",
                 parse_mode=ParseMode.HTML,
                 protect_content=True,  # 防止被二次转发后暴露给非目标用户
                

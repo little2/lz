@@ -3,10 +3,12 @@
 import asyncio
 import os
 import time
+from datetime import datetime, timedelta, timezone
 import aiogram
 import json
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
+from aiogram import BaseMiddleware
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -55,7 +57,7 @@ class LzFSM(StatesGroup):
 lz_var.skins = {}  # 皮肤配置
 
 from shared_config import SharedConfig
-SharedConfig.load()
+SharedConfig.load(True)
 
 
 def create_user_client():
@@ -144,6 +146,59 @@ FILE_ID_REGEX = re.compile(
 
 from aiogram import Router, F
 router = Router()
+
+
+class BlacklistGuardMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user = getattr(event, "from_user", None)
+        if not user:
+            return await handler(event, data)
+
+
+
+        # 仅在私聊场景做“今日发言”校验，避免影响群里正常发言累积。
+        chat = getattr(event, "chat", None)
+        if isinstance(event, types.CallbackQuery) and getattr(event, "message", None):
+            chat = event.message.chat
+
+        if chat and getattr(chat, "type", None) == "private":
+
+            if await MySQLPool.is_user_blacklisted(user.id):
+                if isinstance(event, types.CallbackQuery):
+                    await event.answer("服务暂停中", show_alert=True)
+                elif isinstance(event, types.Message):
+                    await event.answer("服务暂停中")
+                return
+
+
+           
+            chat_cfg = SharedConfig.get("chat") or {}
+            public_school = chat_cfg.get("public") or {}
+
+            # 直接重新賦值，後續整個檔案用的 TARGET_CHAT_ID 都會是新值
+            main_group_url = str(public_school.get("invite_link") or "")
+           
+
+            sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
+            stat_date = sgt_now.strftime("%Y-%m-%d")
+            if not await MySQLPool.has_spoken_today(user.id, stat_date):
+               
+                keyboard = types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [types.InlineKeyboardButton(text="🐲 龙阳学院学习中心🌱", url=main_group_url)]
+                    ]
+                )
+
+                text = "最近大家应该都感受到 TG 越来越严格了，学院的机器人也已经炸了好几轮。\n花钱换号、换机器人其实还是小事，最麻烦的是大家看资源会越来越不方便。\n\n所以接下来调整为：使用学院服务时，每天至少在中心或学院群发言一句。\n不是想怀疑谁，只是希望用一点点小门槛，让这个小圈圈能更稳定地走下去。\n\n最后也拜托大家，不要为了发言随手丢一句抱怨。\n既然都在这里了，也希望大家能多留一点温度，帮彼此加油一下。"
+
+                if isinstance(event, types.CallbackQuery):
+                    await event.answer(text, show_alert=True)
+                    await event.message.answer(text, reply_markup=keyboard)
+                elif isinstance(event, types.Message):
+                    await event.answer(text, reply_markup=keyboard)
+                return
+
+        return await handler(event, data)
 
 async def on_startup(bot: Bot):
     webhook_url = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
@@ -325,6 +380,10 @@ async def main():
 
 
     dp = Dispatcher(storage=MemoryStorage())
+
+    blacklist_guard = BlacklistGuardMiddleware()
+    dp.message.middleware(blacklist_guard)
+    dp.callback_query.middleware(blacklist_guard)
 
     dp.include_router(lz_media_parser.router)  # ✅ 注册你的新功能模块
     dp.include_router(lz_menu.router)

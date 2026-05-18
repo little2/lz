@@ -136,7 +136,6 @@ class PGPool:
                 cls._pool = None
                 print("🛑 PostgreSQL 连接池已关闭")
 
-
     @classmethod
     async def delete_cache(cls, key: str, use_prefix: bool = True):
         """

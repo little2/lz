@@ -475,6 +475,7 @@ class TargetGroupInspector:
 
 
 # ── 实例配置 ──────────────────────────────────────────────────
+###
 
 forwarder_dy = GroupMediaForwarder(
 	target_group=-1001907741385,
@@ -527,6 +528,22 @@ forwarder_dy = GroupMediaForwarder(
 		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley","gay","母狗","已婚"
 		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸","姐姐","小铭同学","北方大公O","马里奥"
 	],
+)
+
+forwarder_sm = GroupMediaForwarder(
+	target_group=3851147469,
+	forward_to="ziyuanbudengbot",
+	start_message_id=0,
+	caption_json_mode=True,
+	skip_caption_check=True,
+	sleep_enabled=True,
+	sleep_min_seconds=10,
+	sleep_max_seconds=10,
+	backup_chat_id=-1002030683460,
+	backup_thread_id=208001,	
+	white_list_group_1=[],
+	white_list_group_2=[],
+	black_list=[],
 )
 
 forwarder_th = GroupMediaForwarder(
@@ -623,7 +640,16 @@ async def main() -> None:
 			white_list_group_2=[],
 			black_list=[],
 		)
+
+		
+
 		forwarder_th.bind_telegram_bot(telegram_bot)
+
+
+
+		
+
+
 
 		# 群组监控 --------
 		GroupMessageReader.configure_global_paras(global_paras)
@@ -679,7 +705,7 @@ async def main() -> None:
 				try:
 					last_checked_id = await forwarder_th.fetch_and_forward(
 						forwarder_next_start,
-						max_messages=5,
+						max_messages=10005,
 						respect_sleep=False,
 					)
 					if isinstance(last_checked_id, int) and last_checked_id >= forwarder_next_start:

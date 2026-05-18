@@ -495,9 +495,12 @@ class BotScripts:
 
 		current_time = time.time()
 		last_time = data.get(target)
-		if last_time is not None and current_time - last_time < 20 * 3600:
+		if last_time is not None:
+			same_date = time.strftime("%Y-%m-%d", time.localtime(last_time)) == time.strftime("%Y-%m-%d", time.localtime(current_time))
+			within_20_hours = (current_time - last_time) < 20 * 3600
+			if within_20_hours and same_date:
 			# print(f"[BotScript] 上次执行时间为 {time.ctime(last_time)}，距离现在不足20小时，跳过执行 → {target}", flush=True)
-			return
+				return
 
 		print(f"[BotScript] 执行脚本 → {target}", flush=True)
 		await script()

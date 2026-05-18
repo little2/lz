@@ -1,6 +1,7 @@
 
 import aiomysql
 import time
+from datetime import datetime, timedelta, timezone
 from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT, VALKEY_URL
 from typing import Optional, Dict, Any, List, Tuple
 from lz_memory_cache import MemoryCache
@@ -52,6 +53,8 @@ class MySQLPool(LYBase):
     _lock = asyncio.Lock()
     _cache_ready = False
     cache = None
+    _blacklist_local_cache: Dict[int, Tuple[bool, str]] = {}
+    _spoken_today_local_cache: Dict[int, Tuple[bool, str]] = {}
 
     @classmethod
     async def init_pool(cls):
@@ -116,6 +119,90 @@ class MySQLPool(LYBase):
                 await cls._pool.wait_closed()
                 cls._pool = None
                 print("🛑 MySQL 连接池已关闭")
+
+    @classmethod
+    async def is_user_blacklisted(cls, user_id: int) -> bool:
+        """
+        黑名单检查（来源: MySQL `blacklist` 表）
+        SELECT * FROM `blacklist` WHERE `user_id` = ?
+
+        本地缓存策略：
+        - 同进程内命中后直接返回
+        - 缓存 True/False 两种结果，避免后续重复查库
+        - 缓存仅当天有效，跨自然日自动失效
+        """
+        uid = int(user_id)
+        today_key = time.strftime("%Y-%m-%d", time.localtime())
+
+        if uid in cls._blacklist_local_cache:
+            cached_value, cached_day = cls._blacklist_local_cache[uid]
+            if cached_day == today_key:
+                return cached_value
+            cls._blacklist_local_cache.pop(uid, None)
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT 1
+                FROM blacklist
+                WHERE user_id = %s
+                LIMIT 1
+                """,
+                (uid,),
+            )
+            row = await cur.fetchone()
+            is_blocked = row is not None
+            cls._blacklist_local_cache[uid] = (is_blocked, today_key)
+            return is_blocked
+        except Exception as e:
+            print(f"⚠️ is_user_blacklisted 出错: {e}", flush=True)
+            cls._blacklist_local_cache[uid] = (False, today_key)
+            return False
+        finally:
+            await cls.release(conn, cur)
+
+    @classmethod
+    async def has_spoken_today(cls, user_id: int, stat_date: str) -> bool:
+        """
+        检查用户今天是否已有发言记录（来源: MySQL `contribute_today`）。
+
+        规则：count > 1 视为已发言。
+        本地缓存：按 user_id 缓存当天结果，跨自然日自动失效。
+        """
+        uid = int(user_id)
+
+        if uid in cls._spoken_today_local_cache:
+            cached_value, cached_day = cls._spoken_today_local_cache[uid]
+            if cached_day == stat_date:
+                return cached_value
+            cls._spoken_today_local_cache.pop(uid, None)
+
+        conn, cur = await cls.get_conn_cursor()
+        try:
+            await cur.execute(
+                """
+                SELECT count
+                FROM contribute_today
+                WHERE user_id = %s AND stat_date = %s
+                LIMIT 1
+                """,
+                (uid, stat_date),
+            )
+            row = await cur.fetchone()
+            spoken = int((row or {}).get("count") or 0) >= 1
+            print(f"用户 {uid} 已发言，count={row.get('count') if row else 0}", flush=True)
+
+            if(spoken):
+                print(f"✅ 用户 {uid} 已发言，缓存结果", flush=True)
+                cls._spoken_today_local_cache[uid] = (spoken, stat_date)
+            return spoken
+        except Exception as e:
+            print(f"⚠️ has_spoken_today 出错: {e}", flush=True)
+            cls._spoken_today_local_cache[uid] = (False, stat_date)
+            return False
+        finally:
+            await cls.release(conn, cur)
 
 
     @classmethod

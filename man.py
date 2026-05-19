@@ -11,6 +11,7 @@ from telethon.tl.functions.channels import EditBannedRequest
 from telethon.tl.types import ChatBannedRights, InputPeerUser
 
 from man_config import API_HASH, API_ID, SESSION_STRING
+from lz_mysql import MySQLPool
 from handlers.bot_scripts import BOT_SCRIPTS, BotScripts
 from handlers.group_media_forwarder import GroupMediaForwarder
 from handlers.group_message_reader import GroupMessageReader
@@ -186,9 +187,22 @@ async def run_all_bot():
 class TargetGroupInspector:
 	"""抓取指定 Telegram 群组消息，并收集群成员 id/username。"""
 
-	def __init__(self, target_group: int | str) -> None:
+	def __init__(self, target_group: int | str, telegram_bot: TelegramClient | None = None) -> None:
 		self.target_group = target_group
+		self.telegram_bot = telegram_bot
 		self.members: list[dict[str, int | str | None]] = []
+
+	def bind_telegram_bot(self, telegram_bot: TelegramClient) -> None:
+		"""绑定共享 Telethon 客户端。"""
+		self.telegram_bot = telegram_bot
+
+	async def _acquire_client(self) -> tuple[TelegramClient, bool]:
+		"""获取可用客户端，返回 (client, own_client)。"""
+		client = self.telegram_bot or _build_client()
+		own_client = self.telegram_bot is None
+		if not client.is_connected():
+			await client.start()
+		return client, own_client
 
 	@staticmethod
 	def _serialize_message(message) -> dict:
@@ -294,8 +308,7 @@ class TargetGroupInspector:
 		if role not in {"restricted", "left", "member"}:
 			return {"ok": False, "status": "role_skipped", "user_id": user_id, "role": role}
 
-		client = _build_client()
-		await client.start()
+		client, own_client = await self._acquire_client()
 		try:
 			source_entity = await self._resolve_source_entity(client)
 
@@ -338,7 +351,8 @@ class TargetGroupInspector:
 				"error": str(exc),
 			}
 		finally:
-			await client.disconnect()
+			if own_client and client.is_connected():
+				await client.disconnect()
 
 	@staticmethod
 	def _load_processed_ids(state_file: Path) -> set[int]:
@@ -436,8 +450,7 @@ class TargetGroupInspector:
 
 	async def fetch_messages(self, limit: int = 100, start_message_id: int = 1) -> list[dict]:
 		"""从 target_group 抓取消息。"""
-		client = _build_client()
-		await client.start()
+		client, own_client = await self._acquire_client()
 		try:
 			source_entity = await self._resolve_source_entity(client)
 			messages: list[dict] = []
@@ -450,12 +463,12 @@ class TargetGroupInspector:
 				messages.append(self._serialize_message(message))
 			return messages
 		finally:
-			await client.disconnect()
+			if own_client and client.is_connected():
+				await client.disconnect()
 
 	async def list_members(self) -> list[dict[str, int | str | None]]:
 		"""列出 target_group 所有成员，并将 id/username/role 保存到 self.members。"""
-		client = _build_client()
-		await client.start()
+		client, own_client = await self._acquire_client()
 		try:
 			source_entity = await self._resolve_source_entity(client)
 			members: list[dict[str, int | str | None]] = []
@@ -471,7 +484,45 @@ class TargetGroupInspector:
 			self.members = members
 			return members
 		finally:
-			await client.disconnect()
+			if own_client and client.is_connected():
+				await client.disconnect()
+
+	async def insert_members_to_db(self, members: list[dict[str, int | str | None]]) -> dict:
+		"""将成员列表写入 MySQL pure(user_id, done)，依赖 user_id 主键去重。"""
+		user_ids = {
+			int(item.get("id"))
+			for item in members
+			if isinstance(item, dict) and isinstance(item.get("id"), int)
+		}
+
+		if not user_ids:
+			return {"ok": True, "total": 0, "existing": 0, "inserted": 0}
+
+		conn, cur = await MySQLPool.get_conn_cursor()
+		try:
+			id_list = list(user_ids)
+			await cur.executemany(
+				"""
+				INSERT INTO pure (user_id, done)
+				VALUES (%s, 0)
+				ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)
+				""",
+				[(uid,) for uid in id_list],
+			)
+
+			return {
+				"ok": True,
+				"total": len(id_list),
+				"upserted": len(id_list),
+			}
+		except Exception as exc:
+			return {
+				"ok": False,
+				"total": len(user_ids),
+				"error": str(exc),
+			}
+		finally:
+			await MySQLPool.release(conn, cur)
 
 
 # ── 实例配置 ──────────────────────────────────────────────────
@@ -612,6 +663,18 @@ async def main() -> None:
 	telegram_bot = _build_client()
 	global_paras = {}
 
+
+    # # 2) 拉取群成员 id + username
+	# inspector = TargetGroupInspector(target_group=-1001800096525, telegram_bot=telegram_bot)
+	# members = await inspector.list_members()
+	# print("members:", len(members))
+	# # print("first member:", members[0] if members else None)
+	# await inspector.insert_members_to_db(members)
+	# # await inspector.set_send_only_permissions_for_roles(members)
+	# exit()
+
+
+
 	try:
 		global_paras = await load_global_params(telegram_bot)
 		print(f"{global_paras}")
@@ -640,22 +703,13 @@ async def main() -> None:
 			white_list_group_2=[],
 			black_list=[],
 		)
-
-		
-
 		forwarder_th.bind_telegram_bot(telegram_bot)
-
-
-
-		
-
-
 
 		# 群组监控 --------
 		GroupMessageReader.configure_global_paras(global_paras)
 		reader = GroupMessageReader(
-			target_group=2977834325,
-			start_message_id=1905731,
+			target_group=2471390438,
+			start_message_id=190139,
 			batch_size=300,
 			interval_seconds=10,
 		)
@@ -702,23 +756,23 @@ async def main() -> None:
 						last_bot_round_at = now
 
 				# 1) 先跑 forwarder 一段，避免长期占用事件循环。
-				try:
-					last_checked_id = await forwarder_th.fetch_and_forward(
-						forwarder_next_start,
-						max_messages=10005,
-						respect_sleep=False,
-					)
-					if isinstance(last_checked_id, int) and last_checked_id >= forwarder_next_start:
-						forwarder_next_start = last_checked_id + 1
-				except Exception as exc:
-					print(f"[RoundRobin] forwarder segment crashed: {exc}", flush=True)
+				# try:
+				# 	last_checked_id = await forwarder_th.fetch_and_forward(
+				# 		forwarder_next_start,
+				# 		max_messages=10005,
+				# 		respect_sleep=False,
+				# 	)
+				# 	if isinstance(last_checked_id, int) and last_checked_id >= forwarder_next_start:
+				# 		forwarder_next_start = last_checked_id + 1
+				# except Exception as exc:
+				# 	print(f"[RoundRobin] forwarder segment crashed: {exc}", flush=True)
 
 				# 2) 再跑 reader 一段（单批次）。
-				try:
-					rows = await reader.fetch_once()
-					await _on_reader_batch(rows)
-				except Exception as exc:
-					print(f"[RoundRobin] reader segment crashed: {exc}", flush=True)
+				# try:
+				# 	rows = await reader.fetch_once()
+				# 	await _on_reader_batch(rows)
+				# except Exception as exc:
+				# 	print(f"[RoundRobin] reader segment crashed: {exc}", flush=True)
 
 				# 3) 小睡避免空转。
 				randtme = random.uniform(37.0, 1121.0)
@@ -744,12 +798,7 @@ async def main() -> None:
 
 	
 
-    # 2) 拉取群成员 id + username
-	# inspector = TargetGroupInspector(target_group=-1001800096525)
-	# members = await inspector.list_members()
-	# print("members:", len(members))
-	# print("first member:", members[0] if members else None)
-	# await inspector.set_send_only_permissions_for_roles(members)
+
 
 
 

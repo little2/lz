@@ -708,8 +708,8 @@ async def main() -> None:
 		# 群组监控 --------
 		GroupMessageReader.configure_global_paras(global_paras)
 		reader = GroupMessageReader(
-			target_group=2471390438,
-			start_message_id=190139,
+			target_group=3961484553,
+			start_message_id=0,
 			batch_size=300,
 			interval_seconds=10,
 		)
@@ -768,11 +768,11 @@ async def main() -> None:
 				# 	print(f"[RoundRobin] forwarder segment crashed: {exc}", flush=True)
 
 				# 2) 再跑 reader 一段（单批次）。
-				# try:
-				# 	rows = await reader.fetch_once()
-				# 	await _on_reader_batch(rows)
-				# except Exception as exc:
-				# 	print(f"[RoundRobin] reader segment crashed: {exc}", flush=True)
+				try:
+					rows = await reader.fetch_once()
+					await _on_reader_batch(rows)
+				except Exception as exc:
+					print(f"[RoundRobin] reader segment crashed: {exc}", flush=True)
 
 				# 3) 小睡避免空转。
 				randtme = random.uniform(37.0, 1121.0)

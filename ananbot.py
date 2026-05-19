@@ -527,8 +527,8 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
 
-
-    shared_url = f"https://t.me/{PUBLISH_BOT_USERNAME}?start=f_-1_{encoded}"
+    publish_bot_name = SharedConfig.get("publish_bot_name", PUBLISH_BOT_USERNAME)
+    shared_url = f"https://t.me/{publish_bot_name}?start=f_-1_{encoded}"
 
     '''
     审核状态
@@ -2257,7 +2257,10 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
 
     aes = AESCrypto(AES_KEY)
     encoded = aes.aes_encode(content_id)
-    resource_url = f"https://t.me/{PUBLISH_BOT_USERNAME}?start=f_-1_{encoded}" 
+   
+
+    publish_bot_name = SharedConfig.get("publish_bot_name", PUBLISH_BOT_USERNAME)
+    resource_url = f"https://t.me/{publish_bot_name}?start=f_-1_{encoded}"
 
     buttons = [
         [

@@ -149,9 +149,23 @@ router = Router()
 
 
 class BlacklistGuardMiddleware(BaseMiddleware):
+    def __init__(self, whitelist_matrix: dict[str, set[int]] | None = None):
+        super().__init__()
+        self.whitelist_matrix = whitelist_matrix or {}
+
+    def _is_whitelisted(self, user_id: int) -> bool:
+        for user_ids in self.whitelist_matrix.values():
+            if user_id in user_ids:
+                return True
+        return False
+
     async def __call__(self, handler, event, data):
         user = getattr(event, "from_user", None)
         if not user:
+            return await handler(event, data)
+
+        # 白名单矩阵命中：直接放行，不做黑名单和今日发言校验
+        if self._is_whitelisted(user.id):
             return await handler(event, data)
 
 
@@ -385,7 +399,21 @@ async def main():
 
     dp = Dispatcher(storage=MemoryStorage())
 
-    blacklist_guard = BlacklistGuardMiddleware()
+    def _to_int_set(values):
+        result = set()
+        for v in values or []:
+            try:
+                result.add(int(v))
+            except Exception:
+                pass
+        return result
+
+    whitelist_matrix = {
+        "core": _to_int_set([KEY_USER_ID]),
+        "config": _to_int_set(SharedConfig.get("whitelist_user_ids") or []),
+    }
+
+    blacklist_guard = BlacklistGuardMiddleware(whitelist_matrix=whitelist_matrix)
     dp.message.middleware(blacklist_guard)
     dp.callback_query.middleware(blacklist_guard)
 

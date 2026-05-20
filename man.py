@@ -11,7 +11,7 @@ from telethon.tl.functions.channels import EditBannedRequest
 from telethon.tl.types import ChatBannedRights, InputPeerUser
 
 from man_config import API_HASH, API_ID, SESSION_STRING
-from lz_mysql import MySQLPool
+# from lz_mysql import MySQLPool
 from handlers.bot_scripts import BOT_SCRIPTS, BotScripts
 from handlers.group_media_forwarder import GroupMediaForwarder
 from handlers.group_message_reader import GroupMessageReader

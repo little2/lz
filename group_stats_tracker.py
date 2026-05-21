@@ -194,13 +194,14 @@ class GroupStatsTracker:
         #         else:
         #             print("[valkey] client not ready, skip set/get", flush=True)
 
+        await cls.check_and_report(msg)
 
         is_cmd = text.startswith("/")  # 过滤指令
         if (msg_type == "text") and (not from_bot) and (not is_cmd) and len(text) >= 3:
             if len(text) > cls._raw_max_len:
                 text = text[:cls._raw_max_len]
 
-            await cls.check_and_report(msg)
+            
 
             raw_row = {
                 "chat_id": int(chat_id),
@@ -282,7 +283,7 @@ class GroupStatsTracker:
         link_prefix = "https://t.me/she11shopbot"
         has_shopbot_link = link_prefix in message_text
 
-        print(f"[check_and_report] 收到訊息 id={getattr(msg, 'id', None)} text='{message_text[:30]}'", flush=True)
+        
 
         # ================================
         # 第二步：驗證訊息 ID 和聊天 ID
@@ -295,7 +296,7 @@ class GroupStatsTracker:
         if not chat:
             return
 
-        print(f"[check_and_report] 處理訊息 id={message_id} chat={chat}", flush=True)
+        # print(f"{message_text[:30]} id={message_id} chat={chat}", flush=True)
 
         # ================================
         # 第三步：檢查按鈕中的「👀查看」
@@ -401,6 +402,7 @@ class GroupStatsTracker:
                 message_id=message_id,
                 report_reason=final_reason
             )
+            print(f"[check_and_report] 舉報完成 id={message_id} reason='{final_reason}'", flush=True)
         except Exception as e:
             print(f"[check_and_report] 舉報失敗: {e}", flush=True)
 

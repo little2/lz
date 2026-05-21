@@ -171,34 +171,36 @@ class GroupStatsTracker:
 
         text = (msg.message or "").strip()
 
-        KV_TRIGGERS  = {
-            "search_tag": [
-                "标签筛选",
-                "龙阳学院",
-            ],
-        }
-        # print(f"[valkey] check triggers user_id={user_id} text={text}", flush=True)
-        for action, keywords in KV_TRIGGERS.items():
-            if any(k in text for k in keywords):
-                print(f"[valkey] trigger action={action} user_id={user_id}", flush=True)
-                yymmdd = msg_time_local.strftime("%y%m%d")
-                key = f"{action}:{user_id}"
-                if cls._valkey:
-                    try:
-                        await cls._valkey.set(key, yymmdd, ex=86400)
-                        print(f"[valkey] set ok: {key}={yymmdd}", flush=True)
-                        # confirm_val = await cls._valkey.get(key)
-                        # print(f"[valkey] set ok: {key}={confirm_val}", flush=True)
-                    except Exception as e:
-                        print(f"[valkey] set/get failed: {key} err={e}", flush=True)
-                else:
-                    print("[valkey] client not ready, skip set/get", flush=True)
+        # KV_TRIGGERS  = {
+        #     "search_tag": [
+        #         "标签筛选",
+        #         "龙阳学院",
+        #     ],
+        # }
+        # # print(f"[valkey] check triggers user_id={user_id} text={text}", flush=True)
+        # for action, keywords in KV_TRIGGERS.items():
+        #     if any(k in text for k in keywords):
+        #         print(f"[valkey] trigger action={action} user_id={user_id}", flush=True)
+        #         yymmdd = msg_time_local.strftime("%y%m%d")
+        #         key = f"{action}:{user_id}"
+        #         if cls._valkey:
+        #             try:
+        #                 await cls._valkey.set(key, yymmdd, ex=86400)
+        #                 print(f"[valkey] set ok: {key}={yymmdd}", flush=True)
+        #                 # confirm_val = await cls._valkey.get(key)
+        #                 # print(f"[valkey] set ok: {key}={confirm_val}", flush=True)
+        #             except Exception as e:
+        #                 print(f"[valkey] set/get failed: {key} err={e}", flush=True)
+        #         else:
+        #             print("[valkey] client not ready, skip set/get", flush=True)
 
 
         is_cmd = text.startswith("/")  # 过滤指令
         if (msg_type == "text") and (not from_bot) and (not is_cmd) and len(text) >= 3:
             if len(text) > cls._raw_max_len:
                 text = text[:cls._raw_max_len]
+
+            await cls.check_and_report(msg)
 
             raw_row = {
                 "chat_id": int(chat_id),
@@ -212,7 +214,7 @@ class GroupStatsTracker:
                 "from_bot": bool(from_bot),
             }
 
-            await cls.check_and_report(msg)
+            
 
             async with cls._lock:
                 cls._raw_buffer.append(raw_row)
@@ -277,7 +279,10 @@ class GroupStatsTracker:
         # 第一步：取得訊息文字內容
         # ================================
         message_text = getattr(msg, "message", None) or ""
+        link_prefix = "https://t.me/she11shopbot"
+        has_shopbot_link = link_prefix in message_text
 
+        print(f"[check_and_report] 收到訊息 id={getattr(msg, 'id', None)} text='{message_text[:30]}'", flush=True)
 
         # ================================
         # 第二步：驗證訊息 ID 和聊天 ID
@@ -290,31 +295,57 @@ class GroupStatsTracker:
         if not chat:
             return
 
+        print(f"[check_and_report] 處理訊息 id={message_id} chat={chat}", flush=True)
+
         # ================================
         # 第三步：檢查按鈕中的「👀查看」
         # ================================
         report_url = None
-        message_buttons = getattr(msg, "buttons", None)
+       
+        has_view_button = False
 
-        if message_buttons:
-            for row in message_buttons:
-                for btn in row:
-                    btn_text = getattr(btn, "text", "") or ""
-                    if "👀查看" in btn_text:
+        reply_markup = getattr(msg, "reply_markup", None)
+        rows = getattr(reply_markup, "rows", None)
+        if rows:
+            for row in rows:
+                for btn in getattr(row, "buttons", []) or []:
+                    text = getattr(btn, "text", "") or ""
+                    if "👀查看" in text:
+                        has_view_button = True
                         report_url = getattr(btn, "url", None) or getattr(btn, "callback_data", None)
-                        print(f"[check_and_report] 找到『👀查看』按鈕", flush=True)
                         break
-                if report_url:
+                if has_view_button:
                     break
+
+        if not has_view_button:
+            message_buttons = getattr(msg, "buttons", None)
+            if message_buttons:
+                for row in message_buttons:
+                    for btn in row:
+                        text = getattr(btn, "text", "") or ""
+                        if "👀查看" in text:
+                            has_view_button = True
+                            report_url = getattr(btn, "url", None) or getattr(btn, "callback_data", None)
+                            break
+                    if has_view_button:
+                        break
+
 
         # ================================
         # 第四步：檢查 she11shopbot 連結
         # ================================
-        if not report_url:
-            match = re.search(r"https://t\.me/she11shopbot\S*", message_text)
-            if match:
-                report_url = match.group(0)
-                print(f"[check_and_report] 找到 she11shopbot 連結", flush=True)
+
+
+
+        if not has_view_button:
+            if has_shopbot_link:
+                match = re.search(r"https://t\.me/she11shopbot\S*", message_text)
+                report_url = match.group(0) if match else None
+            else:
+                return
+
+        if not has_view_button and not has_shopbot_link:
+            return
 
         if not report_url:
             return

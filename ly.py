@@ -1235,8 +1235,6 @@ async def exec_send_yesterday_board_rank(client, task: dict, params: dict | None
     end_date = now_local.date() - timedelta(days=1)      # 昨日
     start_date = end_date - timedelta(days=6)            # 含昨日共 7 天
   
-
-
     await send_board_rank_report(
         client=client,
         stat_date_from=start_date,

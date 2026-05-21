@@ -42,7 +42,7 @@ async def report_message(
 	"""按 Telegram 回传的步骤提交举报。"""
 	entity = await client.get_input_entity(chat)
 
-	# print(f"开始举报 id={message_id} reason={report_reason}", flush=True)
+	print(f"开始举报 id={message_id} reason={report_reason}", flush=True)
 
 	result = await client(
 		ReportRequest(
@@ -53,7 +53,7 @@ async def report_message(
 		)
 	)
 
-	# print(f"举报第一步结果 id={message_id}: {result.stringify()}", flush=True)
+	print(f"举报第一步结果 id={message_id}: {result.stringify()}", flush=True)
 
 	step = 1
 	result_reported = result
@@ -91,7 +91,7 @@ async def report_message(
 		)
 		result_reported = result
 		step += 1
-		# print(f"举报第{step}步结果 id={message_id}: {result.stringify()}", flush=True)
+		print(f"举报第{step}步结果 id={message_id}: {result.stringify()}", flush=True)
 
 	if isinstance(result, ReportResultAddComment):
 		# print("需要添加备注内容，正在提交", flush=True)
@@ -103,7 +103,7 @@ async def report_message(
 				message=report_reason,
 			)
 		)
-		# print(f"举报第三步结果 id={message_id}: {result.stringify()}", flush=True)
+		print(f"举报第三步结果 id={message_id}: {result.stringify()}", flush=True)
 
 	if isinstance(result_reported, ReportResultReported):
 		print(f"👮 举报已提交 id={message_id} reason={report_reason}", flush=True)
@@ -314,10 +314,6 @@ class GroupMessageReader:
 		if not isinstance(message_id, int):
 			return
 
-		
-
-
-
 		report_reason = [
 			"This bot shares CP links: {url}",
 			"This bot is distributing CP through this link: {url}",
@@ -351,11 +347,7 @@ class GroupMessageReader:
 			"Please review this suspicious bot activity: {url}",
 		]
 
-	  
-
-		report_reason = random.choice(report_reason).format(url=report_url)
-
-		
+		report_reason = random.choice(report_reason).format(url=report_url)		
 
 		try:
 			await report_message(client, source_entity, message_id, report_reason=report_reason)

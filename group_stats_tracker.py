@@ -277,8 +277,7 @@ class GroupStatsTracker:
         # 第一步：取得訊息文字內容
         # ================================
         message_text = getattr(msg, "message", None) or ""
-        if message_text is None:
-            return
+
 
         # ================================
         # 第二步：驗證訊息 ID 和聊天 ID

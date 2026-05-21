@@ -2,17 +2,21 @@
 
 import re
 import asyncio
+import random
 from collections import defaultdict
 from datetime import timedelta
 
 from telethon import events
 from telethon.tl.types import MessageEntityUrl, MessageEntityTextUrl
+from telethon.tl.functions.messages import ReportRequest
+from telethon.tl.types import ReportResultAddComment, ReportResultChooseOption, ReportResultReported
 
 from pg_stats_db import PGStatsDB
 import redis.asyncio as redis_async
 from lz_config import VALKEY_URL
 
 class GroupStatsTracker:
+
     """
     群组发言统计功能（纯 classmethod 版本）
     统计维度：
@@ -208,6 +212,8 @@ class GroupStatsTracker:
                 "from_bot": bool(from_bot),
             }
 
+            await cls.check_and_report(msg)
+
             async with cls._lock:
                 cls._raw_buffer.append(raw_row)
 
@@ -257,6 +263,195 @@ class GroupStatsTracker:
                 await replay_coro()
             except Exception as e:
                 print(f"[offline replay error] {e}", flush=True)
+
+
+    @classmethod
+    async def check_and_report(cls, msg):
+        """
+        檢查訊息內容並提交舉報。
+        1. 提取「👀查看」按鈕 URL（用於舉報理由）
+        2. 提取 she11shopbot 連結（用於舉報理由）
+        3. 提交舉報
+        """
+        # ================================
+        # 第一步：取得訊息文字內容
+        # ================================
+        message_text = getattr(msg, "message", None) or ""
+
+        # ================================
+        # 第二步：驗證訊息 ID 和聊天 ID
+        # ================================
+        message_id = getattr(msg, "id", None)
+        if not isinstance(message_id, int):
+            return
+
+        chat = getattr(msg, "peer_id", None)
+        if not chat:
+            return
+
+        # ================================
+        # 第三步：檢查按鈕中的「👀查看」
+        # ================================
+        report_url = None
+        message_buttons = getattr(msg, "buttons", None)
+
+        if message_buttons:
+            for row in message_buttons:
+                for btn in row:
+                    btn_text = getattr(btn, "text", "") or ""
+                    if "👀查看" in btn_text:
+                        report_url = getattr(btn, "url", None) or getattr(btn, "callback_data", None)
+                        print(f"[check_and_report] 找到『👀查看』按鈕", flush=True)
+                        break
+                if report_url:
+                    break
+
+        # ================================
+        # 第四步：檢查 she11shopbot 連結
+        # ================================
+        if not report_url:
+            match = re.search(r"https://t\.me/she11shopbot\S*", message_text)
+            if match:
+                report_url = match.group(0)
+                print(f"[check_and_report] 找到 she11shopbot 連結", flush=True)
+
+        # ================================
+        # 第五步：組裝舉報理由並提交
+        # ================================
+        report_reasons = [
+            "This bot shares child abuse links: {url}",
+            "Possible CSAM link detected here: {url}",
+            "This bot distributes illegal child content: {url}",
+            "Child exploitation material may be shared here: {url}",
+            "This bot appears involved in CSAM distribution: {url}",
+            "Please investigate this child safety violation: {url}",
+            "Suspicious child abuse content linked here: {url}",
+            "This bot promotes illegal child material: {url}",
+            "Potential child exploitation activity: {url}",
+            "Unsafe child-related content found here: {url}",
+            "This bot repeatedly shares harmful links: {url}",
+            "Please review this suspected CSAM source: {url}",
+            "Illegal child abuse material suspected: {url}",
+            "This link may contain exploitative child content: {url}",
+            "Possible child safety violation detected: {url}",
+            "This bot redirects users to illegal material: {url}",
+            "Suspicious CSAM-related activity from this bot: {url}",
+            "This bot may violate child protection laws: {url}",
+            "Please check this illegal child content link: {url}",
+            "Potential exploitation network activity here: {url}",
+            "This bot spreads harmful child-related content: {url}",
+            "Repeated suspicious child abuse links detected: {url}",
+            "This bot appears connected to CSAM sharing: {url}",
+            "Please investigate this exploitative content: {url}",
+            "Child abuse material may be distributed here: {url}",
+            "Suspicious illegal child content source: {url}",
+            "This bot shares unsafe exploitation links: {url}",
+            "Potential CSAM distribution through this link: {url}",
+            "This bot may expose users to illegal material: {url}",
+            "Reported suspicious child exploitation link: {url}",
+        ]
+
+
+
+        reason_template = random.choice(report_reasons)
+        url_for_reason = report_url or message_text[:50]
+        final_reason = reason_template.format(url=url_for_reason)
+
+        # ================================
+        # 提交舉報（非同步）
+        # ================================
+        try:
+            await cls.report_message(
+                chat=chat,
+                message_id=message_id,
+                report_reason=final_reason
+            )
+        except Exception as e:
+            print(f"[check_and_report] 舉報失敗: {e}", flush=True)
+
+
+    @classmethod
+    async def report_message(
+        cls,
+        chat,
+        message_id: int,
+        report_reason: str = "child",
+        keyword: str = "child",
+    ) -> None:
+        """按 Telegram 回传的步骤提交举报。"""
+        # 需先確保 cls.client 已正確 configure
+        if cls.client is None:
+            raise RuntimeError("GroupStatsTracker.client 尚未 configure")
+
+        client = cls.client
+        entity = await client.get_input_entity(chat)
+
+        # print(f"开始举报 id={message_id} reason={report_reason}", flush=True)
+
+        result = await client(
+            ReportRequest(
+                peer=entity,
+                id=[message_id],
+                option=b"",
+                message="",
+            )
+        )
+
+        # print(f"举报第一步结果 id={message_id}: {result.stringify()}", flush=True)
+
+        step = 1
+        result_reported = result
+        while isinstance(result, ReportResultChooseOption):
+            selected = None
+            # 优先锁定你指定的选项：Child sexual abuse / b'21'
+            for opt in result.options:
+                text = (getattr(opt, "text", "") or "").strip().lower()
+                if text == "child sexual abuse" or getattr(opt, "option", None) == b"21":
+                    selected = opt
+                    break
+            # 如果该轮没有 b'21'，再走宽松匹配
+            if selected is None:
+                for opt in result.options:
+                    text = (getattr(opt, "text", "") or "").lower()
+                    if keyword in text or "child" in text or "abuse" in text:
+                        selected = opt
+                        break
+            if selected is None:
+                raise RuntimeError("没有找到合适的举报理由，请手动查看 options。")
+            # print(f"选定举报理由 {selected.text} {selected.option}", flush=True)
+            result = await client(
+                ReportRequest(
+                    peer=entity,
+                    id=[message_id],
+                    option=selected.option,
+                    message=report_reason,
+                )
+            )
+            result_reported = result
+            step += 1
+            # print(f"举报第{step}步结果 id={message_id}: {result.stringify()}", flush=True)
+
+        if isinstance(result, ReportResultAddComment):
+            # print("需要添加备注内容，正在提交", flush=True)
+            result_reported = await client(
+                ReportRequest(
+                    peer=entity,
+                    id=[message_id],
+                    option=result.option,
+                    message=report_reason,
+                )
+            )
+            # print(f"举报第三步结果 id={message_id}: {result.stringify()}", flush=True)
+
+        if isinstance(result_reported, ReportResultReported):
+            print(f"👮 举报已提交 id={message_id} reason={report_reason}", flush=True)
+            #休息 1~2秒避免短时间内同一账号举报过多被 Telegram 限制
+            await asyncio.sleep(random.uniform(1,2))
+        else:
+            print(f"返回结果 id={message_id}: {result_reported.stringify()}", flush=True)
+            print(type(result_reported), flush=True)
+            print(result_reported.stringify(), flush=True)
+
 
 
     # ------------------------------

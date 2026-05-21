@@ -277,6 +277,8 @@ class GroupStatsTracker:
         # 第一步：取得訊息文字內容
         # ================================
         message_text = getattr(msg, "message", None) or ""
+        if message_text is None:
+            return
 
         # ================================
         # 第二步：驗證訊息 ID 和聊天 ID
@@ -314,6 +316,9 @@ class GroupStatsTracker:
             if match:
                 report_url = match.group(0)
                 print(f"[check_and_report] 找到 she11shopbot 連結", flush=True)
+
+        if not report_url:
+            return
 
         # ================================
         # 第五步：組裝舉報理由並提交

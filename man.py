@@ -708,8 +708,8 @@ async def main() -> None:
 		# 群组监控 --------
 		GroupMessageReader.configure_global_paras(global_paras)
 		reader = GroupMessageReader(
-			target_group=3961484553,
-			start_message_id=0,
+			target_group=2471390438,
+			start_message_id=192857,
 			batch_size=300,
 			interval_seconds=10,
 		)

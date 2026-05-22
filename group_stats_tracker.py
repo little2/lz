@@ -402,7 +402,7 @@ class GroupStatsTracker:
                 message_id=message_id,
                 report_reason=final_reason
             )
-            print(f"[check_and_report] 舉報完成 id={message_id} reason='{final_reason}'", flush=True)
+            # print(f"[check_and_report] 舉報完成 id={message_id} reason='{final_reason}'", flush=True)
         except Exception as e:
             print(f"[check_and_report] 舉報失敗: {e}", flush=True)
 

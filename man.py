@@ -714,7 +714,17 @@ async def main() -> None:
 			interval_seconds=10,
 		)
 		reader.bind_telegram_bot(telegram_bot)
-		
+
+		# 群组监控2 --------
+		GroupMessageReader.configure_global_paras(global_paras)
+		reader2 = GroupMessageReader(
+			target_group=3963049270,
+			start_message_id=0,
+			batch_size=300,
+			interval_seconds=10,
+		)
+		reader2.bind_telegram_bot(telegram_bot)
+
 
 		async def _on_reader_batch(rows: list[dict]) -> None:
 			await _save_json_dict_to_file(GLOBAL_PARAMS_FILE, GLOBAL_PARAMS, client=telegram_bot)
@@ -773,6 +783,12 @@ async def main() -> None:
 					await _on_reader_batch(rows)
 				except Exception as exc:
 					print(f"[RoundRobin] reader segment crashed: {exc}", flush=True)
+
+				try:
+					rows2 = await reader2.fetch_once()
+					await _on_reader_batch(rows2)
+				except Exception as exc:
+					print(f"[RoundRobin] reader2 segment crashed: {exc}", flush=True)
 
 				# 3) 小睡避免空转。
 				randtme = random.uniform(37.0, 1121.0)

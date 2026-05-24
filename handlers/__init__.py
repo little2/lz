@@ -12,11 +12,16 @@ try:
 	from .group_media_forwarder import GroupMediaForwarder
 except ModuleNotFoundError:
 	GroupMediaForwarder = None
+	
 try:
 	from .group_message_reader import GroupMessageReader
 except ModuleNotFoundError:
 	GroupMessageReader = None
-from .target_group_inspector import TargetGroupInspector
+
+try:
+	from .target_group_inspector import TargetGroupInspector
+except ModuleNotFoundError:
+	TargetGroupInspector = None
 
 __all__ = [
 	"DownloadUrl",

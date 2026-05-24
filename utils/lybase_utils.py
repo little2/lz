@@ -1,5 +1,6 @@
 import lz_var
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.exceptions import TelegramBadRequest
 from datetime import datetime
 import time
 
@@ -309,13 +310,22 @@ class LYBase:
         home_file_id = home_skin.get('file_id')
 
         if home_file_id:
-            current_message = await message.answer_photo(
-                photo=home_file_id,
-                    caption="👋 欢迎使用 LZ 机器人！请选择操作：",
-                    parse_mode="HTML",
-                    reply_markup=cls.main_menu_keyboard()
-            )  
-            print(f"02-1 [X-MEDIA] 成功发送菜单消息", flush=True)
+            try:
+                current_message = await message.answer_photo(
+                    photo=home_file_id,
+                        caption="👋 欢迎使用 LZ 机器人！请选择操作：",
+                        parse_mode="HTML",
+                        reply_markup=cls.main_menu_keyboard()
+                )
+                print(f"02-1 [X-MEDIA] 成功发送菜单消息", flush=True)
+            except TelegramBadRequest as e:
+                print(f"⚠️ skin[home][file_id] 无效，降级为文本主菜单: {e}", flush=True)
+                current_message = await message.answer(
+                        text="👋 欢迎使用鲁仔机器人！请选择操作：",
+                        parse_mode="HTML",
+                        reply_markup=cls.main_menu_keyboard()
+                )
+                print(f"02-2 [X-MEDIA] 成功发送菜单消息（封面失效，已降级）", flush=True)
             
              
         else:

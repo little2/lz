@@ -12,7 +12,10 @@ try:
 	from .group_media_forwarder import GroupMediaForwarder
 except ModuleNotFoundError:
 	GroupMediaForwarder = None
-from .group_message_reader import GroupMessageReader
+try:
+	from .group_message_reader import GroupMessageReader
+except ModuleNotFoundError:
+	GroupMessageReader = None
 from .target_group_inspector import TargetGroupInspector
 
 __all__ = [

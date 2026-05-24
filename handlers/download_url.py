@@ -152,7 +152,7 @@ class DownloadUrl:
 				await downloading_span.wait_for(state="attached", timeout=self.wait_timeout_ms)
 				self._log("FIND", "Download 元素已出现")
 
-				click_download_js = """() => {
+				click_download_js = r"""() => {
 					const normalize = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 					// 優先找 Download all
 					const allSpans = Array.from(document.querySelectorAll('span'));

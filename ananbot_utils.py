@@ -1,6 +1,7 @@
 from datetime import datetime
 import time
 import aiomysql
+import os
 from ananbot_config import DB_CONFIG
 from utils.lybase_utils import LYBase
 from utils.string_utils import LZString
@@ -57,23 +58,43 @@ class AnanBOTPool(LYBase):
                 if cls._pool is None:
                     kwargs = dict(DB_CONFIG)
                     kwargs.setdefault("autocommit", True)
-                    kwargs.setdefault("minsize", 2)
+                    kwargs.setdefault("minsize", 1)
                     kwargs.setdefault("maxsize", 40)
-                    kwargs.setdefault("connect_timeout", 10)
+                    kwargs.setdefault("connect_timeout", 15)
                     kwargs.setdefault("pool_recycle", 110)  # 建议略小于 MySQL wait_timeout
                     kwargs.setdefault("charset", "utf8mb4")
 
-                    delay = 0.3
-                    for i in range(4):
+                    # 启动时允许更长重试窗口，避免 MySQL 短时抖动导致进程直接退出。
+                    max_retry = int(os.getenv("ANANBOT_DB_INIT_MAX_RETRY", "12"))
+                    base_delay = float(os.getenv("ANANBOT_DB_INIT_BASE_DELAY", "1.0"))
+                    max_delay = float(os.getenv("ANANBOT_DB_INIT_MAX_DELAY", "12.0"))
+
+                    for i in range(max_retry):
                         try:
                             cls._pool = await aiomysql.create_pool(**kwargs)
-                            print("✅ MySQL 连接池初始化完成")
+                            host = kwargs.get("host", "")
+                            port = kwargs.get("port", "")
+                            db = kwargs.get("db", "")
+                            user = kwargs.get("user", "")
+                            print(f"✅ MySQL 连接池初始化完成 host={host} port={port} db={db} user={user}")
                             break
                         except Exception as e:
-                            if i == 3:
-                                raise
+                            attempt = i + 1
+                            if attempt >= max_retry:
+                                raise RuntimeError(
+                                    "MySQL 连接池初始化失败：已达到最大重试次数。"
+                                    f" host={kwargs.get('host')} port={kwargs.get('port')} db={kwargs.get('db')}"
+                                ) from e
+
+                            delay = min(base_delay * (2 ** i), max_delay)
+                            print(
+                                "⚠️ MySQL 连接池初始化失败，稍后重试"
+                                f" attempt={attempt}/{max_retry}"
+                                f" host={kwargs.get('host')} port={kwargs.get('port')} db={kwargs.get('db')}"
+                                f" err={e}",
+                                flush=True,
+                            )
                             await asyncio.sleep(delay)
-                            delay *= 2
 
             if not cls._cache_ready:
                 cls.cache = MemoryCache()

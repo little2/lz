@@ -60,6 +60,7 @@ async def notify_command_bot_on_start():
             username = "@" + username
         try:
             await client.send_message(username, "/start")
+            await asyncio.sleep(1)  # 可选：每发一个消息后稍微等待一下，避免过快发送导致问题
         except Exception as e:
             print(f"给 {username} 发送 /start 失败: {e}")
 

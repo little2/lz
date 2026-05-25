@@ -5871,7 +5871,7 @@ async def _process_update_default_preview_async(message: Message, user_id: str, 
 
 
 
-async def safe_copy_message(message: Message, max_retry: int = 8):
+async def safe_copy_message(message: Message, max_retry: int = 3):
     # print(f"mess/age=>{message}", flush=True)
     ret = None
 
@@ -5900,7 +5900,7 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
     async with COPY_SEM:
         for i in range(max_retry):
              # 先小睡一下，避免贴脸输出
-            await asyncio.sleep(0.7)
+            await asyncio.sleep(1.2)
 
             try:
                 ret =  await lz_var.bot.copy_message(
@@ -5922,7 +5922,7 @@ async def safe_copy_message(message: Message, max_retry: int = 8):
     async with COPY_SEM:
         for i in range(max_retry):
              # 先小睡一下，避免贴脸输出
-            await asyncio.sleep(0.7)            
+            await asyncio.sleep(1.2)            
 
             try:
             

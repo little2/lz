@@ -612,6 +612,7 @@ async def handle_private_json(event):
 
                 await client.send_message(botname, "/start")
                 await client.send_message(botname, "[~bot~]")
+                await client.send_message(event.chat_id, f"✅ 已尝试联系 {botname}，并发送了 /start 和 [~bot~]。如果 {botname} 在线且响应，这通常会触发它的自动回复，从而完成 kick 任务。请稍候观察是否有后续动作。")
                 await msg.delete()
                 print("D717")
                 return

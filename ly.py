@@ -486,18 +486,7 @@ async def handle_private_json(event):
             return
 
 
-    try:
-        match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', text, re.IGNORECASE)
-        if match:
-            botname = match.group(1) + match.group(2)
 
-            await client.send_message(botname, "/start")
-            await client.send_message(botname, "[~bot~]")
-            await msg.delete()
-            print("D717")
-            return
-    except Exception as e:
-            print(f"Error kicking bot: {e} {botname}", flush=True)
 
     if text == "/hello":
         await event.reply("hi")
@@ -614,6 +603,20 @@ async def handle_private_json(event):
         await event.reply("\n".join(lines))
         return
 
+
+    else:
+        try:
+            match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', text, re.IGNORECASE)
+            if match:
+                botname = match.group(1) + match.group(2)
+
+                await client.send_message(botname, "/start")
+                await client.send_message(botname, "[~bot~]")
+                await msg.delete()
+                print("D717")
+                return
+        except Exception as e:
+                print(f"Error kicking bot: {e} {botname}", flush=True)
 
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
         print(f"用户 {event.sender_id} 不在允许名单，忽略。 text={text}")

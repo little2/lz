@@ -486,7 +486,18 @@ async def handle_private_json(event):
             return
 
 
-    
+    try:
+        match = re.search(r'\|_kick_\|\s*(.*?)\s*(bot)', text, re.IGNORECASE)
+        if match:
+            botname = match.group(1) + match.group(2)
+
+            await client.send_message(botname, "/start")
+            await client.send_message(botname, "[~bot~]")
+            await msg.delete()
+            print("D717")
+            return
+    except Exception as e:
+            print(f"Error kicking bot: {e} {botname}", flush=True)
 
     if text == "/hello":
         await event.reply("hi")

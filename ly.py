@@ -620,7 +620,7 @@ async def handle_private_json(event):
                 print(f"Error kicking bot: {e} {botname}", flush=True)
 
     if event.sender_id not in ALLOWED_PRIVATE_IDS:
-        print(f"用户 {event.sender_id} 不在允许名单，忽略。 text={text}")
+        print(f"用户 {event.sender_id} 不在JSON允许名单，忽略。 text={text}")
         return
 
     # 尝试解析 JSON

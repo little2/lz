@@ -5654,7 +5654,7 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
 
             except Exception as e:
                 
-                if "Bad Request: MEDIA_EMPTY" in str(e) or "can't use file of type" in str(e) or "media not found" in str(e):
+                if "Bad Request: MEDIA_EMPTY" in str(e) or "can't use file of type" in str(e) :
                     # 若 thumb_file_id 有值,可能已经无效了，删除后，再试一次, 检查 file_extension.file_id 是否相同 ,若相同,也一并删除
                     await MySQLPool.reset_thumb_file_id(content_id,thumb_file_id,bot_username)
                     invalidate_cached_product(content_id)

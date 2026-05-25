@@ -5971,17 +5971,43 @@ async def premark_thumb(meta):
         return None
 
     if chat_id == 0:
-        await lz_var.switchbot.send_message(
-            KEY_USER_ID,
-            "[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) 已启动！",
-        )
+        try:
+            await lz_var.switchbot.send_message(
+                KEY_USER_ID,
+                "[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) 已启动！",
+            )
+        except Exception as e:
+            print(f"⚠️ premark_thumb 提示消息发送失败（忽略）: {e}", flush=True)
         return None
 
-    ret = await lz_var.bot.send_video(
-        chat_id=chat_id,
-        video=file_id,
-        caption=f"|_thumbnail_|{file_unique_id}",
-    )
+    try:
+        ret = await lz_var.bot.send_video(
+            chat_id=chat_id,
+            video=file_id,
+            caption=f"|_thumbnail_|{file_unique_id}",
+        )
+    except TelegramBadRequest as e:
+        # 常见于目标 chat 未关联、bot 未加入、chat_id 配置错误。
+        print(
+            f"⚠️ premark_thumb 跳过: chat 不可达或未关联 chat_id={chat_id}, "
+            f"file_unique_id={file_unique_id}, err={e}",
+            flush=True,
+        )
+        try:
+            await lz_var.switchbot.send_message(
+                KEY_USER_ID,
+                f"[LZ-Uploader] 预览图机器人 chat 不可达，请检查 m_man_bot_id 与关连状态。chat_id={chat_id}",
+            )
+        except Exception as e2:
+            print(f"⚠️ premark_thumb 告警发送失败（忽略）: {e2}", flush=True)
+        return None
+    except Exception as e:
+        print(
+            f"⚠️ premark_thumb send_video 失败: chat_id={chat_id}, "
+            f"file_unique_id={file_unique_id}, err={e}",
+            flush=True,
+        )
+        return None
 
     if not ret or not getattr(ret, "message_id", None):
         print(
@@ -5989,10 +6015,13 @@ async def premark_thumb(meta):
             flush=True,
         )
 
-        await lz_var.switchbot.send_message(
-            KEY_USER_ID,
-            f"[LZ-Uploader] 预览图机器人(m_man_bot_id) 无法访问或发送消息失败！请检查设置并确保机器人已启动。 chat_id={chat_id}, file_unique_id={file_unique_id}",
-        )
+        try:
+            await lz_var.switchbot.send_message(
+                KEY_USER_ID,
+                f"[LZ-Uploader] 预览图机器人(m_man_bot_id) 无法访问或发送消息失败！请检查设置并确保机器人已启动。 chat_id={chat_id}, file_unique_id={file_unique_id}",
+            )
+        except Exception as e:
+            print(f"⚠️ premark_thumb 失败告警发送失败（忽略）: {e}", flush=True)
 
         return None
     else:

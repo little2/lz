@@ -280,10 +280,11 @@ class Tplate:
         need_fix = [(k, v) for k, v in skins.items() if not v.get("file_id") and v.get("file_unique_id")]
         for name, obj in need_fix:
             fu = obj["file_unique_id"]
-            print(f"🧾 {name}: 向 x-man {lz_var.x_man_bot_id} 请求 file_id…（{fu}）")
+            
             try:
+                print(f"🧾 {name}: 向 x-man {lz_var.x_man_bot_id} 请求 file_id…（{fu}）")
                 msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
-                print(f"📨 已请求 {fu}，并已接收返回",flush=True)
+                
             except Exception as e:
                 print(f"⚠️ 向 x-man 请求失败：{e} - {lz_var.x_man_bot_id}",flush=True)
                 return {"ok":None, "handshake": lz_var.x_man_bot_id}
@@ -295,11 +296,15 @@ class Tplate:
             json.dump(skins, f, ensure_ascii=False, indent=4)
         # print(f"💾 已写入 {config_path}")
 
-        lz_var.default_thumb_file_id = [
-            skins.get("product_cover1", {}).get("file_id", ""),
-            skins.get("product_cover2", {}).get("file_id", ""),
-            skins.get("product_cover3", {}).get("file_id", ""), 
-        ]
+        default_thumb_ids = []
+        for key in ("product_cover1", "product_cover2", "product_cover3"):
+            fid = (skins.get(key, {}) or {}).get("file_id")
+            if isinstance(fid, str):
+                fid = fid.strip()
+            if fid:
+                default_thumb_ids.append(fid)
+
+        lz_var.default_thumb_file_id = default_thumb_ids
         
         return {"ok":1, "skins": skins}
 

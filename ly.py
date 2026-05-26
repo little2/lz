@@ -21,6 +21,9 @@ from telethon.tl.types import InputPhoneContact,DocumentAttributeFilename,InputD
 from telethon.tl.types import PeerUser
 from telethon.errors import UsernameNotOccupiedError, UsernameInvalidError, PeerIdInvalidError
 
+from shared_config import SharedConfig
+SharedConfig.load(True)
+
 
 from typing import Optional, List, Any
  
@@ -1838,11 +1841,13 @@ async def say_hello():
     me = await client.get_me()
     await client.send_message(target, f"[LY-HB] <code>{me.id}</code> - {me.first_name} {me.last_name or ''} {me.phone or ''}。我在执行TGONE任务！",parse_mode='html') 
 
+    switchbot_username = SharedConfig.get("switch_bot_username", SWITCHBOT_USERNAME).strip()
+
     try:
-        await client.send_message(SWITCHBOT_USERNAME, f"/start",parse_mode='html')
-        print(f"✅ 已向 @{SWITCHBOT_USERNAME} 发送启动消息。", flush=True)
+        await client.send_message(switchbot_username, f"/start",parse_mode='html')
+        print(f"✅ 已向 @{switchbot_username} 发送启动消息。", flush=True)
     except Exception as e:
-        print(f"⚠️ 向 @{SWITCHBOT_USERNAME} 发送消息失败（可能未关联或未启动）：{e}", flush=True)
+        print(f"⚠️ 向 @{switchbot_username} 发送消息失败（可能未关联或未启动）：{e}", flush=True)
         pass
 
 

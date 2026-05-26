@@ -72,8 +72,8 @@ lz_var.bot = bot
 
 publish_bot = Bot(token=publish_bot_token)
 
-
-switchbot = Bot(token=SWITCHBOT_TOKEN)
+switchbot_token = SharedConfig.get("switch_bot_token", SWITCHBOT_TOKEN)
+switchbot = Bot(token=switchbot_token)
 lz_var.switchbot = switchbot
 
 # 全局变量缓存 bot username

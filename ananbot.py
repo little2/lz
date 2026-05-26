@@ -511,9 +511,12 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
     bot_username = await get_bot_username()
     product_info = await AnanBOTPool.search_sora_content_by_id(content_id, bot_username)
 
-   
+    print(f"🔍 465: product_info={product_info} for content_id={content_id}", flush=True)
 
     thumb_file_id = product_info.get("m_thumb_file_id") or DEFAULT_THUMB_FILE_ID
+
+    print(f"{content_id} thumb_file_id={DEFAULT_THUMB_FILE_ID} | {thumb_file_id}", flush=True)
+
     thumb_unique_id = product_info.get("thumb_file_unique_id")
     file_unique_id = product_info.get('source_id')
     file_id = product_info.get('m_file_id')
@@ -5638,6 +5641,11 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
             timer.lap("get_product_tpl")
 
             try:
+                if thumb_file_id == None:
+                    print(f"⚠️ No thumb_file_id for content_id={content_id}, cannot edit message media", flush=True)
+                    return
+                   
+            
                 print(f"4885=>{thumb_file_id} {preview_text}")
                 # thumb_file_id = "AgACAgUAAxkBAAIBrmhyapzZ-aQigPWdtB5oITN4UQR8AAL5yDEbVtpYV7Gs5ZC2v8Y_AQADAgADeQADNgQ"
                 photo_msg = await lz_var.bot.edit_message_media(
@@ -6285,7 +6293,7 @@ async def set_default_thumb_file_id():
         bot_username = await get_bot_username()
        
         DEFAULT_THUMB_FILE_ID = await AnanBOTPool.get_default_preview_thumb_file_id(bot_username, first)
-       
+        print(f"✅ 已设置默认缩略图 DEFAULT_THUMB_FILE_ID={DEFAULT_THUMB_FILE_ID} (unique_id={first})", flush=True)
     else:
         print("⚠️ 未配置任何默认缩略图", flush=True)
 

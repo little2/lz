@@ -504,14 +504,13 @@ class TargetGroupInspector:
 			batch_size = 100
 			for start in range(0, len(id_list), batch_size):
 				batch = id_list[start:start + batch_size]
-				await cur.executemany(
-					"""
+				values_sql = ", ".join(["(%s, 0)"] * len(batch))
+				sql = f"""
 					INSERT INTO pure (user_id, done)
-					VALUES (%s, 0)
+					VALUES {values_sql}
 					ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)
-					""",
-					[(uid,) for uid in batch],
-				)
+				"""
+				await cur.execute(sql, batch)
 
 			return {
 				"ok": True,
@@ -668,7 +667,7 @@ async def main() -> None:
 
 
     # 2) 拉取群成员 id + username
-	inspector = TargetGroupInspector(target_group=-1001800096525, telegram_bot=telegram_bot)
+	inspector = TargetGroupInspector(target_group=-1001944620376, telegram_bot=telegram_bot)
 	members = await inspector.list_members()
 	print("members:", len(members))
 	# print("first member:", members[0] if members else None)

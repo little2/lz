@@ -496,10 +496,10 @@ class Media:
 
         if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
             lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
-            asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=100))
-
-            print(f"资源同步中，请稍后再试，请看看别的资源吧(-{len(lack_file_uid_rows)})", flush=True)        
-            return {'ok':False,'message':f'资源同步中，请稍后再试，可以先看看别的资源吧( 请 {len(lack_file_uid_rows)} 秒后重试)'}
+            asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=5))
+            resource_lack_text = f"共有 {len(lack_file_uid_rows)} 个资源缺失，机器人已在自动同步，预计 {len(lack_file_uid_rows)*33} 秒后同步完成，请稍后再试，可以先看看别的资源吧。如果同步一直未完成，请联系教务处小助手，并告知资源连结。"
+            print(resource_lack_text, flush=True)        
+            return {'ok':False,'message':resource_lack_text}
         # print(f"1896=>{productInfomation}")
         rows = productInfomation.get("rows", [])
         # print(f"rows={rows}", flush=True)

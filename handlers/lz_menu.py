@@ -66,7 +66,7 @@ from utils.tpl import Tplate
 from utils.string_utils import LZString
 from utils.product_utils import sync_sora,sync_product_by_user
 from utils.product_utils import submit_resource_to_chat,get_product_material, MenuBase, sync_transactions
-from utils.product_utils import sync_bot, sync_table_by_pks,sync_album_items
+from utils.product_utils import sync_bot, sync_table_by_pks,sync_album_items, copy_from_pg_to_mysql
 from utils.action_gate import ActionGate
 
 from shared_config import SharedConfig
@@ -5565,6 +5565,68 @@ async def handle_sync_bot(message: Message, state: FSMContext):
         await sync_bot()
     except Exception as e:
         print(f"❌ 同步 Bot 失败: {e}", flush=True)
+
+
+@router.message(Command("copy_pg"))
+async def handle_copy_pg(message: Message, state: FSMContext):
+    ''' 将离岛数据同步到本地 MySQL，供查询使用。'''
+    progress_message = None
+    try:
+        progress_message = await message.reply("🚀 开始执行 /copy_pg，正在连接数据库...")
+
+        async def _progress_cb(progress: dict):
+            stage = str(progress.get("stage") or "")
+
+            if stage == "init":
+                text = "🚀 /copy_pg 已启动，正在准备同步..."
+            elif stage == "fetched":
+                total = int(progress.get("total") or 0)
+                text = f"📦 已从 PostgreSQL 读取 {total} 笔，开始写入 MySQL..."
+            elif stage == "running":
+                processed = int(progress.get("processed") or 0)
+                total = int(progress.get("total") or 0)
+                batch_no = int(progress.get("batch_no") or 0)
+                total_batches = int(progress.get("total_batches") or 0)
+                percent = float(progress.get("percent") or 0.0)
+                text = (
+                    f"⏳ /copy_pg 进行中\n"
+                    f"进度: {processed}/{total} ({percent:.2f}%)\n"
+                    f"批次: {batch_no}/{total_batches}"
+                )
+            elif stage == "done":
+                summary_data = progress.get("summary") or {}
+                text = f"✅ /copy_pg 完成\n{json.dumps(summary_data, ensure_ascii=False)}"
+            elif stage == "error":
+                err = str(progress.get("error") or "unknown")
+                text = f"❌ /copy_pg 失败: {err}"
+            else:
+                text = f"ℹ️ /copy_pg 状态: {json.dumps(progress, ensure_ascii=False)}"
+
+            if progress_message is not None:
+                try:
+                    await progress_message.edit_text(text)
+                except Exception:
+                    pass
+
+        summary = await copy_from_pg_to_mysql(progress_cb=_progress_cb)
+
+        if progress_message is not None:
+            await progress_message.edit_text(
+                f"✅ copy_from_pg_to_mysql done: {json.dumps(summary, ensure_ascii=False)}"
+            )
+        else:
+            await message.reply(
+                f"✅ copy_from_pg_to_mysql done: {json.dumps(summary, ensure_ascii=False)}"
+            )
+    except Exception as e:
+        print(f"❌ copy_from_pg_to_mysql 失败: {e}", flush=True)
+        if progress_message is not None:
+            try:
+                await progress_message.edit_text(f"❌ /copy_pg 执行失败: {e}")
+            except Exception:
+                await message.reply(f"❌ /copy_pg 执行失败: {e}")
+        else:
+            await message.reply(f"❌ /copy_pg 执行失败: {e}")
   
 
 @router.message(Command("sync"))

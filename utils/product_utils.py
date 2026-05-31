@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Callable, Awaitable
 from aiogram import Bot
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -507,6 +507,173 @@ async def sync_sora(content_id: int):
         print(f"[sync_sora] sync_album_items error: {e}", flush=True)
         album_sync_summary = None
 
+
+async def copy_from_pg_to_mysql(
+    progress_cb: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+):
+    """
+    从 PostgreSQL.file_extension 取指定条件记录，写入 MySQL.file_extension_pgbk。
+    - PG 端使用 DISTINCT ON(file_unique_id) 规则选出优先记录。
+    - MySQL 端按 id 主键做 UPSERT。
+    """
+    await asyncio.gather(
+        MySQLPool.init_pool(),
+        PGPool.init_pool(),
+    )
+    await MySQLPool.ensure_pool()
+    await PGPool.ensure_pool()
+
+    pg_sql = """
+        SELECT DISTINCT ON (f.file_unique_id)
+            f.id,
+            f.file_type,
+            f.file_unique_id,
+            f.file_id,
+            f.bot
+        FROM public.file_extension f
+        WHERE f.bot IN ('luzai1005bot', 'xiaojuhua010bot')
+          AND NOT EXISTS (
+              SELECT 1
+              FROM public.file_extension x
+              WHERE x.file_unique_id = f.file_unique_id
+                AND x.bot = 'luzai11011bot'
+          )
+        ORDER BY
+            f.file_unique_id,
+            CASE
+                WHEN f.bot = 'luzai1005bot' THEN 0
+                ELSE 1
+            END,
+            f.id DESC
+    """
+
+    async def _notify(progress: Dict[str, Any]) -> None:
+        if not progress_cb:
+            return
+        try:
+            await progress_cb(progress)
+        except Exception as cb_e:
+            print(f"[copy_from_pg_to_mysql] progress callback failed: {cb_e}", flush=True)
+
+    await _notify({"stage": "init"})
+
+    try:
+        pg_rows = await PGPool.fetch(pg_sql)
+    except Exception as e:
+        await _notify({"stage": "error", "error": str(e)})
+        print(f"[copy_from_pg_to_mysql] PG query failed: {e}", flush=True)
+        return {
+            "pg_rows": 0,
+            "mysql_upserted": 0,
+            "status": "pg_query_failed",
+            "error": str(e),
+        }
+
+    if not pg_rows:
+        summary = {
+            "pg_rows": 0,
+            "mysql_upserted": 0,
+            "status": "ok",
+        }
+        await _notify({"stage": "done", "summary": summary})
+        print(f"[copy_from_pg_to_mysql] Done (no data): {summary}", flush=True)
+        return summary
+
+    await _notify({"stage": "fetched", "total": len(pg_rows)})
+
+    payload = [
+        (
+            int(r["id"]),
+            str(r.get("file_type")) if r.get("file_type") is not None else None,
+            str(r.get("file_unique_id") or "")[:100],
+            str(r.get("file_id") or "")[:200],
+            str(r.get("bot")) if r.get("bot") is not None else None,
+            None,
+        )
+        for r in pg_rows
+    ]
+
+    conn, cur = await MySQLPool.get_conn_cursor()
+    try:
+        await conn.begin()
+
+        await cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS file_extension_pgbk (
+                id BIGINT UNSIGNED NOT NULL,
+                file_type VARCHAR(30) DEFAULT NULL,
+                file_unique_id VARCHAR(100) NOT NULL,
+                file_id VARCHAR(200) NOT NULL,
+                bot VARCHAR(50) DEFAULT NULL,
+                work_stats INT(3) DEFAULT NULL,
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin
+            """
+        )
+
+        batch_size = 100
+        total_rows = len(payload)
+        total_batches = (total_rows + batch_size - 1) // batch_size
+        report_every = max(1, total_batches // 20)
+        mysql_upserted = 0
+
+        for i in range(0, len(payload), batch_size):
+            batch = payload[i:i + batch_size]
+            batch_no = (i // batch_size) + 1
+            placeholders = ", ".join(["(%s, %s, %s, %s, %s, %s)"] * len(batch))
+            flat_params = [v for row in batch for v in row]
+            sql = f"""
+                INSERT INTO file_extension_pgbk
+                    (id, file_type, file_unique_id, file_id, bot, work_stats)
+                VALUES {placeholders}
+                ON DUPLICATE KEY UPDATE
+                    file_type = VALUES(file_type),
+                    file_unique_id = VALUES(file_unique_id),
+                    file_id = VALUES(file_id),
+                    bot = VALUES(bot),
+                    work_stats = VALUES(work_stats)
+            """
+            await cur.execute(sql, flat_params)
+            mysql_upserted += len(batch)
+
+            if batch_no % report_every == 0 or batch_no == total_batches:
+                percent = round((mysql_upserted / total_rows) * 100, 2)
+                await _notify(
+                    {
+                        "stage": "running",
+                        "total": total_rows,
+                        "processed": mysql_upserted,
+                        "batch_no": batch_no,
+                        "total_batches": total_batches,
+                        "percent": percent,
+                    }
+                )
+
+        await conn.commit()
+
+        summary = {
+            "pg_rows": len(pg_rows),
+            "mysql_upserted": mysql_upserted,
+            "status": "ok",
+        }
+        await _notify({"stage": "done", "summary": summary})
+        print(f"[copy_from_pg_to_mysql] Done: {summary}", flush=True)
+        return summary
+    except Exception as e:
+        try:
+            await conn.rollback()
+        except Exception:
+            pass
+        await _notify({"stage": "error", "error": str(e)})
+        print(f"[copy_from_pg_to_mysql] MySQL upsert failed: {e}", flush=True)
+        return {
+            "pg_rows": len(pg_rows),
+            "mysql_upserted": 0,
+            "status": "mysql_upsert_failed",
+            "error": str(e),
+        }
+    finally:
+        await MySQLPool.release(conn, cur)
 
 async def _build_content_seg(content: str | None, tag: str | None) -> str:
     """

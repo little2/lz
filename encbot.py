@@ -22,7 +22,7 @@ from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, I
 from utils.utf_utils import UtfConverter
 
 
-BOT_TOKEN = os.getenv("ENCBOT_TOKEN") or os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("ENCBOT_TOKEN") or os.getenv("BOT_TOKEN", "6493080022:AAHuFPKdhh8qYFjPLWxAYt76ikgzNMxg9iQ")
 
 if not BOT_TOKEN:
 	raise RuntimeError("Missing bot token. Please set ENCBOT_TOKEN or BOT_TOKEN.")
@@ -70,16 +70,15 @@ def _build_display(data: dict[str, Any], token: str, encoded: str) -> str:
 		valid_until_display = valid_until
 
 	return (
-		"✅ 編碼完成\n\n"
-		f"nonce: {data['nonce']}\n"
-		f"user_id: {data['user_id']}\n"
-		f"file_id: {data['file_id']}\n"
-		f"file_type: {data['file_type']}\n"
+		# f"nonce: {data['nonce']}\n"
+		# f"user_id: {data['user_id']}\n"
+		# f"file_id: {data['file_id']}\n"
+		# f"file_type: {data['file_type']}\n"
 		f"no_forward: {data['no_forward']}\n"
 		f"flash_seconds: {data['flash_seconds']}\n"
 		f"有效時間: {valid_until_display}\n\n"
-		f"token:\n{token}\n\n"
-		f"encoded(CJK):\n{encoded}"
+		# f"token:\n{token}\n\n"
+		f"encoded(CJK):\n<code>{encoded}</code>"
 	)
 
 
@@ -96,65 +95,55 @@ def _resolve_valid_until(mode: str) -> str:
 
 
 def _choice(label: str, selected: bool) -> str:
-	return f"✅ {label}" if selected else f"▫️ {label}"
+	return f"✅ {label}" if selected else f"{label}"
 
 
 def _build_controls_keyboard(state: dict[str, Any], encoded: str) -> InlineKeyboardMarkup:
 	no_forward = bool(state.get("no_forward", False))
 	flash_seconds = int(state.get("flash_seconds", 0))
 	valid_mode = str(state.get("valid_mode", "perm"))
+	long_flash_seconds = int(state.get("video_flash_seconds", 60))
+	long_flash_label = f"{long_flash_seconds}秒" if str(state.get("file_type", "")) == "video" else "60秒"
 
 	return InlineKeyboardMarkup(
 		inline_keyboard=[
 			[
 				InlineKeyboardButton(
-					text=_choice("可以轉發", not no_forward),
-					callback_data="enc:fw:0",
-				),
-				InlineKeyboardButton(
-					text=_choice("不能轉發", no_forward),
-					callback_data="enc:fw:1",
+					text="🚫 目前限制轉發" if no_forward else "🆗 目前可以轉發",
+					callback_data=f"enc:fw:{0 if no_forward else 1}",
 				),
 			],
 			[
 				InlineKeyboardButton(
-					text=_choice("不啟用閃圖", flash_seconds == 0),
+					text=_choice("不閃", flash_seconds == 0),
 					callback_data="enc:fl:0",
 				),
 				InlineKeyboardButton(
-					text=_choice("15秒閃圖", flash_seconds == 15),
-					callback_data="enc:fl:15",
-				),
-				InlineKeyboardButton(
-					text=_choice("30秒閃圖", flash_seconds == 30),
+					text=_choice("30秒", flash_seconds == 30),
 					callback_data="enc:fl:30",
 				),
 				InlineKeyboardButton(
-					text=_choice("60秒閃圖", flash_seconds == 60),
-					callback_data="enc:fl:60",
+					text=_choice(long_flash_label, flash_seconds == long_flash_seconds),
+					callback_data=f"enc:fl:{long_flash_seconds}",
 				),
 			],
 			[
 				InlineKeyboardButton(
-					text=_choice("永久有效", valid_mode == "perm"),
+					text=_choice("永久", valid_mode == "perm"),
 					callback_data="enc:vu:perm",
 				),
 				InlineKeyboardButton(
-					text=_choice("10分鐘有效", valid_mode == "10m"),
+					text=_choice("10分鐘", valid_mode == "10m"),
 					callback_data="enc:vu:10m",
 				),
 				InlineKeyboardButton(
-					text=_choice("30分鐘有效", valid_mode == "30m"),
+					text=_choice("60分鐘", valid_mode == "30m"),
 					callback_data="enc:vu:30m",
-				),
-				InlineKeyboardButton(
-					text=_choice("1小時有效", valid_mode == "1h"),
-					callback_data="enc:vu:1h",
-				),
+				)
 			],
 			[
 				InlineKeyboardButton(
-					text="複製密文",
+					text="📋 複製密文",
 					copy_text=CopyTextButton(text=encoded),
 				)
 			],
@@ -251,12 +240,13 @@ async def on_media(message: Message) -> None:
 			"file_type": file_type,
 			"no_forward": False,
 			"flash_seconds": 0,
+			"video_flash_seconds": (int(getattr(message.video, "duration", 0) or 0) + 15) if file_type == "video" else 60,
 			"valid_mode": "perm",
 		}
 
 		token, encoded, parsed = _build_token_and_encoded(state)
 		markup = _build_controls_keyboard(state, encoded)
-		panel = await message.reply(_build_display(parsed, token, encoded), reply_markup=markup)
+		panel = await message.reply(_build_display(parsed, token, encoded), reply_markup=markup, parse_mode="HTML")
 		ENCODER_UI_STATE[(message.chat.id, panel.message_id)] = state
 	except Exception as exc:
 		await message.reply(f"❌ 編碼失敗: {exc}")
@@ -294,9 +284,17 @@ async def on_encode_controls(callback: CallbackQuery) -> None:
 		else:
 			raise ValueError("unknown control group")
 
+		long_flash_seconds = int(state.get("video_flash_seconds", 60))
+		force_no_forward = (
+			int(state.get("flash_seconds", 0)) in {30, long_flash_seconds}
+			or str(state.get("valid_mode", "perm")) in {"10m", "30m"}
+		)
+		if force_no_forward:
+			state["no_forward"] = True
+
 		token, encoded, parsed = _build_token_and_encoded(state)
 		markup = _build_controls_keyboard(state, encoded)
-		await callback.message.edit_text(_build_display(parsed, token, encoded), reply_markup=markup)
+		await callback.message.edit_text(_build_display(parsed, token, encoded), reply_markup=markup, parse_mode="HTML")
 		await callback.answer("已更新密文")
 	except Exception as exc:
 		await callback.answer(f"更新失敗: {exc}", show_alert=True)
@@ -331,6 +329,7 @@ async def on_text(message: Message) -> None:
 		if flash_seconds > 0:
 			asyncio.create_task(_delete_message_later(sent_media_message, flash_seconds))
 
+		'''
 		await message.reply(
 			"✅ 解碼成功\n\n"
 			f"token:\n{token}\n\n"
@@ -343,6 +342,7 @@ async def on_text(message: Message) -> None:
 			f"flash_seconds: {data['flash_seconds']}\n"
 			f"valid_until: {data['valid_until']}"
 		)
+		'''
 	except Exception as exc:
 		await message.reply(f"❌ 解碼或解析失敗: {exc}")
 

@@ -5935,9 +5935,19 @@ async def safe_copy_message(message: Message, max_retry: int = 3):
             try:
             
                 #DeletedAcconutBOT / bot 无法传给 bot
-                if hasattr(lz_var, "x_bk_man_bot_id") and lz_var.x_bk_man_bot_id is not None:
+
+                if SharedConfig.get("rely_man_bot_id"):
                     ret2 =  await lz_var.bot.copy_message(
-                        chat_id=lz_var.x_bk_man_bot_id,
+                        chat_id=SharedConfig.get("rely_man_bot_id"),
+                        from_chat_id=src_chat_id,
+                        message_id=src_message_id
+                    )
+                    return ret if ret is not None else ret2
+
+                elif hasattr(lz_var, "rely_man_bot_id") and lz_var.rely_man_bot_id is not None:
+                    # lz_var.rely_man_bot_id 应逐步废弃，优先使用 Shared
+                    ret2 =  await lz_var.bot.copy_message(
+                        chat_id=lz_var.rely_man_bot_id,
                         from_chat_id=src_chat_id,
                         message_id=src_message_id
                     )
@@ -5952,7 +5962,7 @@ async def safe_copy_message(message: Message, max_retry: int = 3):
             except Exception as e:
                 print(f"❌ safe_copy_message Rely - 失败(5770): {e}", flush=True)
                 if( e and "Bad Request: chat not found" in str(e) ):
-                    ret_bind = await lz_var.switchbot.send_message(lz_var.x_bk_man_bot_id,  f"|_kick_|{lz_var.bot_username}")
+                    ret_bind = await lz_var.switchbot.send_message(SharedConfig.get("rely_man_bot_id"),  f"|_kick_|{lz_var.bot_username}")
                     print(f"⚠️ 可能是无法访问，已关连机器人", flush=True)
                
 

@@ -10,7 +10,7 @@ from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.tl.functions.channels import EditBannedRequest
 from telethon.tl.types import ChatBannedRights, InputPeerUser
 
-from man_config import API_HASH, API_ID, SESSION_STRING
+from man_config import API_HASH, API_ID, SESSION_STRING,SESSION_STRINGS
 # from lz_mysql import MySQLPool
 from handlers.bot_scripts import BOT_SCRIPTS, BotScripts
 from handlers.group_media_forwarder import GroupMediaForwarder
@@ -25,9 +25,10 @@ BOT_ROUND_INTERVAL_SECONDS = max(10, int(os.getenv("BOT_ROUND_INTERVAL_SECONDS",
 GLOBAL_PARAMS: dict = {}
 
 
-def _build_client() -> TelegramClient:
+def _build_client(session_string: str = SESSION_STRING) -> TelegramClient:
 	"""兼容 StringSession 与本地 .session 文件名两种输入。"""
-	raw = str(SESSION_STRING or "").strip()
+	 
+	raw = str(session_string or "").strip()
 	api_id = int(API_ID)
 
 	# StringSession 通常是较长 token，不应被当作 sqlite 文件路径
@@ -659,24 +660,8 @@ forwarder_move2 = GroupMediaForwarder(
 )
 
 
-
-
-async def main() -> None:
+async def process():
 	telegram_bot = _build_client()
-	global_paras = {}
-
-
-    # 2) 拉取群成员 id + username
-	# inspector = TargetGroupInspector(target_group=-1001944620376, telegram_bot=telegram_bot)
-	# members = await inspector.list_members()
-	# print("members:", len(members))
-	# # print("first member:", members[0] if members else None)
-	# await inspector.insert_members_to_db(members)
-	# await inspector.set_send_only_permissions_for_roles(members)
-	# exit()
-
-
-
 	try:
 		global_paras = await load_global_params(telegram_bot)
 		print(f"{global_paras}")
@@ -797,7 +782,7 @@ async def main() -> None:
 				print(f"[RoundRobin] sleeping for {randtme:.1f} seconds...", flush=True)
 				await asyncio.sleep(randtme)
 				
-
+		# 执行机器人
 		await asyncio.gather(
 			_run_shared_round_robin(),
 			run_health_server(),
@@ -807,6 +792,58 @@ async def main() -> None:
 	finally:
 		if telegram_bot.is_connected():
 			await telegram_bot.disconnect()
+
+
+async def process_bot():
+
+	for session_string in SESSION_STRINGS:
+
+		telegram_bot = _build_client(session_string)
+		await telegram_bot.start()
+
+		user_info = await telegram_bot.get_me()
+		print(f"\n\n已登录账号: {user_info.first_name}\n\n", flush=True)
+
+		
+		try:
+			global_paras = await load_global_params(telegram_bot)
+			print(f"{global_paras}")
+
+			# await download_limewire_url("https://limewire.com/d/5o7Fs#Q9Voo6YzWL")
+
+			# AI机器人签到 --------
+			BotScripts.configure_client(telegram_bot)
+			BotScripts.configure_global_paras(global_paras)
+			# --------------------
+		
+			print("[process_bot] single-run started", flush=True)
+			await run_all_bot()
+			await _save_json_dict_to_file(GLOBAL_PARAMS_FILE, GLOBAL_PARAMS, client=telegram_bot)
+			print("[process_bot] single-run finished, stopping", flush=True)
+		finally:
+			if telegram_bot.is_connected():
+				await telegram_bot.disconnect()
+
+
+async def main() -> None:
+	
+	
+	# await process()
+	await process_bot()
+
+    # 2) 拉取群成员 id + username
+	# inspector = TargetGroupInspector(target_group=-1001944620376, telegram_bot=telegram_bot)
+	# members = await inspector.list_members()
+	# print("members:", len(members))
+	# # print("first member:", members[0] if members else None)
+	# await inspector.insert_members_to_db(members)
+	# await inspector.set_send_only_permissions_for_roles(members)
+	# exit()
+
+
+
+	
+			
 
 
 

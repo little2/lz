@@ -20,7 +20,9 @@ try:
     m_man_bot_id: int = int(x_conf.get("m_man_bot_id", 0) or 0)
 except Exception as e:
     print(f"⚠️ X_CONFIGURATION 解析失败: {e}; 使用默认值", flush=True)
-x_bk_man_bot_id = 7606450690
+# x_bk_man_bot_id 要换成 rely_man_bot_id, 先保留 2026.6.6
+x_bk_man_bot_id = 6504167109    
+rely_man_bot_id = 6504167109
 
 
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"

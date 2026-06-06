@@ -28,7 +28,7 @@ rely_man_bot_id = 6504167109
 THUMB_ADMIN_CHAT_ID: str = "ztdthumb011bot"
 
 helper_bot_name = 'lyjwcbot'
-guider_bot_name = 'xiaolongyang005bot'
+guider_bot_name = 'xiaolongyang007bot'
 publish_bot_name: str = None 
 uploader_bot_name: str = None  #
 

@@ -1622,7 +1622,7 @@ async def exec_notify_mass_delete_disable_points(client, task: dict, params: dic
 
     source_chat_id = int(cfg.get("source_chat_id", -1001943193056))
     min_deleted_cnt = int(cfg.get("min_deleted_cnt", 10))
-    bot_name = (cfg.get("bot") or "xiaolongyang005bot").strip()
+    bot_name = (cfg.get("bot") or "xiaolongyang007bot").strip()
 
     notice = (
         "我们理解，也尊重部分群友希望在网络上不留痕迹的想法。\n\n"

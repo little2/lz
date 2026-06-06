@@ -497,7 +497,13 @@ class Media:
         if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
             lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
             asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=5))
-            resource_lack_text = f"共有 {len(lack_file_uid_rows)} 个资源缺失，机器人已在自动同步，预计 {len(lack_file_uid_rows)*33} 秒后同步完成，请稍后再试，可以先看看别的资源吧。如果同步一直未完成，请联系教务处小助手，并告知资源连结。"
+            
+            resource_lack_text = (
+                f"机器人会同步龙阳库中的资源。\n"
+                f"正常情况下你们可以稍等一会，系统会自动同步（看系统忙碌程度），但如果一直同步了一天都不成功，那就是TG封禁资源库内的视频，建议群友把视频的链接发到教务处，我们会人工同步，补不了的可以退分（绝大部分都可以补）\n",
+                f"目前共有 {len(lack_file_uid_rows)} 个资源需要同步，机器人已在自动同步，预计 {len(lack_file_uid_rows)*150} 秒后同步完成，请稍后再试，可以先看看别的资源吧。如果同步一直未完成，请联系教务处小助手，并告知资源连结。"
+            )
+            
             print(resource_lack_text, flush=True)        
             return {'ok':False,'message':resource_lack_text}
         # print(f"1896=>{productInfomation}")

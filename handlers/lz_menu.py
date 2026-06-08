@@ -4515,7 +4515,7 @@ async def handle_noop(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     
-    
+    guider_bot_name = SharedConfig.get("guider_bot_name") or ""
 
     content_id = callback.data.split(":")[1]
     redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None #小懒觉会员
@@ -4777,7 +4777,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="更新小懒觉会员期", callback_data="xlj:update")],
             [InlineKeyboardButton(
                 text="兑换小懒觉会员 ( 💎 800 )",
-                url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
+                url=f"https://t.me/{guider_bot_name}?start=join_xiaolanjiao_act"
             )],
         ])
         timer.lap("不是小懒觉会员")

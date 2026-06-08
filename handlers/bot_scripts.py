@@ -320,8 +320,8 @@ class BotScripts:
 		await BotScripts._send_only("@quyi198bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_linglongai_2bot() -> None:
-		await BotScripts._send_only("@linglongai_2bot", "📅 签到")
+	async def script_linglongai_3bot() -> None:
+		await BotScripts._send_only("@linglongai_3bot", "📅 签到")
 
 	@staticmethod
 	async def script_jsai1bot() -> None:
@@ -497,9 +497,9 @@ class BotScripts:
 		last_time = data.get(target)
 		if last_time is not None:
 			same_date = time.strftime("%Y-%m-%d", time.localtime(last_time)) == time.strftime("%Y-%m-%d", time.localtime(current_time))
-			within_20_hours = (current_time - last_time) < 20 * 3600
+			within_20_hours = (current_time - last_time) < 5 * 3600
 			if within_20_hours and same_date:
-			# print(f"[BotScript] 上次执行时间为 {time.ctime(last_time)}，距离现在不足20小时，跳过执行 → {target}", flush=True)
+				print(f"[BotScript] 上次执行时间为 {time.ctime(last_time)}，距离现在不足5小时，跳过执行 → {target}", flush=True)
 				return
 
 		print(f"[BotScript] 执行脚本 → {target}", flush=True)
@@ -564,7 +564,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@quyi198bot": BotScripts.script_quyi198bot,
 	"@tangest4_bot": BotScripts.script_tangest4_bot,
 	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
-	"@linglongai_2bot": BotScripts.script_linglongai_2bot,
+	"@linglongai_3bot": BotScripts.script_linglongai_3bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@mengokbot": BotScripts.script_mengokbot,
 	"@JSai1bot": BotScripts.script_jsai1bot,

@@ -399,8 +399,8 @@ async def process_bot():
 async def main() -> None:
 	
 	
-	await process()
-	# await process_bot()
+	# await process()
+	await process_bot()
 
     # 2) 拉取群成员 id + username
 	# inspector = TargetGroupInspector(target_group=-1001944620376, telegram_bot=telegram_bot)

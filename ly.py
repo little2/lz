@@ -1630,7 +1630,7 @@ async def exec_notify_mass_delete_disable_points(client, task: dict, params: dic
         "因此，凡是出现批量发言后再集中删除内容的情况，\n"
         "将取消其发言获得积分的资格。\n\n"
         "希望大家理解，这个调整只是为了维护机制的公平与长期稳定运行。\n\n"
-        f"任何问题，可以联系教务处小助手 @lyjwcbot\n\n"
+        f"任何问题，可以联系教务处小助手 @ly120bot\n\n"
     )
 
     # ---- 时间窗口：过去 24 小时（用 msg_time_utc 更精确；stat_date 只是 date）----

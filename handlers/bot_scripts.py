@@ -1,7 +1,14 @@
 import asyncio
+from datetime import date
 import json
 import os
+import sys
 import time
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+	sys.path.insert(0, str(PROJECT_ROOT))
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -176,6 +183,7 @@ class BotScripts:
 	"""集中管理所有 script_ 机器人脚本。"""
 	_telegram_bot: TelegramClient | None = None
 	_global_paras: dict | None = None
+	_user_info: dict | None = None
 
 	@staticmethod
 	def configure_client(telegram_bot: TelegramClient | None) -> None:
@@ -186,6 +194,12 @@ class BotScripts:
 	def configure_global_paras(global_paras: dict | None) -> None:
 		"""配置由 main() 注入的全域参数容器。"""
 		BotScripts._global_paras = global_paras if isinstance(global_paras, dict) else None
+
+	@staticmethod
+	def set_user_info(user_info) -> None:
+		"""配置由 main() 注入的 user_info，部分脚本可能用到。"""
+		BotScripts._user_info = user_info
+		
 
 	@staticmethod
 	def _legacy_json_path() -> str:
@@ -357,59 +371,90 @@ class BotScripts:
 		from telethon.tl.functions.account import UpdateProfileRequest
 
 		async with BotScripts._session("@ccccc000_bot") as s:
+
+			
+	
+
+			user_id = BotScripts._user_info.id
+
 			await s.send("/start")
 			menu = await s.wait_reply(timeout=30)
 			if not menu:
 				return
 
-			await s.click_by_text(menu, "🏆 每日排行榜")
-			rank_msg = await s.wait_reply(timeout=30)
-			if not rank_msg:
-				await s.send("🏆 每日排行榜")
-				rank_msg = await s.wait_reply(timeout=30)
-			if not rank_msg:
-				rank_msg = menu
+			# await s.click_by_text(menu, "🏆 每日排行榜")
+			# rank_msg = await s.wait_reply(timeout=30)
+			# if not rank_msg:
+			# 	await s.send("🏆 每日排行榜")
+			# 	rank_msg = await s.wait_reply(timeout=30)
+			# if not rank_msg:
+			# 	rank_msg = menu
 
-			await s.click_by_text(rank_msg, "🖼️ 浏览作品")
-			browse_msg = await BotScripts._find_message_with_button(s, "❤️ 点赞", timeout=25)
-			if not browse_msg:
-				await s.send("🖼️ 浏览作品")
-				browse_msg = await BotScripts._find_message_with_button(s, "❤️ 点赞", timeout=25)
-			if not browse_msg:
-				browse_msg = rank_msg
+			# await s.click_by_text(rank_msg, "🖼️ 浏览作品")
+			# browse_msg = await BotScripts._find_message_with_button(s, "❤️ 点赞", timeout=25)
+			# if not browse_msg:
+			# 	await s.send("🖼️ 浏览作品")
+			# 	browse_msg = await BotScripts._find_message_with_button(s, "❤️ 点赞", timeout=25)
+			# if not browse_msg:
+			# 	browse_msg = rank_msg
 
-			waiter3 = s.prepare_wait_edit()
-			await s.click_by_text(browse_msg, "❤️ 点赞")
-			liked_msg = await waiter3.wait(timeout=8)
-			if not liked_msg:
-				liked_msg = await s.wait_reply(timeout=10)
+			# waiter3 = s.prepare_wait_edit()
+			# await s.click_by_text(browse_msg, "❤️ 点赞")
+			# liked_msg = await waiter3.wait(timeout=8)
+			# if not liked_msg:
+			# 	liked_msg = await s.wait_reply(timeout=10)
 
 			if s._client is None:
 				return
-			await s._client(UpdateProfileRequest(about="https://t.me/ccccc000_bot?start=7501358629"))
-			print("[ccccc000_bot] bio 已设置", flush=True)
-
+														 
+			await s._client(UpdateProfileRequest(about=f"https://t.me/ccccc000_bot?start={user_id}"))
+			print(f"[ccccc000_bot] bio 已设置 user_id = {user_id}", flush=True)
+			
 			await asyncio.sleep(5)
+	
 
 			await s.send("📅 每日免费积分")
 			daily_msg = await s.wait_reply(timeout=30)
 			if not daily_msg:
 				return
-
-			waiter4 = s.prepare_wait_edit()
-			await s.click_by_text(daily_msg, "📅 去签到")
+			waiter4 = s.prepare_wait_edit()	
+			await s.click_by_text(daily_msg, "📅 去签到")		
+			await asyncio.sleep(2)
 			await waiter4.wait(timeout=15)
 
 			await s.send("📅 每日免费积分")
 			claim_msg = await s.wait_reply(timeout=30)
 			if not claim_msg:
 				return
+			waiter4 = s.prepare_wait_edit()	
+			await s.click_by_text(claim_msg, "🚀 转发邀请")
+			await asyncio.sleep(2)
+			await waiter4.wait(timeout=15)
 
-			waiter5 = s.prepare_wait_edit()
-			await s.click_by_text(claim_msg, "🎁 领取全部奖励")
-			final_msg = await waiter5.wait(timeout=15)
+
+			await s.send("📅 每日免费积分")
+			claim_msg = await s.wait_reply(timeout=30)
+			if not claim_msg:
+				return
+			waiter4 = s.prepare_wait_edit()	
+			await s.click_by_text(claim_msg, "🔄 刷新进度")
+			await asyncio.sleep(2)
+			await waiter4.wait(timeout=15)
+
+			await s.send("📅 每日免费积分")
+			claim_msg = await s.wait_reply(timeout=30)
+			if not claim_msg:
+				return
+			waiter4 = s.prepare_wait_edit()	
+			await s.click_by_text(claim_msg, '🎁 领取奖励')
+			await asyncio.sleep(2)
+			final_msg = await waiter4.wait(timeout=15)			
 			if not final_msg:
 				await s.wait_reply(timeout=10)
+
+
+
+			
 
 	@staticmethod
 	async def script_ftcyy01bot() -> None:

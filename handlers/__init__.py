@@ -23,15 +23,15 @@ try:
 except ModuleNotFoundError:
 	GroupShotMessageReader = None
 
-try:
-	from .target_group_inspector import TargetGroupInspector
-except ModuleNotFoundError:
-	TargetGroupInspector = None
+# try:
+# 	from .target_group_inspector import TargetGroupInspector
+# except ModuleNotFoundError:
+# 	TargetGroupInspector = None
 
 __all__ = [
 	"DownloadUrl",
 	"download_limewire_url",
-	"TargetGroupInspector",
+	# "TargetGroupInspector",
 	"GroupMediaForwarder",
 	"GroupMessageReader",
 	"GroupShotMessageReader",

@@ -12,7 +12,7 @@ from handlers.bot_scripts import BOT_SCRIPTS, BotScripts
 from handlers.group_media_forwarder import GroupMediaForwarder
 from handlers.group_message_reader import GroupMessageReader
 from handlers.group_shot_message_reader import GroupShotMessageReader
-from handlers.target_group_inspector import TargetGroupInspector
+# from handlers.target_group_inspector import TargetGroupInspector
 import random
 
 
@@ -295,6 +295,7 @@ async def process():
 							f"[RoundRobin] bot segment started (interval={BOT_ROUND_INTERVAL_SECONDS}s)",
 							flush=True,
 						)
+						
 						await run_all_bot()
 						await _save_json_dict_to_file(GLOBAL_PARAMS_FILE, GLOBAL_PARAMS, client=telegram_bot)
 					except Exception as exc:
@@ -372,19 +373,25 @@ async def process_bot():
 		telegram_bot = _build_client(session_string)
 		await telegram_bot.start()
 
+		
+
 		user_info = await telegram_bot.get_me()
 		print(f"\n\n已登录账号: {user_info.first_name}\n\n", flush=True)
+		BotScripts.set_user_info(user_info)
+		
 
 		
 		try:
 			global_paras = await load_global_params(telegram_bot, file_path=global_params_file)
 			print(f"{global_paras}")
 
+
 			# await download_limewire_url("https://limewire.com/d/5o7Fs#Q9Voo6YzWL")
 
 			# AI机器人签到 --------
 			BotScripts.configure_client(telegram_bot)
 			BotScripts.configure_global_paras(global_paras)
+			BotScripts.set_user_info(user_info)
 			# --------------------
 		
 			print("[process_bot] single-run started", flush=True)
@@ -398,7 +405,7 @@ async def process_bot():
 
 async def main() -> None:
 	
-	
+
 	# await process()
 	await process_bot()
 

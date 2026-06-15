@@ -613,17 +613,18 @@ class MySQLPool(LYBase):
             """
             await cursor.execute(sql, (manager_id,))
             row = await cursor.fetchone()
-            current_expire_timestamp = int((row or {}).get('expire_timestamp') or time.time())
+            now_ts = int(time.time())
+            current_expire_timestamp = max(int((row or {}).get('expire_timestamp') or 0), now_ts)
             print(f"{current_expire_timestamp} {(manager_cnt * 86400)}")
             user_expire_timestamp = current_expire_timestamp + (manager_cnt * 86400)
-            new_expire_timestamp = int(min(user_expire_timestamp, (time.time() + 86400 * max_extend_days)))
+            new_expire_timestamp = int(min(user_expire_timestamp, (now_ts + 86400 * max_extend_days)))
 
 
             if not row:
                 await cursor.execute(f"""
                     INSERT INTO membership (create_timestamp, expire_timestamp, user_id, course_code)
                     VALUES (%s, %s, %s, 'xlj')
-                """, (int(time.time()), new_expire_timestamp, manager_id))
+                """, (now_ts, new_expire_timestamp, manager_id))
                 return new_expire_timestamp
             else:
                 

@@ -60,6 +60,16 @@ from shared_config import SharedConfig
 SharedConfig.load(True)
 
 
+async def periodic_shared_config_reload(interval_seconds: int = 3600):
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            await asyncio.to_thread(SharedConfig.load, True)
+            print("✅ SharedConfig 已定时刷新", flush=True)
+        except Exception as e:
+            print(f"⚠️ SharedConfig 定时刷新失败: {e}", flush=True)
+
+
 def create_user_client():
     if SESSION_STRING:
         print("【Telethon】使用 StringSession 登录。", flush=True)
@@ -336,6 +346,7 @@ async def close_bot_session(bot_instance: Bot | None, label: str):
 async def main():
 
     # 10.2 并行运行 Telethon 与 Aiogram
+    config_reload_task = None
    
     my_bot_token = SharedConfig.get("my_bot_token",BOT_TOKEN)  
     switch_bot_token = SharedConfig.get("switch_bot_token",SWITCHBOT_TOKEN)
@@ -433,6 +444,7 @@ async def main():
     # await db.connect()
 
     await sync()
+    config_reload_task = asyncio.create_task(periodic_shared_config_reload())
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
     @dp.shutdown()
@@ -449,6 +461,12 @@ async def main():
             print(f"[shutdown] MySQL close error: {e}")
         await close_bot_session(switchbot, "SwitchBot")
         await close_bot_session(bot, "Bot")
+        if config_reload_task and not config_reload_task.done():
+            config_reload_task.cancel()
+            try:
+                await config_reload_task
+            except asyncio.CancelledError:
+                pass
         # try:
         #     await user_client.disconnect()
         # except Exception as e:
@@ -521,6 +539,12 @@ async def main():
             pass
         await close_bot_session(switchbot, "SwitchBot")
         await close_bot_session(bot, "Bot")
+        if config_reload_task and not config_reload_task.done():
+            config_reload_task.cancel()
+            try:
+                await config_reload_task
+            except asyncio.CancelledError:
+                pass
         # try:
         #     await user_client.disconnect()
         # except Exception:
@@ -535,5 +559,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

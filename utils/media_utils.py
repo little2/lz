@@ -499,9 +499,9 @@ class Media:
             asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=5))
             
             resource_lack_text = (
-                f"机器人会同步龙阳库中的资源。\n"
-                f"正常情况下你们可以稍等一会，系统会自动同步（看系统忙碌程度），但如果一直同步了一天都不成功，那就是TG封禁资源库内的视频，建议群友把视频的链接发到教务处，我们会人工同步，补不了的可以退分（绝大部分都可以补）\n",
-                f"目前共有 {len(lack_file_uid_rows)} 个资源需要同步，机器人已在自动同步，预计 {len(lack_file_uid_rows)*150} 秒后同步完成，请稍后再试，可以先看看别的资源吧。如果同步一直未完成，请联系教务处小助手，并告知资源连结。"
+                f"‼️TG官方已封锁这个资源。\n"
+                f"我们正在从备份库同步资源，请之后再请求，如果一直未能同步成功，请联系教务处小助手，并告知资源连结，我们用人工的方式做最后的努力。\n"
+                f"目前共有 {len(lack_file_uid_rows)} 个资源需要同步，预计 {len(lack_file_uid_rows)*150} 秒后同步完成，请稍后再试，可以先看看别的资源吧。"
             )
             
             print(resource_lack_text, flush=True)        
@@ -520,14 +520,62 @@ class Media:
                 # 先只在有值时注入 reply_to_message_id
                 send_media_group_kwargs = dict(chat_id=from_user_id, media=rows[(int(box_id)-1)], protect_content=protect_content)
                 try:
-                   
+                    print(f"准备发送媒体组: {(int(box_id)-1)}", flush=True)
+                    print(f"准备发送媒体组: {rows[(int(box_id)-1)]}", flush=True)
+
+                    current_group = rows[(int(box_id)-1)]
+
+                    def _media_type_name(m):
+                        media_type = getattr(m, "type", None)
+                        if hasattr(media_type, "value"):
+                            return media_type.value
+                        return str(media_type or "")
+
+                    # Telegram media group 不支持 animation；检测到后改为逐条发送。
+                    if any(_media_type_name(m) == "animation" for m in current_group):
+                        for m in current_group:
+                            m_type = _media_type_name(m)
+                            media_id = getattr(m, "media", None)
+                            if not media_id:
+                                continue
+                            if m_type == "animation":
+                                await lz_var.bot.send_animation(
+                                    chat_id=from_user_id,
+                                    animation=media_id,
+                                    protect_content=protect_content,
+                                )
+                            elif m_type == "photo":
+                                await lz_var.bot.send_photo(
+                                    chat_id=from_user_id,
+                                    photo=media_id,
+                                    protect_content=protect_content,
+                                )
+                            elif m_type == "video":
+                                await lz_var.bot.send_video(
+                                    chat_id=from_user_id,
+                                    video=media_id,
+                                    protect_content=protect_content,
+                                )
+                            elif m_type == "document":
+                                await lz_var.bot.send_document(
+                                    chat_id=from_user_id,
+                                    document=media_id,
+                                    protect_content=protect_content,
+                                )
+                            elif m_type == "audio":
+                                await lz_var.bot.send_audio(
+                                    chat_id=from_user_id,
+                                    audio=media_id,
+                                    protect_content=protect_content,
+                                )
+                    else:
 
                     # if reply_to_message_id is not None:
                         # send_media_group_kwargs["reply_to_message_id"] = reply_to_message_id
-                    sr = await lz_var.bot.send_media_group(**send_media_group_kwargs)
+                        sr = await lz_var.bot.send_media_group(**send_media_group_kwargs)
                     
                 except Exception as e:
-                    print(f"❌ 发送媒体组失败: {e}", flush=True)
+                    print(f"❌ 发送媒体组失败(530): {e}", flush=True)
                     return {'ok':False,'message':'发送媒体组失败，请稍后再试'}
 
                 
@@ -613,7 +661,7 @@ class Media:
                             sr = await lz_var.bot.send_message(**send_media_menu)
                             # print(f"sr={sr}")
                         except Exception as e:
-                            print(f"❌ 发送媒体组失败: {e}", flush=True)
+                            print(f"❌ 发送媒体组失败(616): {e}", flush=True)
                             return {'ok':False,'message':'发送媒体组失败，请稍后再试'}
                     
 

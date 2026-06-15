@@ -218,15 +218,15 @@ class DB:
 
         # 2) 分词
         tokens = list(jieba.cut(keyword_str))
-        # print("Tokens after jieba cut:", tokens)
+        print("Tokens after jieba cut:", tokens)
 
         # 3) 停用词过滤（用 search_stopwords.txt，专有名词会保留）
         tokens = LexiconManager.filter_stop_words(tokens)
-        # print("Tokens after stop-word filter:", tokens)
+        print("Tokens after stop-word filter:", tokens)
 
         # 4) 同义词叠加：每个 token -> [本词 + 全部同义词]
         token_groups = LexiconManager.expand_tokens(tokens)
-        # print("Token groups after synonym expand:", token_groups)
+        print("Token groups after synonym expand:", token_groups)
 
         # 5) 生成 tsquery：用 OR 组构成 phrase_q / and_q
         phrase_q, and_q = self._build_tsqueries_from_token_groups(token_groups)
@@ -288,7 +288,7 @@ class DB:
                 content,
                 {rank_expr} AS rank
             FROM sora_content
-            WHERE {' AND '.join(where_parts)} AND valid_state >= 8
+            WHERE {' AND '.join(where_parts)} AND valid_state != 4
             ORDER BY rank DESC, id DESC
             LIMIT ${limit_idx}
         """

@@ -222,9 +222,9 @@ class Tplate:
             "ranking": {"file_id": "", "file_unique_id": "AQADCwtrG9iwoUd-"},
             "ranking_resource": {"file_id": "", "file_unique_id": "AQADDQtrG9iwoUd-"},
             "ranking_uploader": {"file_id": "", "file_unique_id": "AQADDgtrG9iwoUd-"},
-            "product_cover1": {"file_id": "", "file_unique_id": "AQADMK0xG4g4QEV-"},
-            "product_cover2": {"file_id": "", "file_unique_id": "AQADMq0xG4g4QEV-"},
-            "product_cover3": {"file_id": "", "file_unique_id": "AQADMa0xG4g4QEV-"},
+            "product_cover1": {"file_id": "", "file_unique_id": "AQADBg5rGw6uSVF-"},
+            "product_cover2": {"file_id": "", "file_unique_id": "AQADBw5rGw6uSVF-"},
+            "product_cover3": {"file_id": "", "file_unique_id": "AQADCA5rGw6uSVF-"},
             "push_cover": {"file_id": "", "file_unique_id": "AQAD9wtrG3ZWyER-"}
         }
 

@@ -593,8 +593,8 @@ class GroupMediaForwarder:
 
 	async def fetch_messages(self, start_message_id: int, limit: int) -> list[dict]:
 		client, own_client = await self._acquire_client()
-		me = await client.get_me()
-		print(f"已登入 Telegram 帳號：{me.username} (id={me.id})",flush=True)
+		# me = await client.get_me()
+		# print(f"已登入 Telegram 帳號：{me.username} (id={me.id})",flush=True)
 
 
 		try:
@@ -620,8 +620,8 @@ class GroupMediaForwarder:
 		respect_sleep: bool = True,
 	) -> int:
 		client, own_client = await self._acquire_client()
-		me = await client.get_me()
-		print(f"SESSION_READY 已登入 Telegram 帳號：{me.username} (id={me.id})", flush=True)
+		# me = await client.get_me()
+		# print(f"SESSION_READY 已登入 Telegram 帳號：{me.username} (id={me.id})", flush=True)
 		
 		try:
 			source_entity = await self._resolve_source_entity(client)
@@ -644,12 +644,29 @@ class GroupMediaForwarder:
 				preview_text = (text or "").replace("\n", " ").strip()
 				if len(preview_text) > 60:
 					preview_text = preview_text[:60] + "..."
-				print(
-					f"[Msg] id={message.id} 開始處理 text={preview_text!r}",
-					flush=True,
-				)
+				# print(
+				# 	f"[Msg] id={message.id} 開始處理 text={preview_text!r}",
+				# 	flush=True,
+				# )
 				if not getattr(message, "media", None):
-					
+					continue
+
+				if getattr(message, "sticker", None):
+					print(f"[Skip] id={message.id} 贴图不转发", flush=True)
+					await self.write_last_message_id(
+						message.id,
+						client=client,
+					)
+					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+					continue
+
+				if getattr(message, "gif", None):
+					print(f"[Skip] id={message.id} GIF不转发", flush=True)
+					await self.write_last_message_id(
+						message.id,
+						client=client,
+					)
+					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 					continue
 
 				# ── keyword_routes 优先分流 ──────────────────────────
@@ -751,6 +768,7 @@ class GroupMediaForwarder:
 						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
 						await asyncio.sleep(sleep_seconds)
 					else:
+						await asyncio.sleep(3) # 即使不启用随机休眠，也稍微暂停一下，避免过快处理大量消息
 						print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
 
 				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
@@ -809,3 +827,62 @@ class GroupMediaForwarder:
 			new_latest_id = await self.wait_for_new_message(last_seen)
 			next_start_id = last_seen + 1
 			print(f"[Wake] 检测到新消息 latest_id={new_latest_id}，从 message_id={next_start_id} 继续检查。", flush=True)
+
+
+
+'''
+
+forwarder_dy = GroupMediaForwarder(
+	target_group=-1001907741385,
+	forward_to="ziyuanbudengbot",
+	start_message_id=3422698,
+	caption_json_mode=False,
+	skip_caption_check=False,
+	sleep_enabled=False,
+	sleep_min_seconds=0,
+	sleep_max_seconds=1,
+	keyword_routes=[
+		{
+			"keywords": ["佟弋"],   # 命中任一關鍵字即觸發
+			"chat_id": -1002040191555,          # 目標 chat id
+			"thread_id": 1970,                   # 話題 thread id，不需要填 None
+		},
+		{
+			"keywords": ["陈思罕"],   # 命中任一關鍵字即觸發
+			"chat_id": -1002040191555,          # 目標 chat id
+			"thread_id": 2290,                   # 話題 thread id，不需要填 None
+		},
+		{
+			"keywords": ["陈浚铭"],   # 命中任一關鍵字即觸發
+			"chat_id": -1002040191555,          # 目標 chat id
+			"thread_id": 2013,                   # 話題 thread id，不需要填 None
+		},
+		{"keywords": ["智恩涵"],"chat_id": -1002040191555,"thread_id": 2002,},
+		{"keywords": ["李煜东"],"chat_id": -1002040191555,"thread_id": 2310,},
+		{"keywords": ["魏子宸"],"chat_id": -1002040191555,"thread_id": 2313,},
+		{"keywords": ["朱映宸"],"chat_id": -1002040191555,"thread_id": 1941,},
+		{"keywords": ["胡阿米"],"chat_id": -1002040191555,"thread_id": 2266,},
+
+		{"keywords": ["铭铭小朋友","陈梓铭"],"chat_id": -1002055725425,"thread_id": 2462,},
+		{"keywords": ["南弟爱弹唱"],"chat_id": -1002055725425,"thread_id": 2467,},
+		{"keywords": ["李泽霖","李球球"],"chat_id": -1002055725425,"thread_id": 1808,},
+		{"keywords": ["骗你生儿子","超萌小正太","#骗你生男孩"],"chat_id": -1002055725425,"thread_id": 12,},
+	],
+	white_list_group_1=[
+		"时代峰峻","TF家族","渣苏感","计铭浩","文铭","铭罕","刘瀚辰",
+		"张桂源","朱映宸","杨智岩","严浩翔","沈子航","朱广伦","萌娃","人类幼崽",
+		"男孩","小宝宝","小孩","韩维辰","星星贴纸","少年感","养成系","练习生",
+	],
+	white_list_group_2=[
+		"小男娘","正太","弟弟","初中","男初","南梁",
+	],
+	black_list=[
+		"请叫我柯南君","喜之郎",
+		"白肥","肉壮","狂野男孩","想法哭小正太","橘子海","巨乳","男同","小孩姐","小萝莉","腹肌体育生","嫂子",
+		"蜜桃洨小孩","学妹","兵哥","兵弟","18岁","19岁","遇上歹徒","大学生","薄肌男孩","男高","肌肉","零號",
+		"GV","女儿","健身","男大","女初","绿帽癖","体院","羊毛卷","wataa","radewa","Haley","gay","母狗","已婚"
+		"从地板干到落地窗","米修的秘密花园","体育","男士","正装","熟男","猛男","查霸爸","姐姐","小铭同学","北方大公O","马里奥"
+	],
+)
+
+'''

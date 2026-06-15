@@ -438,4 +438,7 @@ class GroupMessageReader:
 			await asyncio.sleep(wait_seconds)
 
 
+
+
+
 __all__ = ["GroupMessageReader", "report_message"]

@@ -1,14 +1,20 @@
 """TargetGroupInspector 处理器。"""
+
 import asyncio
 import json
 import os
 from pathlib import Path
 
 from telethon import TelegramClient
+from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.sessions import StringSession
 from telethon.tl.functions.channels import EditBannedRequest
 from telethon.tl.types import ChatBannedRights, InputPeerUser
-from telethon.errors.rpcerrorlist import FloodWaitError
+
+try:
+	from lz_mysql import MySQLPool
+except ModuleNotFoundError:
+	MySQLPool = None
 
 try:
 	from man_config import API_HASH, API_ID, SESSION_STRING
@@ -19,7 +25,7 @@ except ImportError:
 
 
 def _build_client() -> TelegramClient:
-	"""兼容 StringSession 與本地 .session 文件名兩種輸入。"""
+	"""兼容 StringSession 与本地 .session 文件名两种输入。"""
 	raw = str(SESSION_STRING or "").strip()
 	api_id = int(API_ID) if API_ID else 0
 
@@ -30,11 +36,24 @@ def _build_client() -> TelegramClient:
 
 
 class TargetGroupInspector:
-	"""抓取指定 Telegram 群組消息，並收集群成員 id/username。"""
+	"""抓取指定 Telegram 群组消息，并收集群成员 id/username。"""
 
-	def __init__(self, target_group: int | str) -> None:
+	def __init__(self, target_group: int | str, telegram_bot: TelegramClient | None = None) -> None:
 		self.target_group = target_group
+		self.telegram_bot = telegram_bot
 		self.members: list[dict[str, int | str | None]] = []
+
+	def bind_telegram_bot(self, telegram_bot: TelegramClient) -> None:
+		"""绑定共享 Telethon 客户端。"""
+		self.telegram_bot = telegram_bot
+
+	async def _acquire_client(self) -> tuple[TelegramClient, bool]:
+		"""获取可用客户端，返回 (client, own_client)。"""
+		client = self.telegram_bot or _build_client()
+		own_client = self.telegram_bot is None
+		if not client.is_connected():
+			await client.start()
+		return client, own_client
 
 	@staticmethod
 	def _serialize_message(message) -> dict:
@@ -47,7 +66,7 @@ class TargetGroupInspector:
 
 	@staticmethod
 	def _extract_member_role(user) -> str:
-		"""根據 participant 類型提取成員角色。"""
+		"""根据 participant 类型提取成员角色。"""
 		participant = getattr(user, "participant", None)
 		if participant is None:
 			return "member"
@@ -77,8 +96,14 @@ class TargetGroupInspector:
 	@staticmethod
 	def _send_only_banned_rights() -> ChatBannedRights:
 		"""
-		僅允許發文字消息（等價 Bot API: can_send_messages=true，其他權限 false）。
-		在 Telethon 的 ChatBannedRights 里，True 表示"禁止該權限"。
+		仅允许发文字消息（等价 Bot API: can_send_messages=true，其他权限 false）。
+		官方 ChatPermissions 字段对应：
+		- can_send_messages = true
+		- can_send_audios/can_send_documents/can_send_photos/can_send_videos/
+		  can_send_video_notes/can_send_voice_notes/can_send_polls/
+		  can_send_other_messages/can_add_web_page_previews/
+		  can_change_info/can_invite_users/can_pin_messages/can_manage_topics = false
+		在 Telethon 的 ChatBannedRights 里，True 表示“禁止该权限”。
 		"""
 		return ChatBannedRights(
 			until_date=None,
@@ -106,7 +131,7 @@ class TargetGroupInspector:
 
 	@staticmethod
 	def _parse_user_input(user: int | str | dict) -> tuple[int | None, str, int | None]:
-		"""支持傳入 user_id 或 list_members() 產出的 user dict。返回 (user_id, role, access_hash)。"""
+		"""支持传入 user_id 或 list_members() 产出的 user dict。返回 (user_id, role, access_hash)。"""
 		if isinstance(user, dict):
 			user_id = user.get("id")
 			role = str(user.get("role") or "").lower()
@@ -123,7 +148,10 @@ class TargetGroupInspector:
 		return None, "", None
 
 	async def set_send_only_permissions(self, user: int | str | dict) -> dict:
-		"""設置用戶為"僅可發送消息"。返回結構：{"ok": bool, "status": str, ...}"""
+		"""
+		当 user 角色为 restricted/left/member 时，设置为“仅可发送消息”。
+		返回结构：{"ok": bool, "status": str, ...}
+		"""
 		user_id, role, access_hash = self._parse_user_input(user)
 		if user_id is None:
 			return {"ok": False, "status": "bad_user"}
@@ -131,8 +159,7 @@ class TargetGroupInspector:
 		if role not in {"restricted", "left", "member"}:
 			return {"ok": False, "status": "role_skipped", "user_id": user_id, "role": role}
 
-		client = _build_client()
-		await client.start()
+		client, own_client = await self._acquire_client()
 		try:
 			source_entity = await self._resolve_source_entity(client)
 
@@ -174,10 +201,11 @@ class TargetGroupInspector:
 				"error": str(exc),
 			}
 		finally:
-			await client.disconnect()
+			if own_client and client.is_connected():
+				await client.disconnect()
 
 	async def _resolve_source_entity(self, client: TelegramClient):
-		"""解析 target_group，支持 id / username / 對話補找。"""
+		"""解析 target_group，支持 id / username / 对话补找。"""
 		try:
 			return await client.get_entity(self.target_group)
 		except ValueError as exc:
@@ -195,15 +223,14 @@ class TargetGroupInspector:
 						return dialog.entity
 
 			raise ValueError(
-				f"無法解析來源 target_group={self.target_group}。"
-				"若是純數字 user_id，請先與該對象產生會話，"
+				f"无法解析来源 target_group={self.target_group}。"
+				"若是纯数字 user_id，请先与该对象产生会话，"
 				"或改用 @username。"
 			) from exc
 
 	async def fetch_messages(self, limit: int = 100, start_message_id: int = 1) -> list[dict]:
-		"""從 target_group 抓取消息。"""
-		client = _build_client()
-		await client.start()
+		"""从 target_group 抓取消息。"""
+		client, own_client = await self._acquire_client()
 		try:
 			source_entity = await self._resolve_source_entity(client)
 			messages: list[dict] = []
@@ -216,12 +243,12 @@ class TargetGroupInspector:
 				messages.append(self._serialize_message(message))
 			return messages
 		finally:
-			await client.disconnect()
+			if own_client and client.is_connected():
+				await client.disconnect()
 
 	async def list_members(self) -> list[dict[str, int | str | None]]:
-		"""列出 target_group 所有成員，並將 id/username/role 保存到 self.members。"""
-		client = _build_client()
-		await client.start()
+		"""列出 target_group 所有成员，并将 id/username/role 保存到 self.members。"""
+		client, own_client = await self._acquire_client()
 		try:
 			source_entity = await self._resolve_source_entity(client)
 			members: list[dict[str, int | str | None]] = []
@@ -237,7 +264,50 @@ class TargetGroupInspector:
 			self.members = members
 			return members
 		finally:
-			await client.disconnect()
+			if own_client and client.is_connected():
+				await client.disconnect()
+
+	async def insert_members_to_db(self, members: list[dict[str, int | str | None]]) -> dict:
+		"""将成员列表写入 MySQL pure(user_id, done)，依赖 user_id 主键去重。"""
+		if MySQLPool is None:
+			return {"ok": False, "error": "MySQLPool is not available"}
+
+		user_ids = {
+			int(item.get("id"))
+			for item in members
+			if isinstance(item, dict) and isinstance(item.get("id"), int)
+		}
+
+		if not user_ids:
+			return {"ok": True, "total": 0, "existing": 0, "inserted": 0}
+
+		conn, cur = await MySQLPool.get_conn_cursor()
+		try:
+			id_list = list(user_ids)
+			batch_size = 100
+			for start in range(0, len(id_list), batch_size):
+				batch = id_list[start:start + batch_size]
+				values_sql = ", ".join(["(%s, 0)"] * len(batch))
+				sql = f"""
+					INSERT INTO pure (user_id, done)
+					VALUES {values_sql}
+					ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)
+				"""
+				await cur.execute(sql, batch)
+
+			return {
+				"ok": True,
+				"total": len(id_list),
+				"upserted": len(id_list),
+			}
+		except Exception as exc:
+			return {
+				"ok": False,
+				"total": len(user_ids),
+				"error": str(exc),
+			}
+		finally:
+			await MySQLPool.release(conn, cur)
 
 	async def set_send_only_permissions_for_roles(
 		self,
@@ -245,12 +315,17 @@ class TargetGroupInspector:
 		sleep_seconds: float = 1.1,
 		state_file: Path | None = None,
 	) -> list[dict]:
-		"""批量設置：對 restricted/left/member 成員設置僅可發送消息。"""
+		"""
+		批量处理：对 restricted/left/member 成员设置仅可发送消息。
+		- 每次操作固定休眠 sleep_seconds 秒（默认 1.1 秒，Telegram 官方建议同群每秒不超过 1 次写操作）。
+		- 若服务器返回 FLOOD_WAIT_X（420），自动等待 X+1 秒后重试一次。
+		- 已成功处理的 user_id 写入 state_file（默认 set_permissions_<group_id>.json），下次运行自动跳过。
+		"""
 		if state_file is None:
 			state_file = Path(__file__).with_name(f"set_permissions_{self.target_group}.json")
 
 		processed_ids = self._load_processed_ids(state_file)
-		print(f"[State] 已讀取進度文件：{state_file}，已處理 {len(processed_ids)} 人。", flush=True)
+		print(f"[State] 已读取进度文件：{state_file}，已处理 {len(processed_ids)} 人。", flush=True)
 
 		results: list[dict] = []
 		total = len(users)
@@ -259,14 +334,14 @@ class TargetGroupInspector:
 			pct = idx / total * 100
 
 			if user_id is not None and user_id in processed_ids:
-				print(f"[Skip] {idx}/{total} ({pct:.1f}%) user_id={user_id} 已處理，跳過。", flush=True)
+				print(f"[Skip] {idx}/{total} ({pct:.1f}%) user_id={user_id} 已处理，跳过。", flush=True)
 				results.append({"ok": True, "status": "already_done", "user_id": user_id})
 				continue
 
 			result = await self.set_send_only_permissions(user)
 			if result.get("status") == "flood_wait":
 				wait = result.get("flood_wait_seconds", 30) + 1
-				print(f"[FloodWait] user_id={result.get('user_id')} 等待 {wait} 秒後重試...", flush=True)
+				print(f"[FloodWait] user_id={result.get('user_id')} 等待 {wait} 秒后重试...", flush=True)
 				await asyncio.sleep(wait)
 				result = await self.set_send_only_permissions(user)
 
@@ -282,12 +357,12 @@ class TargetGroupInspector:
 			print(log_line, flush=True)
 			await asyncio.sleep(sleep_seconds)
 
-		print(f"[Progress] 完成，共處理 {total} 人（其中 {len(processed_ids)} 人已記錄）。", flush=True)
+		print(f"[Progress] 完成，共处理 {total} 人（其中 {len(processed_ids)} 人已记录）。", flush=True)
 		return results
 
 	@staticmethod
 	def _load_processed_ids(state_file: Path) -> set[int]:
-		"""從本地文件讀取已處理的 user_id 集合。"""
+		"""从本地文件读取已处理的 user_id 集合。"""
 		if not state_file.exists():
 			return set()
 		try:
@@ -298,8 +373,11 @@ class TargetGroupInspector:
 
 	@staticmethod
 	def _save_processed_id(state_file: Path, processed_ids: set[int]) -> None:
-		"""將已處理的 user_id 集合寫回本地文件。"""
+		"""将已处理的 user_id 集合写回本地文件。"""
 		state_file.write_text(
 			json.dumps(sorted(processed_ids), ensure_ascii=False, indent=2),
 			encoding="utf-8",
 		)
+
+
+__all__ = ["TargetGroupInspector"]

@@ -1462,43 +1462,6 @@ async def done_add_items(callback_query: CallbackQuery, state: FSMContext):
     )
 
 
-# TODO : 11/15 可以废弃,用于单一文件的属性处理,现在改为批量处理涵盖
-async def _process_add_item_async(message: Message, state: FSMContext, meta: dict, placeholder_msg_id: int):
-    bot_username = await get_bot_username()
-    user_id = str(message.from_user.id)
-    file_type = meta.get("file_type")
-    file_size = meta.get("file_size", 0)
-    duration = meta.get("duration", 0)
-    width = meta.get("width", 0)
-    height = meta.get("height", 0)
-    file_unique_id = meta.get("file_unique_id")
-    content_id = meta.get("content_id")
-    file_id = meta.get("file_id")
-    preview = meta.get("preview")
-    type_code = file_type[0]  # "v", "d", "p"
-    await AnanBOTPool.update_product_file_type(content_id, "album")
-    await AnanBOTPool.upsert_media(file_type, {
-            "file_unique_id": file_unique_id,
-            "file_size": file_size,
-            "duration": duration,
-            "width": width,
-            "height": height,
-            "create_time": datetime.now()
-        })
-    
-    await AnanBOTPool.insert_file_extension(file_type, file_unique_id, file_id, bot_username, user_id)
-    member_content_row = await AnanBOTPool.insert_sora_content_media(file_unique_id, file_type, file_size, duration, user_id, file_id, bot_username)
-    member_content_id = member_content_row["id"]
-
-    # 插入到 album_items 表
-    await AnanBOTPool.insert_album_item(
-        content_id=content_id,
-        member_content_id=member_content_id,
-        file_unique_id=file_unique_id,
-        preview=preview,
-        file_type=type_code  # "v", "d", "p"
-    )
-
 
 
 ############

@@ -1318,7 +1318,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
 @router.message(Command("update_setting"))
 async def handle_update_setting(message: Message, state: FSMContext):
     SharedConfig.load(True)
-    await message.answer(f"✅ 已更新 UPLOADER_BOT_NAME: {SharedConfig.get('uploader_bot_name')}")
+    await message.answer(f"✅ 已更新==> UPLOADER_BOT_NAME: {SharedConfig.get('uploader_bot_name')}")
 
 
     
@@ -2022,6 +2022,8 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 InlineKeyboardButton(text=f"⚙️ 管理 {role_tag}", callback_data=f"sora_operation:{content_id}")
             ]
         )
+
+     
     
 
 
@@ -2197,6 +2199,7 @@ async def _load_content(message:Message, state:FSMContext ,content_id, parts):
 async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext):
     # 解析 content_id
     uploader_bot_name = SharedConfig.get("uploader_bot_name", UPLOADER_BOT_NAME)
+    guider_bot_name = SharedConfig.get("guider_bot_name")
    
     try:
         _, content_id_str = callback.data.split(":", 1)
@@ -2260,7 +2263,7 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
         "资源将立即下架，所有用户将无法存取。\n"
         "若日后需要重新上架，需先将状态改为「退回编辑」，并完成编辑与审核流程。\n"
         "\n"
-        f"👤 上传者：<a href=\"tg://user?id={owner_id_int}\">{owner_name_safe}</a>（<code>{owner_id_int}</code>）\n"
+        f"👤 上传者：<a href=\"tg://user?id={owner_id_int}\">{owner_name_safe}</a>（<code>{owner_id_int}</code>） <a href='https://t.me/{guider_bot_name}?start=afc_{content_id}'>🙋</a> \n"
         f"🆔 <code>{content_id}</code>\n"
     )
 
@@ -2285,6 +2288,11 @@ async def handle_sora_operation_entry(callback: CallbackQuery, state: FSMContext
     rows_kb.append([
         InlineKeyboardButton(text="💪 强制更新", callback_data=f"force_update:{content_id}")
     ])
+
+    if has_permission:
+        rows_kb.append([
+            InlineKeyboardButton(text="🙋 呼叫曾兑换者补档", url=f"https://t.me/{guider_bot_name}?start=afcb_{content_id}")
+        ])
 
     rows_kb.append([
         InlineKeyboardButton(text="🔙 返回", callback_data=f"sora_op:back:{content_id}")
@@ -4515,7 +4523,7 @@ async def handle_noop(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("sora_redeem:"))
 async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     
-    
+    guider_bot_name = SharedConfig.get("guider_bot_name") or ""
 
     content_id = callback.data.split(":")[1]
     redeem_type = callback.data.split(":")[2] if len(callback.data.split(":")) > 2 else None #小懒觉会员
@@ -4777,7 +4785,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="更新小懒觉会员期", callback_data="xlj:update")],
             [InlineKeyboardButton(
                 text="兑换小懒觉会员 ( 💎 800 )",
-                url="https://t.me/xljdd013bot?start=join_xiaolanjiao_act"
+                url=f"https://t.me/{guider_bot_name}?start=join_xiaolanjiao_act"
             )],
         ])
         timer.lap("不是小懒觉会员")

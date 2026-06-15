@@ -1,9 +1,10 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import json
 
 
-load_dotenv(dotenv_path='.lz.env')
+load_dotenv(dotenv_path=Path(__file__).with_name('.lz.env'))
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 UPLOADER_BOT_NAME = os.getenv("UPLOADER_BOT_NAME", "")
 POSTGRES_DSN = os.getenv("POSTGRES_DSN")
@@ -67,9 +68,9 @@ KEY_USER_ID     = int(config.get('key_user_id', os.getenv('KEY_USER_ID', 0)))
 KEY_USER_PHONE = config.get('key_user_phone', os.getenv('KEY_USER_PHONE', ''))
 
 
-s_raw = os.getenv("SWITCHBOT_CONFIGURATION")
+s_raw = os.getenv("SWITCHBOT_CONFIGURATION", "{}") or "{}"
 s_conf = json.loads(s_raw)
-SWITCHBOT_CHAT_ID: int = s_conf["chat_id"]
-SWITCHBOT_THREAD_ID: int = s_conf["thread_id"]
-SWITCHBOT_TOKEN: str = s_conf["switchbot_token"]
-SWITCHBOT_USERNAME = s_conf["switchbot_username"]
+SWITCHBOT_CHAT_ID: int = int(s_conf.get("chat_id", 0) or 0)
+SWITCHBOT_THREAD_ID: int = int(s_conf.get("thread_id", 0) or 0)
+SWITCHBOT_TOKEN: str = s_conf.get("switchbot_token", "")
+SWITCHBOT_USERNAME = s_conf.get("switchbot_username", "")

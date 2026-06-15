@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List, Callable, Awaitable
 from aiogram import Bot
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, InputMediaAudio
+from aiogram.types import InputMediaPhoto, InputMediaDocument, InputMediaVideo, InputMediaAudio, InputMediaAnimation
 from aiogram.types import FSInputFile
 from utils.aes_crypto import AESCrypto
 from utils.tpl import Tplate
@@ -1642,6 +1642,12 @@ async def build_product_material(
                 send_sub_group=[]  
             current = "d"
             send_sub_group.append(InputMediaDocument(media=item["file_id"]))
+        elif item["file_type"] == "n":
+            if current != None and current != 'n':
+                send_group.append(send_sub_group)
+                send_sub_group=[]  
+            current = "n"
+            send_sub_group.append(InputMediaAnimation(media=item["file_id"]))
         elif item["file_type"] == "a":
             # print(f"file_type={item["file_type"]}\r\n", flush=True)
             if current != None and current != 'a':

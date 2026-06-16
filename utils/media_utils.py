@@ -498,10 +498,31 @@ class Media:
             lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
             asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=5))
             
+            '''
+            ‼️ 资源已被 TG 官方封锁
+
+            你请求的资源目前已被 Telegram 官方限制访问，机器人暂时无法正常发送。
+
+            系统正在从备份库重新同步资源，请稍后再重新请求。
+            目前共有 2 个资源正在同步，预计约 300 秒后完成。
+
+            如果之后仍然无法同步成功，请联系教务处小助手，并提供该资源连结，我们会再尝试人工补救。
+
+            你也可以先看看其他资源，稍后再回来试试。
+            '''
+
+
             resource_lack_text = (
-                f"‼️TG官方已封锁这个资源。\n"
-                f"我们正在从备份库同步资源，请之后再请求，如果一直未能同步成功，请联系教务处小助手，并告知资源连结，我们用人工的方式做最后的努力。\n"
-                f"目前共有 {len(lack_file_uid_rows)} 个资源需要同步，预计 {len(lack_file_uid_rows)*150} 秒后同步完成，请稍后再试，可以先看看别的资源吧。"
+                f"‼️ 资源已被 TG 官方封锁\n\n"
+                "你请求的资源目前已被 Telegram 官方限制访问，机器人暂时无法正常发送。\n"
+                "\n"
+                "系统正在从备份库重新同步资源，请稍后再重新请求。\n"
+                "\n"
+                f"目前共有 {len(lack_file_uid_rows)} 个资源正在同步，预计约  {len(lack_file_uid_rows)*150}  秒后完成。\n"
+                "\n"
+                "如果之后仍然无法同步成功，请联系教务处小助手，并提供该资源连结，我们会再尝试人工补救。\n"
+                "\n"
+                "你也可以先看看其他资源，稍后再回来试试。"
             )
             
             print(resource_lack_text, flush=True)        

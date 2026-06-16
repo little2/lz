@@ -290,6 +290,7 @@ class BotScripts:
 	async def script_xxhl9bot() -> None:
 		"""@XXHL9Bot - 每日签到流程"""
 		async with BotScripts._session("@XXHL9Bot") as s:
+
 			await s.send("📅 每日签到")
 			msg = await s.wait_reply(timeout=30)
 			if not msg:
@@ -356,12 +357,14 @@ class BotScripts:
 		client, own_client = await BotScripts._acquire_client()
 		try:
 			user_id = BotScripts._user_info.id
-			await client(UpdateProfileRequest(about=f"https://t.me/tangest4_bot?start=ref_{user_id}"))
-			print("[tangest4_bot] bio 已设置", flush=True)
-			await asyncio.sleep(5)
-			entity = await client.get_entity("@tangest4_bot")
-			sent = await client.send_message(entity=entity, message="📅 签到")
-			print(f"[tangest4_bot] 已发送签到 | message_id={sent.id}", flush=True)
+			for _ in range(2):
+				await client(UpdateProfileRequest(about=f"https://t.me/tangest4_bot?start=ref_{user_id}"))
+				print(f"[tangest4_bot] bio 已设置 https://t.me/tangest4_bot?start=ref_{user_id}", flush=True)
+				await asyncio.sleep(15)
+				entity = await client.get_entity("@tangest4_bot")
+				sent = await client.send_message(entity=entity, message="📅 签到")
+				print(f"[tangest4_bot] 已发送签到 | message_id={sent.id}", flush=True)
+				await asyncio.sleep(5)
 			await client(UpdateProfileRequest(about=""))
 		finally:
 			if own_client:
@@ -600,18 +603,20 @@ class BotScripts:
 
 
 BOT_SCRIPTS: dict[str, object] = {
+	
 	"@XXHL9Bot": BotScripts.script_xxhl9bot,
 	"@AiYYnvshen_bot": BotScripts.script_aiyynvshen_bot,
 	"@ainudem2bot": BotScripts.script_ainudem2bot,
 	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
 	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
+	"@tangest4_bot": BotScripts.script_tangest4_bot,
 	"@quyi44bot": BotScripts.script_quyi44bot,
 	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
 	"@menjjbot": BotScripts.script_menjjbot,
 	"@tuoyi03bot": BotScripts.script_tuoyi03bot,
 	"@quyi198bot": BotScripts.script_quyi198bot,
-	"@tangest4_bot": BotScripts.script_tangest4_bot,
-	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
+	
+	
 	"@linglongai_3bot": BotScripts.script_linglongai_3bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@mengokbot": BotScripts.script_mengokbot,
@@ -619,6 +624,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@SrikitiBot": BotScripts.script_srikitibot,
 	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
+	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
 }
 
 

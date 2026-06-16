@@ -60,11 +60,13 @@ from shared_config import SharedConfig
 SharedConfig.load(True)
 
 
-async def periodic_shared_config_reload(interval_seconds: int = 3600):
+async def periodic_shared_config_reload(interval_seconds: int = 3600, on_reload=None):
     while True:
         await asyncio.sleep(interval_seconds)
         try:
             await asyncio.to_thread(SharedConfig.load, True)
+            if on_reload:
+                on_reload()
             print("✅ SharedConfig 已定时刷新", flush=True)
         except Exception as e:
             print(f"⚠️ SharedConfig 定时刷新失败: {e}", flush=True)
@@ -424,6 +426,11 @@ async def main():
         "config": _to_int_set(SharedConfig.get("whitelist_user_ids") or []),
     }
 
+    def reload_whitelist_matrix():
+        whitelist_matrix["core"] = _to_int_set([KEY_USER_ID])
+        whitelist_matrix["config"] = _to_int_set(SharedConfig.get("whitelist_user_ids") or [])
+        return whitelist_matrix
+
     blacklist_guard = BlacklistGuardMiddleware(whitelist_matrix=whitelist_matrix)
     dp.message.middleware(blacklist_guard)
     dp.callback_query.middleware(blacklist_guard)
@@ -444,7 +451,9 @@ async def main():
     # await db.connect()
 
     await sync()
-    config_reload_task = asyncio.create_task(periodic_shared_config_reload())
+    config_reload_task = asyncio.create_task(
+        periodic_shared_config_reload(on_reload=reload_whitelist_matrix)
+    )
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
     @dp.shutdown()
@@ -471,6 +480,25 @@ async def main():
         #     await user_client.disconnect()
         # except Exception as e:
         #     print(f"[shutdown] Telethon disconnect error: {e}")
+
+    @dp.message(Command(commands=["reload_whitelist", "reloadwhite"]))
+    async def reload_whitelist(message: types.Message):
+        if not message.from_user or message.from_user.id != KEY_USER_ID:
+            await message.reply("❌ 没有权限重新载入白名单。")
+            return
+
+        try:
+            await asyncio.to_thread(SharedConfig.load, True)
+            latest_matrix = reload_whitelist_matrix()
+        except Exception as e:
+            await message.reply(f"❌ 白名单重新载入失败：{e}")
+            return
+
+        await message.reply(
+            "✅ 白名单已重新载入\n"
+            f"core: {len(latest_matrix.get('core') or set())} 人\n"
+            f"config: {len(latest_matrix.get('config') or set())} 人"
+        )
 
     # ✅ Telegram /ping 指令（aiogram v3 正确写法）
     @dp.message(Command(commands=["ping", "status"]))

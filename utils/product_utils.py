@@ -492,12 +492,16 @@ async def sync_sora(content_id: int):
 
     # 1.1) 同步前先在 MySQL 生成并回写 content_seg（分词 + 同义词归一 + 转简体）
     if mysql_row:
+        print(f"  🛠️ Updating MySQL content_seg for content_id={content_id} before PG upsert", flush=True)
         mysql_row = await _update_mysql_content_seg(int(content_id), mysql_row)
+        print(f"02[sync_sora_content] MySQL row after content_seg update = {mysql_row} for content_id={content_id}", flush=True)
 
     # 2) 先做 PG 端 UPSERT
     upsert_count = 0
     if mysql_row:
+        print(f"  🛠️ Upserting to PG for content_id={content_id}", flush=True)
         upsert_count = await PGPool.upsert_sora(mysql_row)
+        print((f"03[sync_sora_content] PG upsert count = {upsert_count} for content_id={content_id}"), flush=True)
     print(f"[upsert_sora] Upsert to PG = {upsert_count}", flush=True)
 
     # 3) Album 相关的同步

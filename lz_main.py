@@ -18,7 +18,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from lz_config import BOT_TOKEN,SWITCHBOT_TOKEN, SWITCHBOT_CHAT_ID, SWITCHBOT_THREAD_ID,BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
+from lz_config import ADMIN_IDS, BOT_TOKEN,SWITCHBOT_TOKEN, SWITCHBOT_CHAT_ID, SWITCHBOT_THREAD_ID,BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
 # from lz_db import db
 from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
@@ -426,11 +426,22 @@ async def main():
         "config": _to_int_set(SharedConfig.get("whitelist_user_ids") or []),
     }
 
+    print(f"初始白名单矩阵：{ADMIN_IDS}", flush=True)
+    ''' 将  whitelist_matrix["config"] 也加到 ADMIN_IDS'''
+    # whitelist_matrix["config"].update(ADMIN_IDS)
+    ADMIN_IDS.update(whitelist_matrix["config"])
+    print(f"合并 ADMIN_IDS 后的白名单矩阵：{ADMIN_IDS}", flush=True)
+
+    
+
     def reload_whitelist_matrix():
         whitelist_matrix["core"] = _to_int_set([KEY_USER_ID])
         whitelist_matrix["config"] = _to_int_set(SharedConfig.get("whitelist_user_ids") or [])
+        # 将 ADMIN_IDS 再加入  whitelist_matrix["config"]
+        # whitelist_matrix["config"].update(ADMIN_IDS)
         return whitelist_matrix
 
+   
     blacklist_guard = BlacklistGuardMiddleware(whitelist_matrix=whitelist_matrix)
     dp.message.middleware(blacklist_guard)
     dp.callback_query.middleware(blacklist_guard)

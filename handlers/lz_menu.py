@@ -2464,7 +2464,7 @@ async def handle_sora_op_unpublish_reason(message: Message, state: FSMContext):
     # 写 review_status=20 并同步
     try:
         
-        db.cache.delete(f"sora_content_id:{content_id}")
+        # db.cache.delete(f"sora_content_id:{content_id}")
         print(f"🛑 用户 {uid} 为 content_id={content_id} 直接下架，原因：{reason}", flush=True)
 
         await _mysql_set_product_review_status_by_content_id(content_id, 20, operator_user_id=uid, reason=reason)

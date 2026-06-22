@@ -196,6 +196,7 @@ class MySQLPool(LYBase):
             if(spoken):
                 print(f"✅ 用户 {uid} 已发言，缓存结果", flush=True)
                 cls._spoken_today_local_cache[uid] = (spoken, stat_date)
+                
             return spoken
         except Exception as e:
             print(f"⚠️ has_spoken_today 出错: {e}", flush=True)

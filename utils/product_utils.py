@@ -527,6 +527,10 @@ async def copy_from_pg_to_mysql(
     await MySQLPool.ensure_pool()
     await PGPool.ensure_pool()
 
+    publish_bot_name = SharedConfig.get("publish_bot_name") or ""
+
+    
+
     pg_sql = """
         SELECT DISTINCT ON (f.file_unique_id)
             f.id,
@@ -535,17 +539,17 @@ async def copy_from_pg_to_mysql(
             f.file_id,
             f.bot
         FROM public.file_extension f
-        WHERE f.bot IN ('luzai1005bot', 'xiaojuhua010bot')
+        WHERE f.bot IN ('luzaitestbot', 'xiaojuhua010bot', 'luzai10005bot')
           AND NOT EXISTS (
               SELECT 1
               FROM public.file_extension x
               WHERE x.file_unique_id = f.file_unique_id
-                AND x.bot = 'luzai11011bot'
+                AND x.bot = $1
           )
         ORDER BY
             f.file_unique_id,
             CASE
-                WHEN f.bot = 'luzai1005bot' THEN 0
+                WHEN f.bot = 'luzaitestbot' THEN 0
                 ELSE 1
             END,
             f.id DESC
@@ -562,7 +566,7 @@ async def copy_from_pg_to_mysql(
     await _notify({"stage": "init"})
 
     try:
-        pg_rows = await PGPool.fetch(pg_sql)
+        pg_rows = await PGPool.fetch(pg_sql, publish_bot_name)
     except Exception as e:
         await _notify({"stage": "error", "error": str(e)})
         print(f"[copy_from_pg_to_mysql] PG query failed: {e}", flush=True)
@@ -590,15 +594,16 @@ async def copy_from_pg_to_mysql(
             int(r["id"]),
             str(r.get("file_type")) if r.get("file_type") is not None else None,
             str(r.get("file_unique_id") or "")[:100],
-            str(r.get("file_id") or "")[:200],
+            str(r.get("file_id") or ""),
             str(r.get("bot")) if r.get("bot") is not None else None,
             None,
         )
         for r in pg_rows
     ]
 
-    conn, cur = await MySQLPool.get_conn_cursor()
+    conn = cur = None
     try:
+        conn, cur = await MySQLPool.get_conn_cursor()
         await conn.begin()
 
         await cur.execute(
@@ -607,11 +612,17 @@ async def copy_from_pg_to_mysql(
                 id BIGINT UNSIGNED NOT NULL,
                 file_type VARCHAR(30) DEFAULT NULL,
                 file_unique_id VARCHAR(100) NOT NULL,
-                file_id VARCHAR(200) NOT NULL,
+                file_id TEXT NOT NULL,
                 bot VARCHAR(50) DEFAULT NULL,
                 work_stats INT(3) DEFAULT NULL,
                 PRIMARY KEY (id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin
+            """
+        )
+        await cur.execute(
+            """
+            ALTER TABLE file_extension_pgbk
+                MODIFY COLUMN file_id TEXT NOT NULL
             """
         )
 
@@ -664,10 +675,11 @@ async def copy_from_pg_to_mysql(
         print(f"[copy_from_pg_to_mysql] Done: {summary}", flush=True)
         return summary
     except Exception as e:
-        try:
-            await conn.rollback()
-        except Exception:
-            pass
+        if conn:
+            try:
+                await conn.rollback()
+            except Exception:
+                pass
         await _notify({"stage": "error", "error": str(e)})
         print(f"[copy_from_pg_to_mysql] MySQL upsert failed: {e}", flush=True)
         return {
@@ -677,7 +689,8 @@ async def copy_from_pg_to_mysql(
             "error": str(e),
         }
     finally:
-        await MySQLPool.release(conn, cur)
+        if conn or cur:
+            await MySQLPool.release(conn, cur)
 
 async def _build_content_seg(content: str | None, tag: str | None) -> str:
     """

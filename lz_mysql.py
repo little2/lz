@@ -98,9 +98,22 @@ class MySQLPool(LYBase):
     async def get_conn_cursor(cls):
         # ✅ 不再抛“未初始化”，而是自愈
         await cls.ensure_pool()
-        conn = await cls._pool.acquire()
-        cursor = await conn.cursor(aiomysql.DictCursor)
-        return conn, cursor
+        try:
+            conn = await cls._pool.acquire()
+            try:
+                await conn.ping()
+            except Exception:
+                cls._pool.release(conn)
+                await cls._rebuild_pool()
+                conn = await cls._pool.acquire()
+                await conn.ping()
+            cursor = await conn.cursor(aiomysql.DictCursor)
+            return conn, cursor
+        except Exception:
+            await cls._rebuild_pool()
+            conn = await cls._pool.acquire()
+            cursor = await conn.cursor(aiomysql.DictCursor)
+            return conn, cursor
 
     @classmethod
     async def release(cls, conn, cursor):
@@ -2114,9 +2127,9 @@ class MySQLPool(LYBase):
             await cls.release(conn, cur)
 
     @classmethod
-    async def get_file_id_by_file_unique_id(cls, unique_ids: list[str]) -> list[str]:
+    async def get_file_id_by_file_unique_id(cls, unique_ids: list[str]) -> dict:
         if not unique_ids:
-            rows = []
+            return {}
         else:
             placeholders = ",".join(["%s"] * len(unique_ids))
             sql = f"""
@@ -2127,8 +2140,9 @@ class MySQLPool(LYBase):
             """
             params = tuple(unique_ids) + (lz_var.bot_username,)
 
-            conn, cur = await MySQLPool.get_conn_cursor()
+            conn = cur = None
             try:
+                conn, cur = await cls.get_conn_cursor()
                 await cur.execute(sql, params)
                 rows = await cur.fetchall()
                 f_row = {}
@@ -2138,11 +2152,12 @@ class MySQLPool(LYBase):
                 return f_row
             except Exception as e:
                 print(f"⚠️ get_file_id_by_file_unique_id 出错: {e}", flush=True)
-                return []
+                return {}
             
                 
             finally:
-                await MySQLPool.release(conn, cur)
+                if conn or cur:
+                    await cls.release(conn, cur)
                         
     
 

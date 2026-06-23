@@ -2,6 +2,7 @@ from string import Template
 import textwrap
 import os
 import json
+import asyncio
 import lz_var
 from utils.media_utils import Media
 from utils.unit_converter import UnitConverter
@@ -259,6 +260,9 @@ class Tplate:
             if fu_row:
                 # //await get_file_ids_fn(fu_list)
                 file_ids_row = await get_file_ids_fn(fu_row)
+                if not isinstance(file_ids_row, dict):
+                    print(f"⚠️ get_file_ids_fn 返回值不是 dict，已忽略：{type(file_ids_row).__name__}", flush=True)
+                    file_ids_row = {}
                 print(f"📚 {file_ids_row}。", flush=True)
 
                 for name, obj in skins.items():
@@ -284,6 +288,7 @@ class Tplate:
             try:
                 print(f"🧾 {name}: 向 x-man {lz_var.x_man_bot_id} 请求 file_id…（{fu}）")
                 msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
+                await asyncio.sleep(0.3)
                 
             except Exception as e:
                 print(f"⚠️ 向 x-man 请求失败：{e} - {lz_var.x_man_bot_id}",flush=True)

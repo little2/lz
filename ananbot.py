@@ -5609,7 +5609,7 @@ async def _handle_batch_upload_async(message: Message, state: FSMContext, meta: 
                     return
                    
             
-                print(f"4885=>{thumb_file_id} {preview_text}")
+                print(f"4885=>|{thumb_file_id}|{preview_text}|")
                 # thumb_file_id = "AgACAgUAAxkBAAIBrmhyapzZ-aQigPWdtB5oITN4UQR8AAL5yDEbVtpYV7Gs5ZC2v8Y_AQADAgADeQADNgQ"
                 photo_msg = await lz_var.bot.edit_message_media(
                     chat_id=message.chat.id,

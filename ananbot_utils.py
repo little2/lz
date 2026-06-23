@@ -1036,8 +1036,6 @@ class AnanBOTPool(LYBase):
             if row and row["file_id"]:
                 return row["file_id"]
             
-                
-
         finally:
             await cls.release(conn, cur)
 

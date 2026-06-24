@@ -1621,14 +1621,14 @@ async def exec_notify_mass_delete_disable_points(client, task: dict, params: dic
                 cfg = {}
 
     source_chat_id = int(cfg.get("source_chat_id", -1001943193056))
-    min_deleted_cnt = int(cfg.get("min_deleted_cnt", 10))
+    min_deleted_cnt = int(cfg.get("min_deleted_cnt", 5))
     bot_name = (cfg.get("bot") or "xiaolongyang007bot").strip()
 
     notice = (
         "我们理解，也尊重部分群友希望在网络上不留痕迹的想法。\n\n"
         "不过由于发言会产生积分奖励，为了避免机制被反复利用，\n"
         "因此，凡是出现批量发言后再集中删除内容的情况，\n"
-        "将取消其发言获得积分的资格。\n\n"
+        "将取消其发言「发言奖励计划」的资格。\n\n"
         "希望大家理解，这个调整只是为了维护机制的公平与长期稳定运行。\n\n"
         f"任何问题，可以联系教务处小助手 @ly120bot\n\n"
     )

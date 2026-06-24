@@ -158,7 +158,7 @@ class MySQLPool(LYBase):
             await cur.execute(
                 """
                 SELECT 1
-                FROM blacklist
+                FROM blacklist 
                 WHERE user_id = %s
                 LIMIT 1
                 """,

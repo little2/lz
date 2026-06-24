@@ -189,11 +189,25 @@ class BlacklistGuardMiddleware(BaseMiddleware):
 
         if chat and getattr(chat, "type", None) == "private":
 
-            if await MySQLPool.is_user_blacklisted(user.id):
+            block_code =  await MySQLPool.is_user_blacklisted(user.id)
+            if block_code > 0:
+                if block_code == 4:
+                    reason = "基于社群安全考量，服务暂时暂停。"
+                elif block_code == 5:
+                    reason = "信用点数小于 5，暂无法使用服务。"
+                elif block_code == 6:
+                    reason = "已退出发言积分计划，服务同步暂停。"
+                elif block_code == 7:
+                    reason = "资源暂未达期待，先暂停服务以免打扰。"
+                elif block_code == 8:
+                    reason = "多次自删空水群信息，基于社群信任考量，服务暂时暂停。"
+                else:
+                    reason = "服务暂时暂停，请联系教务处小助手。"
+               
                 if isinstance(event, types.CallbackQuery):
-                    await event.answer("服务暂停中", show_alert=True)
+                    await event.answer(reason, show_alert=True)
                 elif isinstance(event, types.Message):
-                    await event.answer("服务暂停中")
+                    await event.answer(reason)
                 return
 
 
@@ -207,7 +221,7 @@ class BlacklistGuardMiddleware(BaseMiddleware):
 
             sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
             stat_date = sgt_now.strftime("%Y-%m-%d")
-            if not await MySQLPool.has_spoken_today(user.id, stat_date):
+            if not await MySQLPool.has_spoken_today(user.id, stat_date,redis_url=SharedConfig.get("valkey_url")):
                
                 helper_bot_url = f"https://t.me/{getattr(lz_var, 'helper_bot_name', '')}"
                 keyboard = types.InlineKeyboardMarkup(
@@ -219,7 +233,8 @@ class BlacklistGuardMiddleware(BaseMiddleware):
                     ]
                 )
 
-                text = f"最近大家应该都感受到 TG 越来越严格了，学院的机器人也已经炸了好几轮。\n花钱换号、换机器人其实还是小事，最麻烦的是大家看资源会越来越不方便。\n\n所以接下来调整为：使用学院服务时，每天至少在中心或学院群「参与聊天的有效发言」 3 句。( {stat_date} )\n不是想怀疑谁，只是希望用一点点小门槛，让这个小圈圈能更稳定地走下去。\n\n最后也拜托大家，不要为了发言随手丢一句抱怨或和主题的话。\n既然都在这里了，也希望大家能多留一点温度，帮彼此加油一下。\n\n最后，多发言几句，真有问题找教务处，在群里抱怨或无脑发言的就直接飞了!"
+
+                text = f"最近 TG 越来越严格，学院机器人也已被处理多轮。\n换号、换机器人不是最麻烦的，真正影响的是大家查看资源会越来越不方便。\n\n因此接下来调整为：使用学院服务时，每天需在中心或学院群完成 3 句「有交流意义的有效发言」。（{stat_date}）\n这不是怀疑大家，而是为了让小圈圈更稳定、安全地走下去。\n\n请不要为了凑数发送抱怨、无意义或离题内容。\n有问题可找教务处小助手；若持续抱怨或刻意灌水，学院将暂停相关服务。"
 
                 if isinstance(event, types.CallbackQuery):
                     await event.answer(text, show_alert=True)

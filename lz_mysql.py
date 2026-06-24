@@ -2,6 +2,8 @@
 import aiomysql
 import time
 from datetime import datetime, timedelta, timezone
+
+import redis.asyncio as redis_async
 from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT, VALKEY_URL
 from typing import Optional, Dict, Any, List, Tuple
 from lz_memory_cache import MemoryCache
@@ -53,7 +55,7 @@ class MySQLPool(LYBase):
     _lock = asyncio.Lock()
     _cache_ready = False
     cache = None
-    _blacklist_local_cache: Dict[int, Tuple[bool, str]] = {}
+    _blacklist_local_cache: Dict[int, Tuple[int, str]] = {}
     _spoken_today_local_cache: Dict[int, Tuple[bool, str]] = {}
 
     @classmethod
@@ -134,53 +136,71 @@ class MySQLPool(LYBase):
                 print("🛑 MySQL 连接池已关闭")
 
     @classmethod
-    async def is_user_blacklisted(cls, user_id: int) -> bool:
+    async def is_user_blacklisted(cls, user_id: int) -> int:
         """
         黑名单检查（来源: MySQL `blacklist` 表）
         SELECT * FROM `blacklist` WHERE `user_id` = ?
 
         本地缓存策略：
         - 同进程内命中后直接返回
-        - 缓存 True/False 两种结果，避免后续重复查库
+        - 缓存结果，避免后续重复查库
         - 缓存仅当天有效，跨自然日自动失效
         """
         uid = int(user_id)
-        today_key = time.strftime("%Y-%m-%d", time.localtime())
+
+        sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
+        today_key = sgt_now.strftime("%Y-%m-%d")
+
+   
 
         if uid in cls._blacklist_local_cache:
             cached_value, cached_day = cls._blacklist_local_cache[uid]
             if cached_day == today_key:
                 return cached_value
             cls._blacklist_local_cache.pop(uid, None)
-
+        
         conn, cur = await cls.get_conn_cursor()
         try:
+            '''
+            SELECT b.blacklist_id,b.user_id, u.first_name, u.credit, u.plan FROM `user` u LEFT JOIN blacklist b ON u.user_id = b.user_id WHERE ((u.credit < 5 or b.blacklist_id>0 or u.plan != 1 ) and ( b.user_id = 8600333620 or u.user_id = 8600333620 ))
+            ORDER BY `u`.`plan` ASC;
+            
+            '''
             await cur.execute(
                 """
-                SELECT 1
-                FROM blacklist 
-                WHERE user_id = %s
+                SELECT b.blacklist_id,u.credit,u.plan FROM user u 
+                LEFT JOIN blacklist b ON u.user_id = b.user_id 
+                WHERE ((u.credit <= 5 or b.blacklist_id>0 or u.plan != 1 ) and ( b.user_id = %s or u.user_id = %s )) 
                 LIMIT 1
                 """,
-                (uid,),
+                (uid, uid),
             )
             row = await cur.fetchone()
-            is_blocked = row is not None
+            if row :
+                if int(row.get("blacklist_id") or 0) > 0:  # 存在黑名单记录
+                    is_blocked = 4
+                elif int(row.get("credit") or 0) <= 5:  # 积分低于等于5
+                    is_blocked = 5
+                elif int(row.get("plan") or 0) != 1:  # plan != 1
+                    is_blocked = int(row.get("plan") or 9)  # 返回 plan 的值，默认 9
+            else:
+                is_blocked = 0
+            
             cls._blacklist_local_cache[uid] = (is_blocked, today_key)
             return is_blocked
         except Exception as e:
             print(f"⚠️ is_user_blacklisted 出错: {e}", flush=True)
-            cls._blacklist_local_cache[uid] = (False, today_key)
-            return False
+            
+            return 0
         finally:
             await cls.release(conn, cur)
 
     @classmethod
-    async def has_spoken_today(cls, user_id: int, stat_date: str) -> bool:
+    async def has_spoken_today(cls, user_id: int, stat_date: str, redis_url: str = None) -> bool:
         """
         检查用户今天是否已有发言记录（来源: MySQL `contribute_today`）。
 
-        规则：count > 1 视为已发言。
+        规则：count >= 1 视为已发言。
         本地缓存：按 user_id 缓存当天结果，跨自然日自动失效。
         """
         uid = int(user_id)
@@ -190,6 +210,11 @@ class MySQLPool(LYBase):
             if cached_day == stat_date:
                 return cached_value
             cls._spoken_today_local_cache.pop(uid, None)
+       
+
+
+
+
 
         conn, cur = await cls.get_conn_cursor()
         try:
@@ -206,14 +231,28 @@ class MySQLPool(LYBase):
             spoken = int((row or {}).get("count") or 0) >= 1
             print(f"用户 {uid} 已发言，count={row.get('count') if row else 0}", flush=True)
 
-            if(spoken):
+
+
+            if spoken:
                 print(f"✅ 用户 {uid} 已发言，缓存结果", flush=True)
                 cls._spoken_today_local_cache[uid] = (spoken, stat_date)
+
+                if redis_url:
+                    try:
+                        sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
+                        today_mmdd = sgt_now.strftime("%m%d")
+                        redis_client = redis_async.from_url(redis_url, decode_responses=True)
+                        try:
+                            await redis_client.setex(f"t:{today_mmdd}:{uid}", 86400, 1)
+                        finally:
+                            await redis_client.aclose()
+                    except Exception as e:
+                        print(f"⚠️ has_spoken_today 写 Redis 失败: {e}", flush=True)
                 
             return spoken
         except Exception as e:
             print(f"⚠️ has_spoken_today 出错: {e}", flush=True)
-            cls._spoken_today_local_cache[uid] = (False, stat_date)
+           
             return False
         finally:
             await cls.release(conn, cur)

@@ -4,16 +4,18 @@ import json
 import random
 import tempfile
 from pathlib import Path
+from typing import Iterable
 
 from telethon import TelegramClient
-from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, FileReferenceExpiredError
+from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, FileReferenceExpiredError, FloodWaitError
 from telethon.sessions import StringSession
 
-from man_config import API_HASH, API_ID, SESSION_STRING
 
 
 def _build_client() -> TelegramClient:
 	"""兼容 StringSession 与本地 .session 文件名两种输入。"""
+	from man_config import API_HASH, API_ID, SESSION_STRING
+
 	raw = str(SESSION_STRING or "").strip()
 	api_id = int(API_ID)
 
@@ -21,6 +23,32 @@ def _build_client() -> TelegramClient:
 		return TelegramClient(StringSession(raw), api_id, API_HASH)
 
 	return TelegramClient(raw or "man", api_id, API_HASH)
+
+
+async def forward_private_media(
+	message,
+	targets: Iterable[int | str],
+	delay_seconds: float = 1,
+) -> None:
+	"""Forward one private media message to multiple targets with FloodWait handling."""
+	for target in targets:
+		try:
+			await message.forward_to(target)
+			print(f"[PrivateMediaForward] forwarded to {target}", flush=True)
+		except FloodWaitError as exc:
+			wait_seconds = int(exc.seconds) + 1
+			print(f"[PrivateMediaForward] FloodWait {wait_seconds}s, retry target={target}", flush=True)
+			await asyncio.sleep(wait_seconds)
+			try:
+				await message.forward_to(target)
+				print(f"[PrivateMediaForward] forwarded after FloodWait to {target}", flush=True)
+			except Exception as retry_exc:
+				print(f"[PrivateMediaForward] retry failed target={target} error={retry_exc}", flush=True)
+		except Exception as exc:
+			print(f"[PrivateMediaForward] forward failed target={target} error={exc}", flush=True)
+		finally:
+			await asyncio.sleep(delay_seconds)
+
 
 class GroupMediaForwarder:
 	"""从指定群组抓取媒体消息并转发到目标。"""

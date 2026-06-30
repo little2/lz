@@ -5,7 +5,7 @@ from contextlib import suppress
 from pathlib import Path
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-
+import socks
 from man_config import API_HASH, API_ID, SESSION_STRING,SESSION_STRINGS
 # from lz_mysql import MySQLPool
 from handlers.bot_scripts import BOT_SCRIPTS, BotScripts
@@ -24,22 +24,57 @@ SHOT_READER_COOLDOWN_MINUTES = max(0, int(os.getenv("SHOT_READER_COOLDOWN_MINUTE
 GLOBAL_PARAMS: dict = {}
 
 
+PROXY_TYPE = os.getenv("HARRY_PROXY_TYPE", "socks5").strip().lower()
+PROXY_HOST = os.getenv("HARRY_PROXY_HOST", "127.0.0.1").strip()
+PROXY_PORT = int(os.getenv("HARRY_PROXY_PORT", "3066") or 3066)
+PROXY_USERNAME = os.getenv("HARRY_PROXY_USERNAME", "").strip() or None
+PROXY_PASSWORD = os.getenv("HARRY_PROXY_PASSWORD", "").strip() or None
+
+
+
+
 def _global_params_file_for_session(session_string: str) -> Path:
 	prefix = str(session_string or "")[:20]
 	return Path(__file__).with_name(f"{prefix}_global_params.json")
 
 
+def build_proxy():
+    if not PROXY_TYPE or PROXY_TYPE in {"none", "off", "false", "0"}:
+        return None
+    if not PROXY_HOST or not PROXY_PORT:
+        raise RuntimeError("Set HARRY_PROXY_HOST and HARRY_PROXY_PORT when proxy is enabled")
+
+    proxy_types = {
+        "socks5": socks.SOCKS5,
+        "socks4": socks.SOCKS4,
+        "http": socks.HTTP,
+    }
+    if PROXY_TYPE not in proxy_types:
+        raise RuntimeError("HARRY_PROXY_TYPE only supports socks5, socks4, http, or none")
+
+    return (
+        proxy_types[PROXY_TYPE],
+        PROXY_HOST,
+        PROXY_PORT,
+        True,
+        PROXY_USERNAME,
+        PROXY_PASSWORD,
+    )
+
 def _build_client(session_string: str = SESSION_STRING) -> TelegramClient:
 	"""兼容 StringSession 与本地 .session 文件名两种输入。"""
 	 
+	proxy = build_proxy()
+
+
 	raw = str(session_string or "").strip()
 	api_id = int(API_ID)
 
 	# StringSession 通常是较长 token，不应被当作 sqlite 文件路径
 	if raw and len(raw) > 80 and not raw.endswith(".session") and "/" not in raw and "\\" not in raw:
-		return TelegramClient(StringSession(raw), api_id, API_HASH)
+		return TelegramClient(StringSession(raw), api_id, API_HASH, proxy=proxy)
 
-	return TelegramClient(raw or "man", api_id, API_HASH)
+	return TelegramClient(raw or "man", api_id, API_HASH, proxy=proxy)
 
 
 def _load_json_dict_from_file(file_path: Path) -> dict | None:
@@ -119,6 +154,10 @@ async def _fetch_latest_json_from_telegram(
 
 	raise ValueError("找不到可用消息（chat/thread 为空或没有文本）")
 
+async def move_mouse():
+	import mouse
+	mouse.move(random.randint(0, 1920), random.randint(0, 1080))
+
 
 async def load_global_params(client: TelegramClient, file_path: Path = GLOBAL_PARAMS_FILE) -> dict:
 	"""启动时加载全域参数：本地 JSON 优先，否则回退 Telegram。"""
@@ -183,6 +222,7 @@ async def run_health_server() -> None:
 
 async def run_all_bot():
 	for target in BOT_SCRIPTS:
+		await move_mouse()
 		try:
 			await BotScripts.run_bot_script(target)
 		except Exception as e:

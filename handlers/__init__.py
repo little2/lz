@@ -12,6 +12,11 @@ try:
 	from .group_media_forwarder import GroupMediaForwarder
 except ModuleNotFoundError:
 	GroupMediaForwarder = None
+
+try:
+	from .class_harry import HarryClass
+except ModuleNotFoundError:
+	HarryClass = None
 	
 try:
 	from .group_message_reader import GroupMessageReader
@@ -33,6 +38,7 @@ __all__ = [
 	"download_limewire_url",
 	# "TargetGroupInspector",
 	"GroupMediaForwarder",
+	"HarryClass",
 	"GroupMessageReader",
 	"GroupShotMessageReader",
 	"BotSession",

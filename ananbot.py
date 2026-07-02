@@ -2832,6 +2832,17 @@ async def _reset_review_bot_button(callback_query: CallbackQuery,content_id:int,
 
 async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
     # # === 构造『审核结果』只读按钮，并把它写回到原审核消息（由 🔙 返回审核 指向） ===
+    tr_log_chat_id = REVIEW_CHAT_ID
+    tr_log_message_thread_id = LOG_THREAD_ID
+    chat = SharedConfig.get("chat") or None
+    if chat:
+        tr_log_dict = chat.get("tr_log") or {}
+        if tr_log_dict:
+            tr_log_chat_id = tr_log_dict.get("chat_id") or REVIEW_CHAT_ID
+            tr_log_message_thread_id = tr_log_dict.get("thread_id") or LOG_THREAD_ID
+            
+
+
     try:
        
         result_kb = InlineKeyboardMarkup(
@@ -2841,7 +2852,7 @@ async def _reset_review_zone_button(button_str,ret_chat,ret_msg, extra_info):
         # 只有当刚才解析到了返回审核的定位信息，才去编辑那条消息
         if ret_chat is not None and ret_msg is not None:
             await bot.delete_message(chat_id=ret_chat, message_id=ret_msg)
-            await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML", disable_web_page_preview=True)
+            await bot.send_message(chat_id=tr_log_chat_id, message_thread_id=tr_log_message_thread_id, text=f"🛎️ {button_str} {extra_info}", parse_mode="HTML", disable_web_page_preview=True)
             print(f"🔍 已更新原审核消息按钮: chat={ret_chat} msg={ret_msg} btn={button_str}", flush=True)
     except Exception as e:
         logging.exception(f"‼️更新原审核消息按钮失败: {e}")
@@ -3751,7 +3762,21 @@ async def cmd_send(message: Message, command: CommandObject, state: FSMContext):
     
 
 
-async def send_to_review_group(content_id: int, state: FSMContext, chat_id = REVIEW_CHAT_ID, thread_id = REVIEW_THREAD_ID) -> tuple[bool, Optional[str]]:
+async def send_to_review_group(content_id: int, state: FSMContext, chat_id = None, thread_id = None) -> tuple[bool, Optional[str]]:
+    
+    if(chat_id is None or thread_id is None):
+        chat_id = REVIEW_CHAT_ID
+        thread_id = REVIEW_THREAD_ID
+        chat = SharedConfig.get("chat") or None
+        if chat:
+            tr_rw_dict = chat.get("tr_rw") or {}
+            if tr_rw_dict:
+                chat_id = tr_rw_dict.get("chat_id") or REVIEW_CHAT_ID
+                thread_id = tr_rw_dict.get("thread_id") or REVIEW_THREAD_ID
+    
+    
+    
+    
     product_row = await get_product_info(content_id)
     preview_text = product_row.get("preview_text") or ""
     bot_url = f"https://t.me/{(await get_bot_username())}"
@@ -3917,7 +3942,17 @@ async def handle_reportfail_button(callback_query: CallbackQuery, state: FSMCont
 
     await bot.delete_message(chat_id=callback_query.message.chat.id, message_id=callback_query.message.message_id)
 
-    await bot.send_message(chat_id=REVIEW_CHAT_ID, message_thread_id=LOG_THREAD_ID,
+    tr_log_chat_id = REVIEW_CHAT_ID
+    tr_log_message_thread_id = LOG_THREAD_ID
+    chat = SharedConfig.get("chat") or None
+    if chat:
+        tr_log_dict = chat.get("tr_log") or {}
+        if tr_log_dict:
+            tr_log_chat_id = tr_log_dict.get("chat_id") or REVIEW_CHAT_ID
+            tr_log_message_thread_id = tr_log_dict.get("thread_id") or LOG_THREAD_ID
+
+
+    await bot.send_message(chat_id=tr_log_chat_id, message_thread_id=tr_log_message_thread_id,
         text=f"🆖 资源同步失效 {content_id}，已更新状态同步失效", parse_mode="HTML"
     )
 
@@ -4452,9 +4487,20 @@ async def handle_report_reason_text(message: Message, state: FSMContext):
             report_reason=reason
         )
         
+
+       
+        chat_id = REPORT_REVIEW_CHAT_ID
+        thread_id = REPORT_REVIEW_THREAD_ID
+        chat = SharedConfig.get("chat") or None
+        if chat:
+            report_rw_dict = chat.get("report_rw") or {}
+            if report_rw_dict:
+                chat_id = report_rw_dict.get("chat_id") or REPORT_REVIEW_CHAT_ID
+                thread_id = report_rw_dict.get("thread_id") or REPORT_REVIEW_THREAD_ID
+
         content_id = await AnanBOTPool.get_content_id_by_file_unique_id(file_unique_id)
         await AnanBOTPool.set_product_review_status(content_id, 4)  # 更新为经检举,初审进行中
-        result , error = await send_to_review_group(content_id, state, chat_id=REPORT_REVIEW_CHAT_ID, thread_id=REPORT_REVIEW_THREAD_ID)
+        result , error = await send_to_review_group(content_id, state, chat_id=chat_id, thread_id=thread_id)
 
         if result:
             await message.answer(f"✅ 举报已提交（编号：{report_id}）。我们会尽快处理。")
@@ -4748,9 +4794,20 @@ async def handle_judge_suggest(callback_query: CallbackQuery, state: FSMContext)
         
         print(f"下一个待裁定 {next_file_unique_id}", flush=True)
         if report_row and next_file_unique_id and next_file_unique_id is not None:
+
+            chat_id = REPORT_REVIEW_CHAT_ID
+            thread_id = REPORT_REVIEW_THREAD_ID
+            chat = SharedConfig.get("chat") or None
+            if chat:
+                report_rw_dict = chat.get("report_rw") or {}
+                if report_rw_dict:
+                    chat_id = report_rw_dict.get("chat_id") or REPORT_REVIEW_CHAT_ID
+                    thread_id = report_rw_dict.get("thread_id") or REPORT_REVIEW_THREAD_ID
+
+
             next_content_id = await AnanBOTPool.get_content_id_by_file_unique_id(next_file_unique_id)
             report_id = report_row['report_id']
-            result , error = await send_to_review_group(next_content_id, state, chat_id=REPORT_REVIEW_CHAT_ID, thread_id=REPORT_REVIEW_THREAD_ID)
+            result , error = await send_to_review_group(next_content_id, state, chat_id=chat_id, thread_id=thread_id)
             await AnanBOTPool.set_product_review_status(next_content_id, 4)  # 更新为经检举,初审进行中
             await AnanBOTPool.update_report_status(report_id, "published")
 

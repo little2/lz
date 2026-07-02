@@ -204,7 +204,7 @@ class HarryClass:
 				channel=chat,
 				user_id=input_user,
 				admin_rights=rights,
-				rank=""
+				rank="ㅤ"
 			))
 
 
@@ -335,8 +335,8 @@ class HarryClass:
 			await self.set_chat_public()
 			return None
 		elif chat_type == "oldfriend":
-			await self.set_chat_old_friend()
-			return None
+			return await self.set_chat_old_friend(board_info)
+			
 		elif chat_type == "jwc":
 			return await self.set_chat_jwc(board_info)
 		elif chat_type == "tr_rw":
@@ -521,6 +521,62 @@ class HarryClass:
 
 		return sop_text
 
+	async def set_chat_old_friend(self, board_info: dict) -> str:
+		"""
+		设置群组为老铁群
+		"""
+		
+		chat_id = board_info["chat_id"]
+		sop_text = textwrap.dedent("""
+			<blockquote>老铁群重建 基础设置</blockquote>
+			1️⃣ 新增主题式群组
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>群组指令</blockquote>
+			4️⃣ 在群组中，发送 <code>!setchat old_friend</code> 指令 
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入小班弟弟/核心二号机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setup oldfriend_ask</code> 指令
+			8️⃣ 
+			9️⃣ 完成				 				                     
+		""").strip()
+		print(f"[harry] set_chat_old_friend: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			man_me = await self.client.get_me()
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			print(f"[harry] set_chat_old_friend: granting permissions to @lykeyman", flush=True)
+
+			# 6️⃣ 拉入小班弟弟/核心二号机器人给予所有的权限
+			
+			await self.invite_to_group(chat_id, "noexists666bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="noexists666bot")
+		
+			await self.invite_to_group(chat_id, "ztd7bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="ztd7bot")
+
+			await self.client.send_message(chat_id, "/setup")
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			
+
+			
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+
+		except Exception as exc:
+			print(f"[harry] set_chat_old_friend: failed to grant permissions or invite bots: {exc}", flush=True)
+		
+
+
+
+
+		return sop_text
 
 
 __all__ = ["HarryClass"]

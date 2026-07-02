@@ -2084,50 +2084,100 @@ class MySQLPool(LYBase):
         finally:
             await cls.release(conn, cur)
 
+    # 更新: 加上时区偏移，确保统计的“今天”是北京时间（UTC+8），这是没有加的 2026-07-03
+    # @classmethod
+    # async def get_user_consecutive_days(cls, user_id: int) -> int:
+    #     conn, cur = await cls.get_conn_cursor()
+    #     try:
+    #         sql_consecutive_days = """
+    #         SELECT
+    #             IF(
+    #                 EXISTS (
+    #                 SELECT 1
+    #                 FROM contribute_today
+    #                 WHERE user_id = %s
+    #                     AND stat_date = CURDATE()
+    #                     AND upload >= 1
+    #                 ),
+    #                 (
+    #                 SELECT COUNT(*) AS consecutive_days
+    #                 FROM (
+    #                     SELECT stat_date,
+    #                         DATEDIFF(CURDATE(), stat_date) AS diff,
+    #                         ROW_NUMBER() OVER (ORDER BY stat_date DESC) - DATEDIFF(CURDATE(), stat_date) AS grp
+    #                     FROM contribute_today
+    #                     WHERE user_id = %s
+    #                     AND stat_date <= CURDATE()
+    #                     AND upload >= 1
+    #                 ) AS t
+    #                 GROUP BY grp
+    #                 ORDER BY MIN(diff)
+    #                 LIMIT 1
+    #                 ),
+    #                 0
+    #             ) AS consecutive_days;
+
+    #         """
+
+    #         await cur.execute(
+    #             sql_consecutive_days,
+    #             (int(user_id), int(user_id))
+    #         )
+    #         row = await cur.fetchone()
+    #         return int((row or {}).get("consecutive_days") or 0)
+    #     finally:
+    #         await cls.release(conn, cur)
+
     @classmethod
     async def get_user_consecutive_days(cls, user_id: int) -> int:
         conn, cur = await cls.get_conn_cursor()
         try:
             sql_consecutive_days = """
+            WITH today_ctx AS (
+                SELECT DATE(UTC_TIMESTAMP() + INTERVAL 8 HOUR) AS today_date
+            )
             SELECT
                 IF(
                     EXISTS (
-                    SELECT 1
-                    FROM contribute_today
-                    WHERE user_id = %s
-                        AND stat_date = CURDATE()
-                        AND upload >= 1
+                        SELECT 1
+                        FROM contribute_today ct
+                        JOIN today_ctx tc
+                        WHERE ct.user_id = %s
+                        AND ct.stat_date = tc.today_date
+                        AND ct.upload >= 1
                     ),
                     (
-                    SELECT COUNT(*) AS consecutive_days
-                    FROM (
-                        SELECT stat_date,
-                            DATEDIFF(CURDATE(), stat_date) AS diff,
-                            ROW_NUMBER() OVER (ORDER BY stat_date DESC) - DATEDIFF(CURDATE(), stat_date) AS grp
-                        FROM contribute_today
-                        WHERE user_id = %s
-                        AND stat_date <= CURDATE()
-                        AND upload >= 1
-                    ) AS t
-                    GROUP BY grp
-                    ORDER BY MIN(diff)
-                    LIMIT 1
+                        SELECT COUNT(*) AS consecutive_days
+                        FROM (
+                            SELECT
+                                ct.stat_date,
+                                DATEDIFF(tc.today_date, ct.stat_date) AS diff,
+                                ROW_NUMBER() OVER (ORDER BY ct.stat_date DESC)
+                                - DATEDIFF(tc.today_date, ct.stat_date) AS grp
+                            FROM contribute_today ct
+                            JOIN today_ctx tc
+                            WHERE ct.user_id = %s
+                            AND ct.stat_date <= tc.today_date
+                            AND ct.upload >= 1
+                        ) AS t
+                        GROUP BY grp
+                        ORDER BY MIN(diff)
+                        LIMIT 1
                     ),
                     0
                 ) AS consecutive_days;
-
             """
 
             await cur.execute(
                 sql_consecutive_days,
                 (int(user_id), int(user_id))
             )
+
             row = await cur.fetchone()
             return int((row or {}).get("consecutive_days") or 0)
+
         finally:
             await cls.release(conn, cur)
-
-
 
     @classmethod
     async def get_talking_task_count(cls, user_id: int, stat_date: str) -> int:

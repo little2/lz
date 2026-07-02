@@ -2722,14 +2722,14 @@ async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Opti
     lengthInChineseCharacters = len(product_info.get("content", ""))
     incentive_share_fee = 5
 
-    print(f"🔍 更新用户连续上架天数: user_id={user_id}, content_length={lengthInChineseCharacters}", flush=True)
+    # print(f"🔍 更新用户连续上架天数: user_id={user_id}, content_length={lengthInChineseCharacters}", flush=True)
     stat_date = datetime.now().strftime("%Y-%m-%d")
     await MySQLPool.upsert_contribute_today(user_id, stat_date, upload=1, count=incentive_share_fee)
-    print(f"🔍 已记录今日贡献：user_id={user_id}, date={stat_date}, upload=1, count={incentive_share_fee}", flush=True)
+    # print(f"🔍 已记录今日贡献：user_id={user_id}, date={stat_date}, upload=1, count={incentive_share_fee}", flush=True)
     
     consecutive_days = await MySQLPool.get_user_consecutive_days(user_id)
     user_row = await lz_var.bot.get_chat(user_id)
-    print(f"🔍 用户 {user_id} 当前连续上架天数: {consecutive_days}", flush=True)
+    # print(f"🔍 用户 {user_id} 当前连续上架天数: {consecutive_days}", flush=True)
     user_title = user_row.full_name if user_row else str(user_id)
 
     if consecutive_days >= 1:

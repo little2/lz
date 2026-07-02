@@ -339,8 +339,8 @@ class HarryClass:
 			return None
 		elif chat_type == "jwc":
 			return await self.set_chat_jwc(board_info)
-		elif chat_type == "report_rw":
-			return await self.set_chat_report_rw(board_info)
+		elif chat_type == "tr_rw":
+			return await self.set_chat_tr_rw(board_info)
 			
 		try:
 			await self.client.send_message("me", f"/setchat {chat_type}")
@@ -463,7 +463,7 @@ class HarryClass:
 		return sop_text
 
 
-	async def set_chat_report_rw(self, board_info: dict) -> str:
+	async def set_chat_tr_rw(self, board_info: dict) -> str:
 		"""
 		设置群组为资源审核群
 		"""
@@ -478,7 +478,7 @@ class HarryClass:
 			4️⃣ 在群组中，发送 <code>!setchat tr_rw</code> 指令 
 			5️⃣ 授与人型机器人管理员权限
 			6️⃣ 拉入 @noexists666bot 给予所有的权限
-			7️⃣ 在群组中，发送 <code>/setchat tr_rw</code> 指令
+			7️⃣ 在群组中，发送 <code>/setup_tr_rw</code> 指令
 			8️⃣ 到鲁仔三号私信，发送 <code>/update_setting</code> 更新审核群信息
 			9️⃣ 完成				 				                     
 		""").strip()
@@ -497,9 +497,9 @@ class HarryClass:
 			await self.invite_to_group(chat_id, "noexists666bot")
 			await self.grant_permissions(chat_id=chat_id, user_id="noexists666bot")
 		
-			await self.client.send_message(chat_id="noexists666bot", text="/setup_tr_rw")
+			await self.client.send_message(chat_id, "/setup_tr_rw")
 
-			await self.client.send_message(chat_id="luzai33003bot", text="/update_setting")
+			await self.client.send_message("luzai33003bot", "/update_setting")
 
 			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
 
@@ -510,7 +510,7 @@ class HarryClass:
 			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
 
 		except Exception as exc:
-			print(f"[harry] set_chat_jwc: failed to grant permissions or invite bots: {exc}", flush=True)
+			print(f"[harry] set_chat_tr_rw: failed to grant permissions or invite bots: {exc}", flush=True)
 		
 
 

@@ -133,6 +133,13 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
         "message_id": message.id,
         "message_thread_id": message.reply_to or 0,
     }
+    if(params and len(params)>=2):
+        board_info["chat_id"] = int(params[1])
+
+    if(params and len(params)>=3):
+        board_info["message_thread_id"] = int(params[2]) or 0
+
+       
    
 
     print(f"[Bot] /me for user_id={sender_id}, command={command}, params={params}")
@@ -143,12 +150,14 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
         <code>!addchannel</code>
         <code>!addgroup</code>
         <code>!addforum</code>
-        <blockquote>设置群组/频道</blockquote>
+        <blockquote>设置群组</blockquote>
         <code>!setchat school</code> 学院群
         <code>!setchat public</code> 公开群
         <code>!setchat oldfriend</code> 老铁群    
         <code>!setchat jwc</code> 教务处 
         <code>!setchat tr_rw</code> 资源审核群
+        <blockquote>设置频道</blockquote>
+        <code>!setchat subscribe_preview -100[群ID]</code> 资源预览图频道
     """).strip()
 
 
@@ -171,7 +180,8 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
                     await event.reply(reply_text, parse_mode="html")
             else:
                 pass
-            
+
+        
         
         return
     else:
@@ -199,6 +209,9 @@ async def main() -> None:
     print(f"[harry] Telethon bot online: id={bot_me.id} username={bot_me.username}", flush=True)
     print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
     print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
+
+   
+
     await client.run_until_disconnected()
 
 

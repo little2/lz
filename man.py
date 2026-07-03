@@ -155,10 +155,9 @@ async def _fetch_latest_json_from_telegram(
 	raise ValueError("找不到可用消息（chat/thread 为空或没有文本）")
 
 async def move_mouse():
-	import mouse
-	mouse.move(random.randint(0, 1920), random.randint(0, 1080))
-	await asyncio.sleep(1)
-	mouse.move(random.randint(0, 1920), random.randint(0, 1080))
+	import pyautogui
+	pyautogui.press("ctrl")
+	
 
 
 async def load_global_params(client: TelegramClient, file_path: Path = GLOBAL_PARAMS_FILE) -> dict:
@@ -224,7 +223,7 @@ async def run_health_server() -> None:
 
 async def run_all_bot():
 	for target in BOT_SCRIPTS:
-		# await move_mouse()
+		await move_mouse()
 		try:
 			await BotScripts.run_bot_script(target)
 		except Exception as e:

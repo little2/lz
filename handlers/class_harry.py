@@ -8,6 +8,8 @@ from telethon.tl.functions.messages import ExportChatInviteRequest
 from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator, ChatAdminRights, InputUser
 import textwrap
 
+
+
 class HarryClass:
 	def __init__(self, client: TelegramClient, bot_client: TelegramClient, group_bots: list[int | str] | None = None) -> None:
 		self.client = client
@@ -180,7 +182,7 @@ class HarryClass:
 			chat = await self.bot_client.get_entity(chat_id)
 			if not getattr(chat, "broadcast", False) and not getattr(chat, "megagroup", False):
 				print(
-					f"[harry] grant_permissions skipped: chat {chat_id} is not a channel or supergroup",
+					f"‼️grant_permissions skipped: chat {chat_id} is not a channel or supergroup",
 					flush=True,
 				)
 				return
@@ -188,15 +190,20 @@ class HarryClass:
 			user = await self.bot_client.get_entity(user_id)
 			input_user = await self.bot_client.get_input_entity(user)
 
+		except Exception as exc:
+			print(f"‼️  Failed to resolve user {user_id} or chat {chat_id}: {exc}", flush=True)
 
-			me = await self.bot_client.get_me()
+		try:
+			bot_me = await self.bot_client.get_me()
 			result = await self.bot_client(GetParticipantRequest(
 				channel=chat,
-				participant=me
+				participant=bot_me
 			))
 
 			participant = result.participant
 			rights = participant.admin_rights
+
+			print(f"{rights}")
 
 			if nonanonymous:
 				participant.admin_rights.anonymous = False
@@ -209,9 +216,31 @@ class HarryClass:
 
 
 
-			print(f"[harry] Granted permissions to user {user_id} in chat {chat_id}", flush=True)
+			print(f" Granted permissions to user {user_id} in chat {chat_id}", flush=True)
 		except Exception as exc:
-			print(f"[harry] Failed to grant permissions to user {user_id} in chat {chat_id}: {exc}", flush=True)
+			print(f"‼️  Failed to grant permissions to user {user_id} in chat {chat_id}: {exc}", flush=True)
+
+
+	async def grant_permissions_by_man(self, chat_id: int, bot_name: int | str, nonanonymous: bool = False) -> None:
+
+		me = await self.client.get_me()
+		result = await self.client(GetParticipantRequest(
+			channel=chat_id,
+			participant=me
+		))
+
+		participant = result.participant
+		rights = participant.admin_rights
+
+
+		
+	
+		await self.client(EditAdminRequest(
+			channel=chat_id,
+			user_id=bot_name,
+			admin_rights=rights,
+			rank="ㅤ"
+		))
 
 	async def revoke_permissions(self, chat_id: int, user_id: int):
 		"""
@@ -327,6 +356,7 @@ class HarryClass:
 			return None
 
 		chat_type = params[0].lower()
+	
 		print(f"[harry] set_chat called with chat_type={chat_type}", flush=True)
 		if chat_type == "school":
 			print(f"[harry] set_chat: setting to school {chat_type}", flush=True)
@@ -341,7 +371,8 @@ class HarryClass:
 			return await self.set_chat_jwc(board_info)
 		elif chat_type == "tr_rw":
 			return await self.set_chat_tr_rw(board_info)
-			
+		elif chat_type == "subscribe_preview":
+			return await self.set_chat_subscribe_preview(board_info)	
 		try:
 			await self.client.send_message("me", f"/setchat {chat_type}")
 			print(f"[harry] set_chat: sent /setchat {chat_type}", flush=True)
@@ -373,8 +404,9 @@ class HarryClass:
 
 		try:
 			# 5️⃣ 授与人型机器人管理员权限
-			print(f"[harry] set_chat_school: granting permissions to @lykeyman", flush=True)
+			print(f"5 set_chat_school: granting permissions to @lykeyman", flush=True)
 			man_me = await self.client.get_me()
+			await self.invite_to_group(chat_id, man_me.id)
 			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id)
 
 			print(f"[harry] set_chat_school: granting permissions to @lykeyman", flush=True)
@@ -440,11 +472,7 @@ class HarryClass:
 			print(f"[harry] set_chat_jwc: granting permissions to @lykeyman", flush=True)
 			# 6️⃣ 拉入小龙阳机器人, 本子机器人, 龙阳宝机器人, 宸宸机器人, 幻弟机器人给予所有的权限
 			await self.invite_to_group(chat_id, "ly120bot")
-		
-
 			await self.grant_permissions(chat_id=chat_id, user_id="ly120bot")
-			
-
 			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
 
 			
@@ -578,5 +606,59 @@ class HarryClass:
 
 		return sop_text
 
+	async def set_chat_subscribe_preview(self, board_info: dict) -> str:
+		"""
+		设置群组为订阅预览频道
+		"""
+		
+		chat_id = board_info["chat_id"]
+		
+		sop_text = textwrap.dedent("""
+			<blockquote>订阅预览频道 基础设置</blockquote>
+			1️⃣ 新增私密频道
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>机器人指令</blockquote>
+			4️⃣ 在机器人私信中，发送 <code>!setchat subscribe_preview -100[群ID]</code> 指令
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setchat subscribe_preview_ask</code> 指令 (待完成)
+			8️⃣ 到鲁仔四号私信，发送 <code>/update_setting</code> 更新预览群信息 
+			9️⃣ 完成				 				                     
+		""").strip()
+		# print(f"[harry] subscribe_preview: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			man_me = await self.client.get_me()
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			
+			# 6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
+			
+			
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="luzai4001bot")
+
+
+		
+			
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="xiaolongyang007bot")
+
+			
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
+
+			await self.client.send_message(chat_id, "/setup")
+
+			await self.client.send_message("luzai33003bot", "/update_setting")
+
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+		except Exception as exc:
+			print(f"[harry] subscribe_preview: failed to grant permissions or invite bots: {exc}", flush=True)
+		return sop_text
 
 __all__ = ["HarryClass"]

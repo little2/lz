@@ -179,7 +179,15 @@ class HarryClass:
 			# 	7270553727
 			# )
 
-			chat = await self.bot_client.get_entity(chat_id)
+			print(f"{chat_id}")
+			try:
+				chat = await self.bot_client.get_entity(chat_id)
+			except Exception as e:
+				print(f"❌ 取得群组失败 chat_id={chat_id}: {e}", flush=True)
+				return False
+
+
+
 			if not getattr(chat, "broadcast", False) and not getattr(chat, "megagroup", False):
 				print(
 					f"‼️grant_permissions skipped: chat {chat_id} is not a channel or supergroup",
@@ -192,7 +200,7 @@ class HarryClass:
 
 		except Exception as exc:
 			print(f"‼️  Failed to resolve user {user_id} or chat {chat_id}: {exc}", flush=True)
-
+			return False
 		try:
 			bot_me = await self.bot_client.get_me()
 			result = await self.bot_client(GetParticipantRequest(
@@ -219,6 +227,8 @@ class HarryClass:
 			print(f" Granted permissions to user {user_id} in chat {chat_id}", flush=True)
 		except Exception as exc:
 			print(f"‼️  Failed to grant permissions to user {user_id} in chat {chat_id}: {exc}", flush=True)
+			return False
+
 
 
 	async def grant_permissions_by_man(self, chat_id: int, bot_name: int | str, nonanonymous: bool = False) -> None:
@@ -366,13 +376,18 @@ class HarryClass:
 			return None
 		elif chat_type == "oldfriend":
 			return await self.set_chat_old_friend(board_info)
-			
 		elif chat_type == "jwc":
 			return await self.set_chat_jwc(board_info)
 		elif chat_type == "tr_rw":
 			return await self.set_chat_tr_rw(board_info)
 		elif chat_type == "subscribe_preview":
 			return await self.set_chat_subscribe_preview(board_info)	
+		elif chat_type == "xiaodi_topic":
+			return await self.set_chat_xiaodi_topic(board_info)
+		elif chat_type == "ltgphoto":
+			return await self.set_chat_ltgphoto(board_info)
+		elif chat_type == "ltgphoto_review":
+			return await self.set_chat_ltgphoto_review(board_info)		
 		try:
 			await self.client.send_message("me", f"/setchat {chat_type}")
 			print(f"[harry] set_chat: sent /setchat {chat_type}", flush=True)
@@ -660,5 +675,169 @@ class HarryClass:
 		except Exception as exc:
 			print(f"[harry] subscribe_preview: failed to grant permissions or invite bots: {exc}", flush=True)
 		return sop_text
+
+	async def set_chat_xiaodi_topic(self, board_info: dict) -> str:
+		"""
+		设置群组为晓迪频道
+		"""
+		
+		chat_id = board_info["chat_id"]
+		
+		sop_text = textwrap.dedent("""
+			<blockquote>晓迪频道 基础设置</blockquote>
+			1️⃣ 新增私密频道
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>机器人指令</blockquote>
+			4️⃣ 在机器人私信中，发送 <code>!setchat xiaodi_topic -100[频道ID]</code> 指令
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入小龙阳(入群审核)/核心二号机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setchat xiaodi_topic</code> 指令 (待完成)
+			8️⃣ 
+			9️⃣ 完成				 				                     
+		""").strip()
+		# print(f"[harry] subscribe_preview: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			man_me = await self.client.get_me()
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			
+			# 6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="xiaolongyang007bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
+			# await self.client.send_message(chat_id, "/setup")
+			# await self.client.send_message("luzai33003bot", "/update_setting")
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+		except Exception as exc:
+			print(f"[harry] xiaodi_topic: failed to grant permissions or invite bots: {exc}", flush=True)
+		return sop_text
+
+
+	async def set_chat_ltgphoto(self, board_info: dict) -> str:
+		"""
+		设置群组为清水群
+		"""
+		
+		chat_id = board_info["chat_id"]
+		sop_text = textwrap.dedent("""
+			<blockquote>清水群重建 基础设置</blockquote>
+			1️⃣ 新增主题式群组
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>群组指令</blockquote>
+			4️⃣ 在群组中，发送 <code>!setchat ltgphoto</code> 指令
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入宸宸弟弟/核心二号机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setup oldfriend_ask</code> 指令
+			8️⃣ 
+			9️⃣ 完成				 				                     
+		""").strip()
+		print(f"[harry] set_chat_old_friend: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			man_me = await self.client.get_me()
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			print(f"[harry] set_chat_old_friend: granting permissions to @lykeyman", flush=True)
+
+			# 6️⃣ 拉入小班弟弟/核心二号机器人给予所有的权限
+			
+			await self.invite_to_group(chat_id, "noexists666bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="noexists666bot")
+		
+			await self.invite_to_group(chat_id, "chenchen808bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="chenchen808bot")
+
+			await self.client.send_message(chat_id, "/bootstrap")
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			
+
+			
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+
+		except Exception as exc:
+			print(f"[harry] set_chat_old_friend: failed to grant permissions or invite bots: {exc}", flush=True)
+		
+
+
+
+
+		return sop_text
+
+	async def set_chat_ltgphoto_review(self, board_info: dict) -> str:
+		"""
+		设置群组为清水群
+		"""
+		
+		chat_id = board_info["chat_id"]
+		sop_text = textwrap.dedent("""
+			<blockquote>清水群重建 基础设置</blockquote>
+			1️⃣ 新增主题式群组
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>群组指令</blockquote>
+			4️⃣ 在群组中，发送 <code>!setchat ltgphoto_review</code> 指令
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入宸宸弟弟/核心二号机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setup ltgphoto_review</code> 指令
+			8️⃣ 
+			9️⃣ 完成				 				                     
+		""").strip()
+		print(f"[harry] set_chat_ltgphoto_review: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			man_me = await self.client.get_me()
+			result = await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+			if result is False:
+				print(f"[harry] set_chat_ltgphoto_review: failed to grant permissions to @lykeyman", flush=True)
+				return False
+			# print(f"[harry] set_chat_ltgphoto_review: granting permissions to @lykeyman", flush=True)
+
+			# 6️⃣ 拉入小班弟弟/核心二号机器人给予所有的权限
+			
+			await self.invite_to_group(chat_id, "noexists666bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="noexists666bot")
+
+			await self.client.send_message(chat_id, "/book")
+		
+			await self.invite_to_group(chat_id, "chenchen808bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="chenchen808bot")
+
+			await self.client.send_message(chat_id, "/setup_ltgphoto_review")
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			
+
+			
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+
+		except Exception as exc:
+			print(f"[harry] set_chat_old_friend: failed to grant permissions or invite bots: {exc}", flush=True)
+		
+
+
+
+
+		# return sop_text
+
+
 
 __all__ = ["HarryClass"]

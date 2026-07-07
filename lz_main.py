@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 import aiogram
 import json
+import random
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
 from aiogram import BaseMiddleware
@@ -13,7 +14,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiogram.filters import Command  # ✅ v3 filter 写法
-
+import textwrap
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -190,7 +191,7 @@ class BlacklistGuardMiddleware(BaseMiddleware):
         if chat and getattr(chat, "type", None) == "private":
 
             block_code =  await MySQLPool.is_user_blacklisted(user.id)
-            if block_code > 0:
+            if block_code is not None and block_code > 0:
                 if block_code == 4:
                     reason = "基于社群安全考量，服务暂时暂停。"
                 elif block_code == 5:
@@ -217,6 +218,8 @@ class BlacklistGuardMiddleware(BaseMiddleware):
 
             # 直接重新賦值，後續整個檔案用的 TARGET_CHAT_ID 都會是新值
             main_group_url = str(public_school.get("invite_link") or "")
+            guider_bot_name = str(SharedConfig.get("guider_bot_name") or "")
+            rule_url = f"https://t.me/{guider_bot_name}?start=show_inst_points" if guider_bot_name else ""
            
 
             sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
@@ -227,20 +230,61 @@ class BlacklistGuardMiddleware(BaseMiddleware):
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
-                            types.InlineKeyboardButton(text="🐲 龙阳学院学习中心🌱", url=main_group_url),
+                            types.InlineKeyboardButton(text="🐲 公开群🌱", url=main_group_url),
                             types.InlineKeyboardButton(text="🎓 教务处小助手", url=helper_bot_url)
+                        ],
+                        [
+                            types.InlineKeyboardButton(text="📐 积分规则说明🌱", url=rule_url)
                         ]
                     ]
                 )
 
+                
 
-                text = f"最近 TG 越来越严格，学院机器人也已被处理多轮。\n换号、换机器人不是最麻烦的，真正影响的是大家查看资源会越来越不方便。\n\n因此接下来调整为：使用学院服务时，每天需在中心或学院群完成 3 句「有交流意义的有效发言」。（{stat_date}）\n这不是怀疑大家，而是为了让小圈圈更稳定、安全地走下去。\n\n请不要为了凑数发送抱怨、无意义或离题内容。\n有问题可找教务处小助手；若持续抱怨或刻意灌水，学院将暂停相关服务。"
+                slogans = [
+                    "学院不是一个群名，是大家愿意回来待着的地方。",
+                    "在学院待久了，多少都会有点感情。",
+                    "学院的热闹，也有我参与的一份。",
+                    "学院里有同学说话，气氛就会更踏实。",
+                    "能一直留在学院的，多少都算自己人。",
+                    "我也是学院的一份子。",
+                    "学院多一点互动，气氛就会更像自己人。",
+                    "在学院多聊两句，小圈圈就会多一点温度。",
+                    "学院这个小圈圈能走下去，靠的是大家多少都有参与。",
+                    "学院不是靠一句口号撑起来的，是靠同学们真的愿意参与。",
+                    "留在学院久了，就会慢慢知道这里为什么值得留下。",
+                    "龙阳能留下来的，都是愿意一起撑这个小圈圈的师兄弟。",
+                    "在龙阳混久了，多少都会有一点师兄弟的感觉。",
+                    "龙阳不是路过的地方，愿意留下来才会有感情。",
+                    "龙阳的熟悉感，是师兄弟们一次次冒泡慢慢养出来的。",
+                ]
+
+                random_slogan = random.choice(slogans)
+
+               
+                notice_text = textwrap.dedent(f"""
+                    「踢鸡大佬」越来越凶，学院/机器人也被请去「喝茶」好几轮了。
+
+                    目前使用学院服务时，每天需在中心或学院群完成 2 句有效发言，成效不错，同学们也反应稳定多了。
+
+                    这不是怀疑大家，而是希望同学们证明一下：自己是会互动的同学，不是只下载、不说话的潜水狼。
+
+                    接下来还会继续优化机制，在方便与安全之间找平衡。
+
+                    🎈 温馨提醒：
+
+                    1. 任何建议或批评，请直接到「教务处小助手」反馈。群里消息贼多，校工们不一定会看到，不是不理你，是可能真的被刷过去了。
+                    2. 请不要为了凑数发送抱怨、报数，或其他没有交流意义的内容。有效发言的重点是「交流」，不是完成每日打卡 KPI。
+                    3. 详细规则可以参考「积分规则说明」 ，避免一不小心从群友变成规则题的错误示范。
+                    4. 真不知道要说什么？允许你说一句「 <code>{random_slogan}</code> 」
+                """).strip()
+
 
                 if isinstance(event, types.CallbackQuery):
-                    await event.answer(text, show_alert=True)
-                    await event.message.answer(text, reply_markup=keyboard)
+                    # await event.answer(notice_text, show_alert=True)
+                    await event.message.answer(notice_text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
                 elif isinstance(event, types.Message):
-                    await event.answer(text, reply_markup=keyboard)
+                    await event.answer(notice_text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
                 return
 
         return await handler(event, data)

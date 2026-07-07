@@ -60,6 +60,7 @@ MYSQL_DB        = config.get('db_name') or os.getenv('MYSQL_DB_NAME') or os.gete
 MYSQL_DB_PORT   = int(config.get('db_port', os.getenv('MYSQL_DB_PORT', 3306)))
 
 VALKEY_URL      = config.get('valkey_url', os.getenv('VALKEY_URL', ''))
+OP_VALKEY_URL   = config.get('op_valkey_url', os.getenv('OP_VALKEY_URL', ''))
 
 META_BOT        = config.get('meta_bot', os.getenv('META_BOT', ''))
 

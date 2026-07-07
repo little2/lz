@@ -2,9 +2,9 @@
 import aiomysql
 import time
 from datetime import datetime, timedelta, timezone
-
+import json
 import redis.asyncio as redis_async
-from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT, VALKEY_URL
+from lz_config import MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DB, MYSQL_DB_PORT, VALKEY_URL, OP_VALKEY_URL
 from typing import Optional, Dict, Any, List, Tuple
 from lz_memory_cache import MemoryCache
 from lz_cache import TwoLevelCache
@@ -55,8 +55,10 @@ class MySQLPool(LYBase):
     _lock = asyncio.Lock()
     _cache_ready = False
     cache = None
-    _blacklist_local_cache: Dict[int, Tuple[int, str]] = {}
-    _spoken_today_local_cache: Dict[int, Tuple[bool, str]] = {}
+    op_cache = None
+    _blacklist_local_cache: dict[int, int] = {}
+    _blacklist_cache_update_time = None
+    _spoken_today_local_cache: dict[int, int] = {}
 
     @classmethod
     async def init_pool(cls):
@@ -64,6 +66,7 @@ class MySQLPool(LYBase):
         if cls._pool is not None:
             if not cls._cache_ready:
                 cls.cache = TwoLevelCache(valkey_client=VALKEY_URL, namespace='lz:')
+                cls.op_cache = TwoLevelCache(valkey_client=OP_VALKEY_URL, namespace='op:')
                 cls._cache_ready = True
             return cls._pool
 
@@ -87,6 +90,8 @@ class MySQLPool(LYBase):
                 print("✅ MySQL 连接池初始化完成")
             if not cls._cache_ready:
                 cls.cache = TwoLevelCache(valkey_client=VALKEY_URL, namespace='lz:')
+                cls.op_cache = TwoLevelCache(valkey_client=VALKEY_URL, namespace='op:')
+                
                 cls._cache_ready = True
         return cls._pool
 
@@ -135,8 +140,115 @@ class MySQLPool(LYBase):
                 cls._pool = None
                 print("🛑 MySQL 连接池已关闭")
 
+
     @classmethod
     async def is_user_blacklisted(cls, user_id: int) -> int:
+        """
+        黑名单检查（来源: MySQL `blacklist` 表）
+
+        本地缓存格式：
+        cls._blacklist_local_cache = {
+            123456: 4,
+            789012: 5
+        }
+
+        返回值：
+        - 0 = 正常
+        - 4 = blacklist 表存在记录
+        - 5 = credit <= 5
+        - 其他 = plan 的值
+        """
+
+        uid = int(user_id)
+
+        now = datetime.now(timezone.utc)
+
+        # 第一次使用 cache，初始化更新时间
+        if cls._blacklist_cache_update_time is None:
+            cls._blacklist_cache_update_time = now
+
+        # cache 超过 1 小时，整包清除
+        if now - cls._blacklist_cache_update_time >= timedelta(hours=1):
+            cls._blacklist_local_cache.clear()
+            cls._blacklist_cache_update_time = now
+            conn, cur = await cls.get_conn_cursor()
+
+            try:
+                await cur.execute(
+                    """
+                    SELECT 
+                        b.blacklist_id,
+                        u.credit,
+                        u.plan,
+                        u.user_id as user_id
+                    FROM user u
+                    LEFT JOIN blacklist b ON u.user_id = b.user_id
+                    WHERE (
+                        (
+                            u.credit <= 5
+                            OR b.blacklist_id > 0
+                            OR u.plan != 1
+                        )
+                        
+                    )
+                    
+                    """
+                )
+
+                rows = await cur.fetch()
+
+                is_blocked = 0
+                for row in rows:
+                    uid = int(row.get("user_id") or 0)
+                    if int(row.get("blacklist_id") or 0) > 0:
+                        # 存在黑名单记录
+                        is_blocked = 4
+
+                    elif int(row.get("credit") or 0) <= 5:
+                        # 积分低于等于 5
+                        is_blocked = 5
+
+                    elif int(row.get("plan") or 0) != 1:
+                        # plan != 1，返回 plan 的值，默认 9
+                        is_blocked = int(row.get("plan") or 9)
+
+                    # 写入本地缓存：只存 blocked reason 数字
+                    cls._blacklist_local_cache[uid] = int(is_blocked)
+
+                
+
+            except Exception as e:
+                print(f"⚠️ is_user_blacklisted2 出错: {e}", flush=True)
+                return 0
+
+            finally:
+                await cls.release(conn, cur)
+
+
+
+        # 先检查本地缓存
+        # 注意：不能用 if cached_value:
+        # 因为 0 也是有效缓存值
+        cached_value = cls._blacklist_local_cache.get(int(uid), None)
+        return cached_value
+
+        
+            
+    def export_blacklist_string(cls) -> str:
+        payload = {
+            "version": 1,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "data": {
+                str(uid): int(reason)
+                for uid, reason in cls._blacklist_local_cache.items()
+            }
+        }
+
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        
+
+    @classmethod
+    async def is_user_blacklisted2(cls, user_id: int) -> int:
         """
         黑名单检查（来源: MySQL `blacklist` 表）
         SELECT * FROM `blacklist` WHERE `user_id` = ?
@@ -150,8 +262,6 @@ class MySQLPool(LYBase):
 
         sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
         today_key = sgt_now.strftime("%Y-%m-%d")
-
-   
 
         if uid in cls._blacklist_local_cache:
             cached_value, cached_day = cls._blacklist_local_cache[uid]
@@ -204,18 +314,16 @@ class MySQLPool(LYBase):
         本地缓存：按 user_id 缓存当天结果，跨自然日自动失效。
         """
         uid = int(user_id)
-
-        if uid in cls._spoken_today_local_cache:
-            cached_value, cached_day = cls._spoken_today_local_cache[uid]
-            if cached_day == stat_date:
-                return cached_value
-            cls._spoken_today_local_cache.pop(uid, None)
+        now = time.time()
        
-
-
-
-
-
+        cache_key = f"t:{uid}"
+        cached_value = await cls.op_cache.get(cache_key)
+        print(f"🔹 has_spoken_today cache check for {cache_key}: {cached_value}", flush=True)
+        if cached_value:
+            cached_value = int(cached_value)
+            if cached_value > now:
+                return cached_value
+            
         conn, cur = await cls.get_conn_cursor()
         try:
             await cur.execute(
@@ -229,26 +337,15 @@ class MySQLPool(LYBase):
             )
             row = await cur.fetchone()
             spoken = int((row or {}).get("count") or 0) >= 1
-            print(f"用户 {uid} 已发言，count={row.get('count') if row else 0}", flush=True)
+            print(f"用户 {uid} 已发言数量 ={row.get('count') if row else 0}", flush=True)
 
 
 
             if spoken:
                 print(f"✅ 用户 {uid} 已发言，缓存结果", flush=True)
-                cls._spoken_today_local_cache[uid] = (spoken, stat_date)
-
-                if redis_url:
-                    try:
-                        sgt_now = datetime.now(timezone.utc) + timedelta(hours=8)
-                        today_mmdd = sgt_now.strftime("%m%d")
-                        redis_client = redis_async.from_url(redis_url, decode_responses=True)
-                        try:
-                            await redis_client.setex(f"t:{today_mmdd}:{uid}", 86400, 1)
-                        finally:
-                            await redis_client.aclose()
-                    except Exception as e:
-                        print(f"⚠️ has_spoken_today 写 Redis 失败: {e}", flush=True)
+                exten_time = int(time.time()) + 108000  # 只要有发言就是30小时
                 
+                cls.op_cache.set(cache_key, exten_time, ttl=108000)                
             return spoken
         except Exception as e:
             print(f"⚠️ has_spoken_today 出错: {e}", flush=True)

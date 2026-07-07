@@ -117,6 +117,8 @@ harry = HarryClass(client, bot_client, GROUP_BOTS)
 
 @client.on(events.NewMessage(incoming=True))
 async def handle_private_message(event: events.NewMessage.Event) -> None:
+    input_chat = await event.get_input_chat()
+    input_user = await event.get_input_sender()
     message = event.message
     # if not message.is_private:
     #     return
@@ -132,6 +134,8 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
         "chat_id": event.chat_id,
         "message_id": message.id,
         "message_thread_id": message.reply_to or 0,
+        "input_chat": input_chat,
+        "input_user": input_user,
     }
     if(params and len(params)>=2):
         board_info["chat_id"] = int(params[1])
@@ -156,8 +160,10 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
         <code>!setchat oldfriend</code> 老铁群    
         <code>!setchat jwc</code> 教务处 
         <code>!setchat tr_rw</code> 资源审核群
+        <code>!setchat ltgphoto</code> 清水群
         <blockquote>设置频道</blockquote>
-        <code>!setchat subscribe_preview -100[群ID]</code> 资源预览图频道
+        <code>!setchat subscribe_preview -100[频道ID]</code> 资源预览图频道
+        <code>!setchat xiaodi_topic -100[频道ID]</code> 晓迪时空频道
     """).strip()
 
 

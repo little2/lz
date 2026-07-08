@@ -219,6 +219,8 @@ class BlacklistGuardMiddleware(BaseMiddleware):
             # 直接重新賦值，後續整個檔案用的 TARGET_CHAT_ID 都會是新值
             main_group_url = str(public_school.get("invite_link") or "")
             guider_bot_name = str(SharedConfig.get("guider_bot_name") or "")
+        
+            faq_url = f"https://t.me/{guider_bot_name}?start=faq" if guider_bot_name else ""
             rule_url = f"https://t.me/{guider_bot_name}?start=show_inst_points" if guider_bot_name else ""
            
 
@@ -231,7 +233,7 @@ class BlacklistGuardMiddleware(BaseMiddleware):
                     inline_keyboard=[
                         [
                             types.InlineKeyboardButton(text="🐲 公开群🌱", url=main_group_url),
-                            types.InlineKeyboardButton(text="🎓 教务处小助手", url=helper_bot_url)
+                            types.InlineKeyboardButton(text="🎓 教务处小助手", url=faq_url)
                         ],
                         [
                             types.InlineKeyboardButton(text="📐 积分规则说明🌱", url=rule_url)

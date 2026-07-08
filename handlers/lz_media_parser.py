@@ -227,10 +227,10 @@ async def handle_media_message(message: Message, state: FSMContext):
                 [InlineKeyboardButton(text="🤖 鲁仔三号", url=f"https://t.me/{updater_bot_name}?start=upload")]
             ])
 
-        await message.reply(f"为了让机器人的效率最高，上传资源请找鲁仔三号 @{updater_bot_name}",parse_mode="HTML", reply_markup=kb)
-        print(
-            f"[MEDIA] 普通媒体进入 handle_media_message | "
-            f"user={user_id} state={current_state}",
-            flush=True
-        )
+        await message.answer(f"为了让机器人的效率最高，上传资源请找鲁仔三号 @{updater_bot_name}",parse_mode="HTML", reply_markup=kb)
+        # print(
+        #     f"[MEDIA] 普通媒体进入 handle_media_message | "
+        #     f"user={user_id} state={current_state}",
+        #     flush=True
+        # )
 

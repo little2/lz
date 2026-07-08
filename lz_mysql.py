@@ -786,7 +786,7 @@ class MySQLPool(LYBase):
                 """, (new_expire_timestamp, manager_id))
                 return new_expire_timestamp
         except Exception as e:
-            print(f"⚠️ 427 数据库执行出错: {e}")
+            print(f"⚠️ 789_DBERROR 数据库执行出错: {e}")
             return None
         finally:
             await cls.release(conn, cursor)   

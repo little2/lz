@@ -4,15 +4,15 @@ import traceback
 import sys
 import re
 import json
-from opencc import OpenCC
-from typing import Any, Callable, Awaitable, Optional
+
+from typing import Any, Callable, Awaitable
 
 from aiogram import Router, F
 
 from aiogram.filters import Command
-from aiogram.enums import ContentType
-from aiogram.utils.text_decorations import markdown_decoration
-from aiogram.fsm.storage.base import StorageKey
+
+
+
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.exceptions import TelegramNotFound, TelegramMigrateToChat, TelegramRetryAfter
 
@@ -33,8 +33,7 @@ from aiogram.types import (
     InlineKeyboardMarkup, 
     InlineKeyboardButton, 
     InputMediaPhoto, 
-    InputMediaVideo, 
-    InputMediaDocument, 
+
     InputMediaAnimation
 )
 
@@ -42,16 +41,16 @@ from aiogram.enums import ParseMode
 
 import textwrap
 from datetime import datetime, timezone, timedelta
-from typing import Coroutine
+
 
 import asyncio
 import os
 from lz_db import db
-from lz_config import AES_KEY, ENVIRONMENT,META_BOT, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS, VALKEY_URL, UPLOADER_BOT_NAME
+from lz_config import AES_KEY, RESULTS_PER_PAGE, KEY_USER_ID, ADMIN_IDS, UPLOADER_BOT_NAME
 import lz_var
 import random
 
-import redis.asyncio as redis_async
+
 
 
 
@@ -73,14 +72,14 @@ from shared_config import SharedConfig
 SharedConfig.load()
 
 
-from pathlib import Path
+
 
 from handlers.handle_jieba_export import export_lexicon_files
 
 import time
 
 from html import escape as html_escape
-from urllib.parse import quote as url_quote
+
 
 
 
@@ -88,7 +87,15 @@ router = Router()
 
 _background_tasks: dict[str, asyncio.Task] = {}
 
-_valkey = redis_async.from_url(VALKEY_URL, decode_responses=True)
+_tw2s_converter: Any = None
+
+def get_tw2s_converter():
+    global _tw2s_converter
+    if _tw2s_converter is None:
+        from opencc import OpenCC
+        _tw2s_converter = OpenCC("tw2s")
+    return _tw2s_converter
+
 
 class LZFSM(StatesGroup):
     waiting_for_title = State()
@@ -871,16 +878,38 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
 
     return "\n".join(lines)  # ✅ 强制变成纯文字
 
-
-_PAGINATION_HIT = {}
+_PAGINATION_HIT: dict[str, float] = {}
+_PAGINATION_HIT_TTL = 120.0
+_PAGINATION_HIT_MAX_SIZE = 2000
+_PAGINATION_HIT_CLEAN_INTERVAL = 60.0
+_PAGINATION_HIT_LAST_CLEAN = 0.0
 
 def is_too_fast(key: str, window: float = 1.0) -> bool:
+    global _PAGINATION_HIT_LAST_CLEAN
+
     now = time.time()
+
+    if now - _PAGINATION_HIT_LAST_CLEAN >= _PAGINATION_HIT_CLEAN_INTERVAL:
+        _PAGINATION_HIT_LAST_CLEAN = now
+        expired_before = now - _PAGINATION_HIT_TTL
+        for hit_key, hit_time in list(_PAGINATION_HIT.items()):
+            if hit_time < expired_before:
+                _PAGINATION_HIT.pop(hit_key, None)
+
+    if len(_PAGINATION_HIT) > _PAGINATION_HIT_MAX_SIZE:
+        overflow = len(_PAGINATION_HIT) - _PAGINATION_HIT_MAX_SIZE
+        for hit_key, _ in list(_PAGINATION_HIT.items())[:overflow]:
+            _PAGINATION_HIT.pop(hit_key, None)
+
     last = _PAGINATION_HIT.get(key, 0)
     if now - last < window:
         return True
+
     _PAGINATION_HIT[key] = now
     return False
+
+
+
 
 @router.callback_query(
     F.data.regexp(r"^(ul_pid|fd_pid|pageid)\|")
@@ -1223,14 +1252,14 @@ async def _build_pagination(
         # === 背景进行文件的同步（预加载） ===
     # 把整块预加载逻辑丢到 spawn_once，让主线程只负责分页与渲染，不被 PG / X 仓库拖慢。
     print(f"Prefetch sora_media for pagination: {callback_function}, {keyword_id}", flush=True)
-    if state is not None and result:
+    
+    pre_load = False # 是否开启预加载
+    if state is not None and result and pre_load:
         print(f"Starting prefetch task...", flush=True)
         # 用 callback_function + keyword_id 当 key，避免同一批结果被重复开启预加载任务
         key = f"prefetch_sora_media:{callback_function}:{keyword_id}"
         # 注意要把 result 拷贝成 list，避免外面后续修改它
         snapshot = list(result)
-
-        
         spawn_once(
             key,
             lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),
@@ -1357,8 +1386,8 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     await db.insert_search_log(message.from_user.id, keyword)
     result = await db.upsert_search_keyword_stat(keyword)
 
-    tw2s = OpenCC('tw2s')
-    keyword = tw2s.convert(keyword)
+
+    keyword = get_tw2s_converter().convert(keyword)
     print(f"🔍 搜索关键词: {keyword}", flush=True)
 
     await handle_search_component(message, state, keyword)
@@ -2777,6 +2806,7 @@ async def build_after_choose_collection_button(callback: CallbackQuery, state: F
 # == 主菜单选项响应 ==
 @router.callback_query(F.data == "search")
 async def handle_search(callback: CallbackQuery,state: FSMContext):
+    await clear_selected_tags(state, callback.from_user.id)
     await do_handle_search(callback.message,state, mode="edit")
     # await _edit_caption_or_text(
     #     photo=lz_var.skins['search']['file_id'],
@@ -2969,7 +2999,7 @@ async def check_valid_key(event) -> bool:
 
     confirm_val = await MySQLPool.get_cache_by_key(key)
 
-    # confirm_val = await _valkey.get(key)
+    
     print(f"[valkey] get: {key}={confirm_val}", flush=True)
 
     if confirm_val != "0204":
@@ -3118,7 +3148,14 @@ async def check_valid_key(event) -> bool:
     return True
 
 
+async def clear_selected_tags(state: FSMContext, user_id: int) -> None:
+    fsm_key = f"selected_tags:{user_id}"
+    data = await state.get_data()
+    if fsm_key not in data:
+        return
 
+    data.pop(fsm_key, None)
+    await state.set_data(data)
 
 
 @router.callback_query(F.data == "search_tag")
@@ -3208,15 +3245,37 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
             await _edit_caption_or_text(
                 photo=lz_var.skins['search_tag']['file_id'],
                 msg=callback_query.message,
+                text="🏷️ 请选择标签进行筛选...",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"tag refresh failed: {e}", flush=True)
+        finally:
+            if tag_refresh_tasks.get(task_key) is asyncio.current_task():
+                tag_refresh_tasks.pop(task_key, None)
+
+    # 備份,暫時保留到 2026/8/9,之後可以刪除
+    async def delayed_refresh_old():
+        try:
+            await asyncio.sleep(TAG_REFRESH_DELAY)
+            keyboard = await get_filter_tag_keyboard(callback_query, current_tag_type=tag_type, state=state)
+            await _edit_caption_or_text(
+                photo=lz_var.skins['search_tag']['file_id'],
+                msg=callback_query.message,
                 text="🏷️ 请选择标签进行筛选...", 
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
             )
 
 
-            tag_refresh_tasks.pop(task_key, None)
+            
             print(f"\n\n---\n")
         except asyncio.CancelledError:
+           
             pass  # 被取消时忽略
+        finally:
+             tag_refresh_tasks.pop(task_key, None)
 
     tag_refresh_tasks[task_key] = asyncio.create_task(delayed_refresh())
 
@@ -3329,6 +3388,9 @@ async def get_filter_tag_keyboard(callback_query: CallbackQuery,  state: FSMCont
     ])
 
     return keyboard
+
+
+
 
 
 @router.callback_query(F.data.startswith("search_tag_start"))
@@ -4292,7 +4354,8 @@ async def handle_do_upload_resource(callback: CallbackQuery):
 
 # == 通用返回首页 ==
 @router.callback_query(F.data == "go_home")
-async def handle_go_home(callback: CallbackQuery):
+async def handle_go_home(callback: CallbackQuery, state: FSMContext):
+    await clear_selected_tags(state, callback.from_user.id)
     # await callback.answer_photo(
     #     photo=lz_var.skins['home']['file_id'],
     #     caption="👋 欢迎使用 LZ 机器人！请选择操作：",
@@ -4366,14 +4429,14 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
 
 
         print(f"Prefetch sora_media for pagination: {search_from}", flush=True)
-        if state is not None and result:
+        
+        preload = False #是否预加载
+        if state is not None and result and preload:
             print(f"Starting prefetch task...", flush=True)
             # 用 callback_function + keyword_id 当 key，避免同一批结果被重复开启预加载任务
             key = f"prefetch_sora_media:{search_from}"
             # 注意要把 result 拷贝成 list，避免外面后续修改它
             snapshot = list(result)
-
-           
             spawn_once(
                 key,
                 lambda state=state, snapshot=snapshot: _prefetch_sora_media_for_results(state, snapshot),

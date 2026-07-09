@@ -4,8 +4,6 @@ import asyncio
 import os
 import time
 from datetime import datetime, timedelta, timezone
-import aiogram
-import json
 import random
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types
@@ -16,10 +14,9 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiogram.filters import Command  # ✅ v3 filter 写法
 import textwrap
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from lz_config import ADMIN_IDS, BOT_TOKEN,SWITCHBOT_TOKEN, SWITCHBOT_CHAT_ID, SWITCHBOT_THREAD_ID,BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,AES_KEY,SESSION_STRING,USER_SESSION, API_ID, API_HASH, PHONE_NUMBER, KEY_USER_ID,KEY_USER_PHONE, SWITCHBOT_USERNAME
+from lz_config import ADMIN_IDS, BOT_TOKEN,SWITCHBOT_TOKEN, SWITCHBOT_CHAT_ID, SWITCHBOT_THREAD_ID,BOT_MODE, WEBHOOK_PATH, WEBHOOK_HOST,KEY_USER_ID
 # from lz_db import db
 from lz_pgsql import PGPool
 from lz_mysql import MySQLPool
@@ -32,20 +29,6 @@ from handlers import lz_menu
 
 import lz_var
 import re
-from utils.media_utils import Media
-from utils.product_utils import sync_sora, sync_album_items, check_and_fix_sora_valid_state,check_and_fix_sora_valid_state2,check_file_record
-
-from lz_redis import RedisManager
-lz_var.redis_manager = RedisManager()
-#
-from telethon.sessions import StringSession
-from telethon import TelegramClient, events
-
-
-from telethon.tl.functions.photos import DeletePhotosRequest
-from telethon.tl.types import InputPhoto
-from telethon.tl.functions.account import UpdateProfileRequest
-from telethon.tl.functions.account import UpdateUsernameRequest
 
 
 lz_var.start_time = time.time()
@@ -74,6 +57,10 @@ async def periodic_shared_config_reload(interval_seconds: int = 3600, on_reload=
 
 
 def create_user_client():
+    from lz_config import API_HASH, API_ID, SESSION_STRING, USER_SESSION
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+
     if SESSION_STRING:
         print("【Telethon】使用 StringSession 登录。", flush=True)
         return TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
@@ -85,7 +72,7 @@ def create_user_client():
 
 
 
-async def handle_user_private_media(event: events.NewMessage.Event):
+async def handle_user_private_media(event):
     try:
         msg = event.message  # ✅ 先取 msg
     except Exception as e:
@@ -156,10 +143,6 @@ async def handle_user_private_media(event: events.NewMessage.Event):
 FILE_ID_REGEX = re.compile(
     r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
 )
-
-from aiogram import Router, F
-router = Router()
-
 
 class BlacklistGuardMiddleware(BaseMiddleware):
     def __init__(self, whitelist_matrix: dict[str, set[int]] | None = None):
@@ -307,6 +290,9 @@ async def health(request):
     return web.Response(text="✅ Bot 正常运行", status=200)
 
 async def delete_my_profile_photos(client):
+    from telethon.tl.functions.photos import DeletePhotosRequest
+    from telethon.tl.types import InputPhoto
+
     photos = await client.get_profile_photos('me')
 
     if not photos:
@@ -326,10 +312,14 @@ async def delete_my_profile_photos(client):
     print("头像已删除。")
 
 async def update_my_name(client, first_name, last_name=''):
+    from telethon.tl.functions.account import UpdateProfileRequest
+
     await client(UpdateProfileRequest(first_name=first_name, last_name=last_name))
     print(f"已更新用户姓名为：{first_name} {last_name}")
 
 async def update_username(client,username):
+    from telethon.tl.functions.account import UpdateUsernameRequest
+
     try:
         await client(UpdateUsernameRequest(username))  # 设置空字符串即为移除
         print("用户名已成功变更。")
@@ -338,18 +328,24 @@ async def update_username(client,username):
 
 async def sync():
     while False:
+        from utils.product_utils import check_file_record
+
         summary = await check_file_record(limit=100)
         if summary["checked"] == 0:
             break
 
 
     while False:
+        from utils.product_utils import check_and_fix_sora_valid_state
+
         summary = await check_and_fix_sora_valid_state(limit=1000)
         if summary["checked"] == 0:
             break
 
 
     while False:
+        from utils.product_utils import check_and_fix_sora_valid_state2
+
         summary = await check_and_fix_sora_valid_state2(limit=1000)
         if summary["checked"] == 0:
             break

@@ -572,7 +572,6 @@ async def handle_private_json(event):
             print(f"[WD] keep_updates_warm 出错: {e}", flush=True)
         return
 
-
     elif text.startswith("/topics"):
         # 用法：/topics <chat_id> <YYYY-MM-DD> <hour>
         parts = text.split()
@@ -605,7 +604,6 @@ async def handle_private_json(event):
 
         await event.reply("\n".join(lines))
         return
-
 
     else:
         try:
@@ -683,8 +681,6 @@ async def handle_private_json(event):
             return 
         except Exception as e:
             print(f"❌ 处理 payment 出错: {e}", flush=True)
-           
-
     await event.reply(json.dumps({"ok": 0, "error": "unknown_json"}))
 
 

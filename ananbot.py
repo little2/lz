@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 import asyncio
 import time
-from typing import Optional, Coroutine, Tuple
+from typing import Optional, Tuple
 from typing import Callable, Awaitable, Any
 import re
 import html
@@ -28,7 +28,7 @@ from aiogram.types import (
 
 from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest, TelegramUnauthorizedError
 from utils.tpl import Tplate
-from aiogram.enums import ChatAction,ContentType
+from aiogram.enums import ContentType
 from aiogram.filters import Command,CommandObject
 
 from aiogram.fsm.state import State, StatesGroup
@@ -54,6 +54,8 @@ from utils.product_utils import submit_resource_to_chat_action,build_product_mat
 import textwrap
 import traceback
 import time
+from datetime import datetime, timezone, timedelta
+
 from pathlib import Path
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
@@ -2237,10 +2239,12 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
 
     result , error = await send_to_review_group(content_id, state)
     if result:
+        
+        if orign_review_status == 0:
+            await update_user_consecutive_days(callback_query.from_user.id, product_info)
+
         await callback_query.answer("✅ 已提交审核", show_alert=False)
         spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
-        if orign_review_status == 0:
-            spawn_once(f"update_today_contribute:{content_id}", lambda:update_user_consecutive_days(callback_query.from_user.id, product_info))
         
     else:
         if error:
@@ -2716,6 +2720,10 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     await _sync_pg(content_id)
 
 
+async def get_stat_date() -> str:
+    tz_plus_8 = timezone(timedelta(hours=8))
+    stat_date = datetime.now(tz_plus_8).strftime("%Y-%m-%d")
+    return stat_date
 
 async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Optional[str]]:
     global publish_bot
@@ -2723,7 +2731,9 @@ async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Opti
     incentive_share_fee = 5
 
     # print(f"🔍 更新用户连续上架天数: user_id={user_id}, content_length={lengthInChineseCharacters}", flush=True)
-    stat_date = datetime.now().strftime("%Y-%m-%d")
+
+
+    stat_date = await get_stat_date()
     await MySQLPool.upsert_contribute_today(user_id, stat_date, upload=1, count=incentive_share_fee)
     # print(f"🔍 已记录今日贡献：user_id={user_id}, date={stat_date}, upload=1, count={incentive_share_fee}", flush=True)
     

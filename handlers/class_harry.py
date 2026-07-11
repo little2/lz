@@ -372,8 +372,10 @@ class HarryClass:
 			print(f"[harry] set_chat: setting to school {chat_type}", flush=True)
 			return await self.set_chat_school(board_info)
 		elif chat_type == "public":
-			await self.set_chat_public()
-			return None
+			return await self.set_chat_public(board_info)
+		elif chat_type == "public_bk":
+			return await self.set_chat_public(board_info, mode='public_bk')
+		
 		elif chat_type == "oldfriend":
 			return await self.set_chat_old_friend(board_info)
 		elif chat_type == "jwc":
@@ -409,7 +411,7 @@ class HarryClass:
 			<blockquote>群组指令</blockquote>
 			4️⃣ 在群组中，发送 <code>!setchat school</code> 指令 
 			5️⃣ 授与人型机器人管理员权限
-			6️⃣ 拉入小龙阳机器人, 本子机器人, 龙阳宝机器人, 宸宸机器人, 幻弟机器人给予所有的权限
+			6️⃣ 拉入小龙阳机器人, 本子机器人, 技术小助手, 龙阳宝机器人, 宸宸机器人, 幻弟机器人给予所有的权限
 			7️⃣ 在群组中，发送 <code>/bootstrap</code> 指令，一定会收到"完成"的提示，否则就再下一指令
 			8️⃣ 更换群头像,置顶公告	
 			9️⃣ 完成				 				                     
@@ -448,6 +450,61 @@ class HarryClass:
 
 		except Exception as exc:
 			print(f"[harry] set_chat_school: failed to grant permissions or invite bots: {exc}", flush=True)
+		
+
+
+
+
+		return sop_text
+
+
+	async def set_chat_public(self, board_info: dict, mode='public') -> str:
+		"""
+		设置群组为公开群备份
+		"""
+		
+		chat_id = board_info["chat_id"]
+		sop_text = textwrap.dedent("""
+			<blockquote>公开群备份重建 基础设置</blockquote>
+			1️⃣ 新增一般群组
+			2️⃣ 将核心机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>群组指令</blockquote>
+			4️⃣ 在群组中，发送 <code>!setchat public_bk</code> 指令 
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入小龙阳机器人, 萨莱机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setup {mode}</code> 指令
+			8️⃣ 设置萨莱 (GroupHelp) - 删除消息(指令/服务消息),进群欢迎力,其它(重发消息)
+			9️⃣ 更换群头像,置顶公告,完成				 				                     
+		""").strip()
+		print(f"[harry] set_chat_{mode}: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			print(f"5 set_chat_{mode}: granting permissions to @lykeyman", flush=True)
+			man_me = await self.client.get_me()
+			await self.invite_to_group(chat_id, man_me.id)
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			print(f"[harry] set_chat_{mode}: granting permissions to @lykeyman", flush=True)
+			# 6️⃣ 拉入小龙阳机器人, 萨莱机器人给予所有的权限
+
+			await self.grant_permissions(chat_id=chat_id, user_id="xiaolongyang007bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="salai009bot")
+
+			await self.client.send_message(chat_id, f"/setup {mode}")
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			
+
+			
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+
+		except Exception as exc:
+			print(f"[harry] set_chat_{mode}: failed to grant permissions or invite bots: {exc}", flush=True)
 		
 
 

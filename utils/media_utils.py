@@ -5,7 +5,7 @@ from aiogram.fsm.storage.base import StorageKey
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import Message, InputMediaPhoto
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from typing import Any
 
 from aiogram import Bot
@@ -22,26 +22,56 @@ class ProductPreviewFSM(StatesGroup):
 
 
 class Media:
+    _lack_notify_lock = asyncio.Lock()
+    _requested_content_id = set()
+   
 
     @classmethod
-    async def _notify_lack_file_uid_rows(cls, lack_file_uid_rows: list[str], max_count: int = 100):
-        sent_count = 0
-        for fuid in lack_file_uid_rows:
-            sent_count += 1
-            try:
-                await lz_var.bot.send_message(
-                    chat_id=lz_var.x_man_bot_id,
-                    text=f"{fuid}"
-                )
-            except Exception as e:
-                print(f"⚠️ 背景通知缺少资源失败 {fuid}: {e}", flush=True)
+    async def _notify_lack_file_uid_rows(cls, lack_file_uid_rows: list[str], content_id: int | None = None):
+        if content_id in (None, 0):
+            print(f"⚠️ 缺少资源 content_id={content_id}，但 content_id 无效，跳过通知", flush=True)
+            return
+        
+        if content_id in cls._requested_content_id:
+            print(f"⚠️ 正在通知过缺少资源 content_id={content_id}，跳过重复通知", flush=True)
+            return
+              
+        cls._requested_content_id.add(content_id)   
 
-            print(f">缺少 {fuid}")
+        # 所有通知都发往同一个聊天，因此串行发送
+        try:
+            async with cls._lack_notify_lock:
+                cnt = 0
+                for index, fuid in enumerate(lack_file_uid_rows): 
+                    try:
+                        cnt += 1
+                        success = await lz_var.bot.send_message(
+                            chat_id=lz_var.x_man_bot_id,
+                            text=str(fuid),
+                        )
 
-            if sent_count >= max_count:
-                break
+                        if success:
+                            print(f">缺少 {fuid}", flush=True)
+                            
 
-            await asyncio.sleep(0.7)
+                        if index < len(lack_file_uid_rows) - 1:
+                            if cnt >=20:
+                                await asyncio.sleep(15)  # 超过 20 个就等 15 秒再继续，避免 TG 限制
+                                cnt = 0
+                            else:
+                                # 同一聊天保持大约每2秒一条
+                                await asyncio.sleep(2.5)
+                    except TelegramRetryAfter as e:
+                        await asyncio.sleep(e.retry_after + 0.5)
+                    except Exception as e:
+                        print(f"⚠️ 背景通知缺少资源失败 {fuid}: {e}", flush=True)
+                        break
+        finally:
+            cls._requested_content_id.discard(content_id)
+          
+
+
+        
 
     @classmethod
     async def safe_callback_answer(
@@ -496,7 +526,7 @@ class Media:
 
         if productInfomation.get("ok") is False and productInfomation.get("lack_file_uid_rows"):
             lack_file_uid_rows = productInfomation.get("lack_file_uid_rows")
-            asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, max_count=5))
+            asyncio.create_task(cls._notify_lack_file_uid_rows(lack_file_uid_rows, content_id=content_id))
             
             '''
             ‼️ 资源已被 TG 官方封锁

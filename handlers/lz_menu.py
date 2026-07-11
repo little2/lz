@@ -1850,13 +1850,16 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
     
     result_sora = await load_sora_content_by_id(content_id, state, search_key_index, search_from)
     
-    print(f"result_sora==>{result_sora}", flush=True)
+   
 
     ret_content, file_info, purchase_info = result_sora
     source_id = file_info[0] if len(file_info) > 0 else None
     file_type = file_info[1] if len(file_info) > 1 else None
     file_id = file_info[2] if len(file_info) > 2 else None
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
+    album_list_results = file_info[4] if len(file_info) > 4 else None
+
+    print(f"album_list_results==>{album_list_results}", flush=True)
 
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
@@ -1912,11 +1915,24 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
                 except Exception as e:
                     print(f"❌ 取得索引失败2：{e}", flush=True)
     
-   
-    if file_id or file_type in ['album', 'a']:
+    if file_type in ['album', 'a']:
+        lack_file_uid_rows = []
         resource_icon = "💎"
-    else:
-        resource_icon = "🔄"
+        for item in album_list_results:
+            if item.get("file_id") is None:
+                resource_icon = "🔄"
+                lack_file_uid_rows.append(item['source_id']) 
+
+        if len(lack_file_uid_rows) > 0:
+            asyncio.create_task(Media._notify_lack_file_uid_rows(lack_file_uid_rows, content_id=content_id))
+            resource_icon = f"(-{len(lack_file_uid_rows)} of {len(album_list_results)}) 🔄"
+            print(f"还有 {len(lack_file_uid_rows)} of {len(album_list_results)} 个文件缺少 file_id，需要后台同步", flush=True)
+        
+    else:    
+        if file_id:
+            resource_icon = "💎"
+        else:
+            resource_icon = "🔄"
 
     # print(f"current_pos2={current_pos}")
 
@@ -4547,6 +4563,7 @@ async def handle_keyframe_redeem(callback: CallbackQuery, state: FSMContext):
     file_type = file_info[1] if len(file_info) > 1 else None
     file_id = file_info[2] if len(file_info) > 2 else None
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
+    album_list_results = file_info[4] if len(file_info) > 4 else None
 
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
@@ -4613,6 +4630,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     file_type = file_info[1] if len(file_info) > 1 else None
     file_id = file_info[2] if len(file_info) > 2 else None
     thumb_file_id = file_info[3] if len(file_info) > 3 else None
+    album_list_results = file_info[4] if len(file_info) > 4 else None
 
     owner_user_id = purchase_info[0] if purchase_info[0] else None
     fee = purchase_info[1] if purchase_info[1] else 0
@@ -5010,10 +5028,10 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
                 result = await Media.send_media_group(callback, productInfomation, 1, content_id, source_id, protect_content=is_protect_content)
                 if result and not result.get('ok'):
                     try:
-                        print("text",flush=True)
+                       
                         await lz_var.bot.send_message(chat_id=from_user_id, text=result.get('message'), parse_mode="HTML")
                         # await callback.answer(result.get('message'), show_alert=True)
-                        print("text2",flush=True)
+                      
                     except Exception as e:
                         await lz_var.bot.send_message(chat_id=from_user_id, text=result.get('message'), parse_mode="HTML")
                         pass
@@ -5327,6 +5345,8 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
     timer.lap("开始载入资源记录record")
     record = await db.search_sora_content_by_id(content_id)
     timer.lap("查询数据库完成")
+
+    album_list_results = []
     
     # print(f"\n\n\n🔍 载入 ID: {content_id}, Record: {record}", flush=True)
     if record:
@@ -5438,14 +5458,14 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
         if product_type == "album" or product_type == "a":
             
             try:
-               
-                results = await db.get_album_list(content_id, lz_var.bot_username)
-                if(results == []):
+                
+                album_list_results = await db.get_album_list(content_id, lz_var.bot_username)
+                if(album_list_results == []):
                     await sync_album_items(content_id)
-                    results = await db.get_album_list(content_id, lz_var.bot_username)
+                    album_list_results = await db.get_album_list(content_id, lz_var.bot_username)
                 
                 
-                list_text = await Tplate.list_template(results)
+                list_text = await Tplate.list_template(album_list_results)
                
                 content = content +  "\r\n" + list_text['opt_text'] 
             except Exception as e:
@@ -5607,7 +5627,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             thumb_file_id = None
 
         
-        return ret_content, [source_id, product_type, file_id, thumb_file_id], [owner_user_id, fee, purchase_condition]
+        return ret_content, [source_id, product_type, file_id, thumb_file_id,album_list_results], [owner_user_id, fee, purchase_condition]
         
     else:
         # 找不到此数据

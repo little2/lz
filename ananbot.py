@@ -2759,7 +2759,7 @@ async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Opti
                     + "\r\n"
                 )
             else:
-                chat_incentive_text += "◻️ 会员资格奖励发放失败，请稍后重试。\r\n"
+                chat_incentive_text += "◻️ 会员资格奖励发放失败，请向教务处小助手反应。\r\n"
             
         else:
             chat_incentive_text += "◻️ 继续加油，连续 4 天以上 ( 包括 4 天 ) 可以获得🐥小懒觉会员资格！\r\n"

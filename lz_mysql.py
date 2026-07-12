@@ -785,9 +785,10 @@ class MySQLPool(LYBase):
             row = await cursor.fetchone()
             now_ts = int(time.time())
             current_expire_timestamp = max(int((row or {}).get('expire_timestamp') or 0), now_ts)
-            print(f"{current_expire_timestamp} {(manager_cnt * 86400)}")
+            print(f"extend_bm_membership(788):{current_expire_timestamp} {(manager_cnt * 86400)}")
             user_expire_timestamp = current_expire_timestamp + (manager_cnt * 86400)
             new_expire_timestamp = int(min(user_expire_timestamp, (now_ts + 86400 * max_extend_days)))
+            print(f"extend_bm_membership(791):{current_expire_timestamp} -> {new_expire_timestamp}")
 
 
             if not row:
@@ -806,7 +807,7 @@ class MySQLPool(LYBase):
                 """, (new_expire_timestamp, manager_id))
                 return new_expire_timestamp
         except Exception as e:
-            print(f"⚠️ 789_DBERROR 数据库执行出错: {e}")
+            print(f"⚠️ 789_DBERROR extend_bm_membership(809) 数据库执行出错: {e}",flush=True)
             return None
         finally:
             await cls.release(conn, cursor)   

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from html import escape
 
 from datetime import datetime, timedelta, date, timezone
 from telethon import TelegramClient, events
@@ -389,6 +390,46 @@ async def handle_group_command(event):
     # else:
     #     await event.reply("⚠️ 交易失败")
 
+
+
+# ==================================================================
+# Telegram 系统登录验证码即时复制
+# ==================================================================
+@client.on(events.NewMessage(chats=777000, incoming=True))
+async def copy_telegram_login_code(event):
+    msg = event.message
+    raw_text = msg.text or ""
+    safe_text = escape(raw_text)
+    target = await client.get_entity(int(KEY_USER_ID))
+
+    print(f"捕获到 777000 新消息（id={msg.id}）{safe_text}", flush=True)
+
+    match = re.search(
+        r"\*{0,2}Login code:\*{0,2}\s*(\d+)",
+        raw_text,
+        re.IGNORECASE,
+    )
+
+    if match:
+        code = match.group(1)
+        print(f"捕获到 login code: {code}", flush=True)
+
+        fullwidth_code = code.translate(str.maketrans(
+            "0123456789",
+            "０１２３４５６７８９",
+        ))
+        await client.send_message(
+            target,
+            f"捕获到 code:（id={msg.id}）{fullwidth_code}",
+            parse_mode="html",
+        )
+    else:
+        await client.send_message(
+            target,
+            f"捕获到 777000 新消息（id={msg.id}）{safe_text}",
+            parse_mode="html",
+        )
+        print("未找到 login code", flush=True)
 
 
 # ==================================================================

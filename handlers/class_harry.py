@@ -17,25 +17,82 @@ class HarryClass:
 		self.group_bots = group_bots or []
 
 	@staticmethod
-	def anonymous_admin_rights() -> ChatAdminRights:
-		return ChatAdminRights(
-			change_info=True,
-			invite_users=True,
-			ban_users=True,
-			add_admins=True,
-			post_messages=True,
-			edit_messages=True,
-			delete_messages=True,
-			pin_messages=True,
-			manage_call=True,
-			anonymous=True,
-			manage_topics=True,
-			post_stories=True,
-			edit_stories=True,
-			delete_stories=True,
-			other=True,
-			manage_direct_messages=True,
-		)
+	def anonymous_admin_rights(group_type: str = None) -> ChatAdminRights:
+		if group_type == "megagroup":
+			return ChatAdminRights(
+				change_info=True,
+				invite_users=True,
+				ban_users=True,
+				add_admins=True,
+				post_messages=True,
+				edit_messages=True,
+				delete_messages=True,
+				pin_messages=True,
+				manage_call=True,
+				anonymous=True,
+				manage_topics=True,
+				post_stories=True,
+				edit_stories=True,
+				delete_stories=True,
+				other=True
+			)
+		elif group_type == "forum":
+			return ChatAdminRights(
+				change_info=True,
+				invite_users=True,
+				ban_users=True,
+				add_admins=True,
+				post_messages=True,
+				edit_messages=True,
+				delete_messages=True,
+				pin_messages=True,
+				manage_call=True,
+				anonymous=True,
+				manage_topics=True,
+				post_stories=False,
+				edit_stories=False,
+				delete_stories=False,
+				other=True,
+				manage_direct_messages=False,
+			)
+		elif group_type == "broadcast":
+			return ChatAdminRights(
+				change_info=True,
+				invite_users=True,
+				ban_users=True,
+				add_admins=True,
+				post_messages=True,
+				edit_messages=True,
+				delete_messages=True,
+				pin_messages=True,
+				manage_call=True,
+				anonymous=True,
+				manage_topics=False,
+				post_stories=False,
+				edit_stories=False,
+				delete_stories=False,
+				other=True,
+				manage_direct_messages=False,
+			)
+		else:
+			return ChatAdminRights(
+				change_info=True,
+				invite_users=True,
+				ban_users=True,
+				add_admins=True,
+				post_messages=True,
+				edit_messages=True,
+				delete_messages=True,
+				pin_messages=True,
+				manage_call=True,
+				anonymous=True,
+				manage_topics=True,
+				post_stories=True,
+				edit_stories=True,
+				delete_stories=True,
+				other=True,
+				manage_direct_messages=True,
+			)
 
 	@staticmethod
 	def normalize_username(value: str) -> str:
@@ -63,17 +120,24 @@ class HarryClass:
 
 	async def batch_create_group(self) -> list[str]:
 		results: list[str] = []
-		for i in range(5):
+		cnt = 15
+		for i in range(cnt):
 			try:
-				print(f"[harry] creating test groups (megagroup) attempt {i + 1}/5", flush=True)
+				print(f"[harry] creating test groups (megagroup) attempt {i + 1}/{cnt}", flush=True)
+				results.append(await self.create_group(broadcast=True))
+				await asyncio.sleep(5)
+			
+				print(f"[harry] creating test groups (megagroup) attempt {i + 1}/{cnt}", flush=True)
 				results.append(await self.create_group(megagroup=True))
-				await asyncio.sleep(3)
-				print(f"[harry] creating test groups (forum) attempt {i + 1}/5", flush=True)
+				await asyncio.sleep(5)
+				
+				print(f"[harry] creating test groups (forum) attempt {i + 1}/{cnt}", flush=True)
 				results.append(await self.create_group(forum=True))
-				await asyncio.sleep(3)
+				await asyncio.sleep(5)
+
 			except Exception as exc:
 				results.append(f"batch create failed on attempt {i + 1}: {exc}")
-				await asyncio.sleep(1)
+				await asyncio.sleep(10)
 		return results
 
 	async def create_group(self, megagroup: bool = False, forum: bool = False, broadcast: bool = False) -> str:
@@ -108,55 +172,59 @@ class HarryClass:
 		book_result = "/book: skipped"
 		time_result = "time message: skipped"
 
-		try:
-			me = await self.client.get_me()
-			await self.client(
-				EditAdminRequest(
-					group,
-					utils.get_input_user(me),
-					self.anonymous_admin_rights(),
-					rank="owner",
-				)
-			)
-			self_admin_result = f"self: anonymous admin enabled ({me.id})"
-		except Exception as exc:
-			self_admin_result = f"self: failed: {exc}"
+		
+		if not broadcast :
+			self_admin_result = await self.make_onwer_anonymous(group_id)
+		
 
+		me = await self.client.get_me()
+		owner_permission = await self.client(GetParticipantRequest(
+			channel=group_id,
+			participant=me
+		))
+		participant = owner_permission.participant
+		owner_rights = participant.admin_rights
+
+		
 		for bot in self.group_bots:
 			try:
-				entity = await self.resolve_group_bot(bot)
-				await self.client(
-					EditAdminRequest(
-						group,
-						entity,
-						self.anonymous_admin_rights(),
-						rank="bot",
-					)
-				)
+				await self.client(EditAdminRequest(
+					channel=group_id,
+					user_id=bot,
+					admin_rights=owner_rights,
+					rank="ㅤ"
+				))
 				bot_results.append(f"{bot}: invited as admin")
 			except Exception as exc:
-				bot_results.append(f"{bot}: failed: {exc}")
-
+				bot_results.append(f"❌ {bot}: failed: {exc}")
+			finally:
+				await asyncio.sleep(1.1)
+				
+		
 		try:
-			await self.client.send_message(group, "/book")
+			await self.client.send_message(group_id, "/book")
 			book_result = "/book: sent"
 		except Exception as exc:
-			book_result = f"/book: failed: {exc}"
+			book_result = f"❌ /book: failed: {exc}"
 
 		try:
-			current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-			await self.client.send_message(group, f"current time: {current_time}")
-			time_result = f"time message: sent ({current_time})"
-		except Exception as exc:
-			time_result = f"time message: failed: {exc}"
-
-		try:
-			invite = await self.client(ExportChatInviteRequest(group))
+			invite = await self.client(ExportChatInviteRequest(group_id))
 			invite_link = getattr(invite, "link", "")
 		except Exception as exc:
-			invite_link = f"invite link failed: {exc}"
+			invite_link = f"❌ invite link failed: {exc}"
+		
+		try:
+			current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			await self.client.send_message(group_id, f"current time: {current_time}\r\n\r\n{invite_link}")
+			time_result = f"time message: sent ({current_time})"
+		except Exception as exc:
+			time_result = f"❌ time message: failed: {exc}"
+
+
 
 		bots_text = "\n".join(bot_results) if bot_results else "no bots configured"
+
+		print(f"{bots_text} {invite_link}",flush=True)
 		return (
 			f"group created: {group.title}\n"
 			f"id: {group_id}\n"
@@ -166,6 +234,25 @@ class HarryClass:
 			f"command:\n{book_result}\n{time_result}"
 		)
 
+	async def make_onwer_anonymous(self, group) -> None:
+		try:
+			me = await self.client.get_me()
+			owner_adnonymous = ChatAdminRights(
+				anonymous=True
+			)
+
+			await self.client(
+				EditAdminRequest(
+					group,
+					utils.get_input_user(me),
+					owner_adnonymous,
+					rank="owner",
+				)
+			)
+			self_admin_result = f"self: anonymous admin enabled ({me.id})"
+		except Exception as exc:
+			self_admin_result = f"self: failed: {exc}"
+		return self_admin_result
 
 
 	async def grant_permissions(self, chat_id: int, user_id: int, nonanonymous: bool = False) -> None:
@@ -242,10 +329,7 @@ class HarryClass:
 		participant = result.participant
 		rights = participant.admin_rights
 
-
-		
-	
-		await self.client(EditAdminRequest(
+		return await self.client(EditAdminRequest(
 			channel=chat_id,
 			user_id=bot_name,
 			admin_rights=rights,

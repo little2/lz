@@ -357,6 +357,26 @@ class MySQLPool(LYBase):
 
     @classmethod
     async def _rebuild_pool(cls):
+        async with cls._lock:
+            if cls._pool:
+                try:
+                    cls._pool.close()
+                    await cls._pool.wait_closed()
+                except Exception as e:
+                    print(
+                        f"⚠️ [MySQLPool] 关闭旧连接池出错: {e}",
+                        flush=True,
+                    )
+
+            cls._pool = None
+            print("🔄 [MySQLPool] 重建 MySQL 连接池中…", flush=True)
+
+        # 必须放到 async with cls._lock 外面
+        return await cls.init_pool()
+
+    # 预计 08/12 删除 
+    @classmethod
+    async def _rebuild_pool_old(cls): 
         """
         强制重建连接池，用于 2006/2013 等断线错误后的自愈。
         """

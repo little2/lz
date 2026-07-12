@@ -727,7 +727,7 @@ async def _fetch_and_consume(session: aiohttp.ClientSession, url: str):
 
 async def ping_keepalive_task():
     """
-    每 4 分钟并发访问一轮 URL，读取完整内容。
+    每隔一段时间并发访问一轮 URL，读取完整内容。
     """
     ping_urls = [
         "https://tgone-da0b.onrender.com",  # TGOND  park

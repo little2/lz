@@ -506,18 +506,18 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
         if cached is not None:
             return cached
 
-    print(f"🔍 460:{content_id}", flush=True)
+    # print(f"🔍 460:{content_id}", flush=True)
 
     # 查询是否已有同 source_id 的 product
     # 查找缩图 file_id
     bot_username = await get_bot_username()
     product_info = await AnanBOTPool.search_sora_content_by_id(content_id, bot_username)
 
-    print(f"🔍 465: product_info={product_info} for content_id={content_id}", flush=True)
+    # print(f"🔍 465: product_info={product_info} for content_id={content_id}", flush=True)
 
     thumb_file_id = product_info.get("m_thumb_file_id") or DEFAULT_THUMB_FILE_ID
 
-    print(f"{content_id} thumb_file_id={DEFAULT_THUMB_FILE_ID} | {thumb_file_id}", flush=True)
+    # print(f"{content_id} thumb_file_id={DEFAULT_THUMB_FILE_ID} | {thumb_file_id}", flush=True)
 
     thumb_unique_id = product_info.get("thumb_file_unique_id")
     file_unique_id = product_info.get('source_id')
@@ -813,10 +813,11 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
     # 如果 FSM 中没有缓存，就从数据库查一次
     if not selected_tags:
         selected_tags = await AnanBOTPool.get_tags_for_file(file_unique_id)
-        print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id},并更新到FSM")
+        # print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id},并更新到FSM")
         await state.update_data({fsm_key: list(selected_tags)})
     else:
-        print(f"🔍 从 FSM 缓存中获取选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
+        # print(f"🔍 从 FSM 缓存中获取选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
+        pass
 
     keyboard = []
 
@@ -1137,11 +1138,11 @@ async def handle_back_to_product_from_tag(callback_query: CallbackQuery, state: 
     # 3) 生成 hashtag 串并写回 sora_content.tag + stage='pending'
     try:
         # 根据 code 批量取中文名（无中文则回退 code）
-        print(f"🔍 正在批量获取标签中文名: {selected_tags}", flush=True)
+        # print(f"🔍 正在批量获取标签中文名: {selected_tags}", flush=True)
         tag_map = await AnanBOTPool.get_tag_cn_batch(list(selected_tags))
-        print(f"🔍 获取标签中文名完成: {tag_map}", flush=True)
+        # print(f"🔍 获取标签中文名完成: {tag_map}", flush=True)
         tag_names = [tag_map[t] for t in selected_tags]  # 无序集合；如需稳定可按中文名排序
-        print(f"🔍 生成 hashtag 串: {tag_names}", flush=True)
+        # print(f"🔍 生成 hashtag 串: {tag_names}", flush=True)
         # 可选：按中文名排序，稳定显示（建议）
         tag_names.sort()
         
@@ -6367,7 +6368,7 @@ async def keep_alive_ping():
         await asyncio.sleep(300)  # 每 5 分鐘 ping 一次
 
 async def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARNING)
     global bot_username, publish_bot, PUBLISH_BOT_USERNAME
     try:
         bot_username = await get_bot_username()

@@ -123,16 +123,25 @@ class HarryClass:
 		cnt = 15
 		for i in range(cnt):
 			try:
-				print(f"[harry] creating test groups (megagroup) attempt {i + 1}/{cnt}", flush=True)
-				results.append(await self.create_group(broadcast=True))
+				print(f"[harry] creating test groups (broadcast) attempt {i + 1}/{cnt}", flush=True)
+				create_group_result= await self.create_group(broadcast=True)
+				results.append(create_group_result)
+				if "Telegram flood wait" in create_group_result:
+					break
 				await asyncio.sleep(5)
 			
 				print(f"[harry] creating test groups (megagroup) attempt {i + 1}/{cnt}", flush=True)
-				results.append(await self.create_group(megagroup=True))
+				create_group_result= await self.create_group(megagroup=True)
+				results.append(create_group_result)
+				if "Telegram flood wait" in create_group_result:
+					break
 				await asyncio.sleep(5)
 				
 				print(f"[harry] creating test groups (forum) attempt {i + 1}/{cnt}", flush=True)
-				results.append(await self.create_group(forum=True))
+				create_group_result= await self.create_group(forum=True)
+				results.append(create_group_result)
+				if "Telegram flood wait" in create_group_result:
+					break
 				await asyncio.sleep(5)
 
 			except Exception as exc:

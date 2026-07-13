@@ -768,46 +768,61 @@ class MySQLPool(LYBase):
     @classmethod
     async def extend_bm_membership(
         cls,
-        manager_id : int,
+        manager_id : int | str,
         manager_cnt:  int = 0,
         max_extend_days: int = 21
     ):
         await cls.ensure_pool()   # ✅ 新增
         conn, cursor = await cls.get_conn_cursor()
         try:
+            user_id = str(manager_id).strip()
+            if not user_id.isdigit() or int(user_id) <= 0:
+                raise ValueError(f"无效的 manager_id: {manager_id!r}")
+
+
             sql = """
                 SELECT expire_timestamp
                 FROM membership 
                 WHERE user_id = %s AND course_code = 'xlj'
                 LIMIT 1
             """
-            await cursor.execute(sql, (manager_id,))
+            await cursor.execute(sql, (user_id,))
+
             row = await cursor.fetchone()
             now_ts = int(time.time())
             current_expire_timestamp = max(int((row or {}).get('expire_timestamp') or 0), now_ts)
-            print(f"extend_bm_membership(788):{current_expire_timestamp} {(manager_cnt * 86400)}")
-            user_expire_timestamp = current_expire_timestamp + (manager_cnt * 86400)
-            new_expire_timestamp = int(min(user_expire_timestamp, (now_ts + 86400 * max_extend_days)))
-            print(f"extend_bm_membership(791):{current_expire_timestamp} -> {new_expire_timestamp}")
+            print(f"extend_bm_membership(794):{current_expire_timestamp} 增加时间:{(manager_cnt * 86400)}")
+            # user_expire_timestamp = current_expire_timestamp + (manager_cnt * 86400)
+            # new_expire_timestamp = int(min(user_expire_timestamp, (now_ts + 86400 * max_extend_days)))
+
+            new_expire_timestamp = max(
+                current_expire_timestamp,
+                min(
+                    current_expire_timestamp + manager_cnt * 86400,
+                    now_ts + max_extend_days * 86400,
+                ),
+            )
+                        
+            print(f"extend_bm_membership(806):{current_expire_timestamp} -> {new_expire_timestamp}")
 
 
             if not row:
                 await cursor.execute(f"""
                     INSERT INTO membership (create_timestamp, expire_timestamp, user_id, course_code)
                     VALUES (%s, %s, %s, 'xlj')
-                """, (now_ts, new_expire_timestamp, manager_id))
+                """, (now_ts, new_expire_timestamp, user_id))
                 return new_expire_timestamp
             else:
                 
-                print(f"{manager_id} -> {new_expire_timestamp}")
+                print(f"接受人:{user_id} -> {new_expire_timestamp}")
                         
                 await cursor.execute(f"""
                     UPDATE membership SET expire_timestamp = %s 
                     WHERE user_id = %s and course_code='xlj'
-                """, (new_expire_timestamp, manager_id))
+                """, (new_expire_timestamp, user_id))
                 return new_expire_timestamp
         except Exception as e:
-            print(f"⚠️ 789_DBERROR extend_bm_membership(809) 数据库执行出错: {e}",flush=True)
+            print(f"⚠️ 825_DBERROR extend_bm_membership(809) 数据库执行出错: {e}",flush=True)
             return None
         finally:
             await cls.release(conn, cursor)   

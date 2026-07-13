@@ -218,9 +218,9 @@ async def main() -> None:
     # print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
 
    
-    # results = await harry.batch_create_group()
-    # print(f"[harry] batch_create_group results: {results}", flush=True)
-    # exit()
+    results = await harry.batch_create_group()
+    print(f"[harry] batch_create_group results: {results}", flush=True)
+    exit()
     await client.run_until_disconnected()
     
 

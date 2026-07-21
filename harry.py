@@ -151,9 +151,9 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
 
     list_text = textwrap.dedent("""
         <blockquote>增加</blockquote>
-        <code>!addchannel</code>
-        <code>!addgroup</code>
-        <code>!addforum</code>
+        <code>!add channel</code>
+        <code>!add group</code>
+        <code>!add forum</code>
         <blockquote>设置群组</blockquote>
         <code>!setchat school</code> 学院群
         <code>!setchat public</code> 公开群
@@ -209,16 +209,20 @@ async def main() -> None:
 
     await client.start()
     me = await client.get_me()
-    await bot_client.start(bot_token=os.getenv("BOT_TOKEN", ""))
-    bot_me = await bot_client.get_me()
-    print(f"[harry] Telethon userbot online: id={me.id} username={me.username}", flush=True)
-    print(f"[harry] Telethon bot online: id={bot_me.id} username={bot_me.username}", flush=True)
-    print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
-    print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
+    # await bot_client.start(bot_token=os.getenv("BOT_TOKEN", ""))
+    # bot_me = await bot_client.get_me()
+    
+    # print(f"[harry] Telethon userbot online: id={me.id} username={me.username}", flush=True)
+    # print(f"[harry] Telethon bot online: id={bot_me.id} username={bot_me.username}", flush=True)
+    # print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
+    # print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
 
    
-
+    results = await harry.batch_create_group()
+    print(f"[harry] batch_create_group results: {results}", flush=True)
+    exit()
     await client.run_until_disconnected()
+    
 
 
 

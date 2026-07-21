@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 import asyncio
 import time
-from typing import Optional, Coroutine, Tuple
+from typing import Optional, Tuple
 from typing import Callable, Awaitable, Any
 import re
 import html
@@ -28,7 +28,7 @@ from aiogram.types import (
 
 from aiogram.exceptions import TelegramRetryAfter, TelegramBadRequest, TelegramUnauthorizedError
 from utils.tpl import Tplate
-from aiogram.enums import ChatAction,ContentType
+from aiogram.enums import ContentType
 from aiogram.filters import Command,CommandObject
 
 from aiogram.fsm.state import State, StatesGroup
@@ -54,6 +54,8 @@ from utils.product_utils import submit_resource_to_chat_action,build_product_mat
 import textwrap
 import traceback
 import time
+from datetime import datetime, timezone, timedelta
+
 from pathlib import Path
 from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
@@ -504,18 +506,18 @@ async def get_product_info(content_id: int, check_mode: bool | None = False) -> 
         if cached is not None:
             return cached
 
-    print(f"🔍 460:{content_id}", flush=True)
+    # print(f"🔍 460:{content_id}", flush=True)
 
     # 查询是否已有同 source_id 的 product
     # 查找缩图 file_id
     bot_username = await get_bot_username()
     product_info = await AnanBOTPool.search_sora_content_by_id(content_id, bot_username)
 
-    print(f"🔍 465: product_info={product_info} for content_id={content_id}", flush=True)
+    # print(f"🔍 465: product_info={product_info} for content_id={content_id}", flush=True)
 
     thumb_file_id = product_info.get("m_thumb_file_id") or DEFAULT_THUMB_FILE_ID
 
-    print(f"{content_id} thumb_file_id={DEFAULT_THUMB_FILE_ID} | {thumb_file_id}", flush=True)
+    # print(f"{content_id} thumb_file_id={DEFAULT_THUMB_FILE_ID} | {thumb_file_id}", flush=True)
 
     thumb_unique_id = product_info.get("thumb_file_unique_id")
     file_unique_id = product_info.get('source_id')
@@ -811,10 +813,11 @@ async def refresh_tag_keyboard(callback_query: CallbackQuery, content_id: str, t
     # 如果 FSM 中没有缓存，就从数据库查一次
     if not selected_tags:
         selected_tags = await AnanBOTPool.get_tags_for_file(file_unique_id)
-        print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id},并更新到FSM")
+        # print(f"🔍 从数据库查询到选中的标签: {selected_tags} for file_unique_id: {file_unique_id},并更新到FSM")
         await state.update_data({fsm_key: list(selected_tags)})
     else:
-        print(f"🔍 从 FSM 缓存中获取选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
+        # print(f"🔍 从 FSM 缓存中获取选中的标签: {selected_tags} for file_unique_id: {file_unique_id}")
+        pass
 
     keyboard = []
 
@@ -1135,11 +1138,11 @@ async def handle_back_to_product_from_tag(callback_query: CallbackQuery, state: 
     # 3) 生成 hashtag 串并写回 sora_content.tag + stage='pending'
     try:
         # 根据 code 批量取中文名（无中文则回退 code）
-        print(f"🔍 正在批量获取标签中文名: {selected_tags}", flush=True)
+        # print(f"🔍 正在批量获取标签中文名: {selected_tags}", flush=True)
         tag_map = await AnanBOTPool.get_tag_cn_batch(list(selected_tags))
-        print(f"🔍 获取标签中文名完成: {tag_map}", flush=True)
+        # print(f"🔍 获取标签中文名完成: {tag_map}", flush=True)
         tag_names = [tag_map[t] for t in selected_tags]  # 无序集合；如需稳定可按中文名排序
-        print(f"🔍 生成 hashtag 串: {tag_names}", flush=True)
+        # print(f"🔍 生成 hashtag 串: {tag_names}", flush=True)
         # 可选：按中文名排序，稳定显示（建议）
         tag_names.sort()
         
@@ -2237,10 +2240,12 @@ async def handle_submit_product(callback_query: CallbackQuery, state: FSMContext
 
     result , error = await send_to_review_group(content_id, state)
     if result:
+        
+        if orign_review_status == 0:
+            await update_user_consecutive_days(callback_query.from_user.id, product_info)
+
         await callback_query.answer("✅ 已提交审核", show_alert=False)
         spawn_once(f"refine_sync_send:{content_id}", lambda:refine_sync_send(content_id,product_row))
-        if orign_review_status == 0:
-            spawn_once(f"update_today_contribute:{content_id}", lambda:update_user_consecutive_days(callback_query.from_user.id, product_info))
         
     else:
         if error:
@@ -2716,6 +2721,10 @@ async def handle_approve_product(callback_query: CallbackQuery, state: FSMContex
     await _sync_pg(content_id)
 
 
+async def get_stat_date() -> str:
+    tz_plus_8 = timezone(timedelta(hours=8))
+    stat_date = datetime.now(tz_plus_8).strftime("%Y-%m-%d")
+    return stat_date
 
 async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Optional[str]]:
     global publish_bot
@@ -2723,7 +2732,9 @@ async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Opti
     incentive_share_fee = 5
 
     # print(f"🔍 更新用户连续上架天数: user_id={user_id}, content_length={lengthInChineseCharacters}", flush=True)
-    stat_date = datetime.now().strftime("%Y-%m-%d")
+
+
+    stat_date = await get_stat_date()
     await MySQLPool.upsert_contribute_today(user_id, stat_date, upload=1, count=incentive_share_fee)
     # print(f"🔍 已记录今日贡献：user_id={user_id}, date={stat_date}, upload=1, count={incentive_share_fee}", flush=True)
     
@@ -2748,7 +2759,7 @@ async def update_user_consecutive_days(user_id,product_info) -> Tuple[bool, Opti
                     + "\r\n"
                 )
             else:
-                chat_incentive_text += "◻️ 会员资格奖励发放失败，请稍后重试。\r\n"
+                chat_incentive_text += "◻️ 会员资格奖励发放失败，请向教务处小助手反应。\r\n"
             
         else:
             chat_incentive_text += "◻️ 继续加油，连续 4 天以上 ( 包括 4 天 ) 可以获得🐥小懒觉会员资格！\r\n"
@@ -6357,7 +6368,7 @@ async def keep_alive_ping():
         await asyncio.sleep(300)  # 每 5 分鐘 ping 一次
 
 async def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.WARNING)
     global bot_username, publish_bot, PUBLISH_BOT_USERNAME
     try:
         bot_username = await get_bot_username()

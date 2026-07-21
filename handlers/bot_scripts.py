@@ -427,36 +427,36 @@ class BotScripts:
 			await asyncio.sleep(2)
 			await waiter4.wait(timeout=15)
 
-			await s.send("📅 每日免费积分")
-			claim_msg = await s.wait_reply(timeout=15)
-			if not claim_msg:
-				return
-			waiter4 = s.prepare_wait_edit()	
-			await s.click_by_text(claim_msg, "🚀 转发邀请")
-			await asyncio.sleep(2)
-			await waiter4.wait(timeout=15)
+			# await s.send("📅 每日免费积分")
+			# claim_msg = await s.wait_reply(timeout=15)
+			# if not claim_msg:
+			# 	return
+			# waiter4 = s.prepare_wait_edit()	
+			# await s.click_by_text(claim_msg, "🚀 转发邀请")
+			# await asyncio.sleep(2)
+			# await waiter4.wait(timeout=15)
 
 
-			await s.send("📅 每日免费积分")
-			claim_msg = await s.wait_reply(timeout=15)
-			if not claim_msg:
-				return
-			waiter4 = s.prepare_wait_edit()	
-			await s.click_by_text(claim_msg, "🔄 刷新进度")
-			await asyncio.sleep(2)
-			await waiter4.wait(timeout=15)
+			# await s.send("📅 每日免费积分")
+			# claim_msg = await s.wait_reply(timeout=15)
+			# if not claim_msg:
+			# 	return
+			# waiter4 = s.prepare_wait_edit()	
+			# await s.click_by_text(claim_msg, "🔄 刷新进度")
+			# await asyncio.sleep(2)
+			# await waiter4.wait(timeout=15)
 
-			await s.send("📅 每日免费积分")
-			claim_msg = await s.wait_reply(timeout=15)
-			if not claim_msg:
-				return
-			waiter4 = s.prepare_wait_edit()	
-			await s.click_by_text(claim_msg, '🎁 领取奖励')
-			await asyncio.sleep(2)
-			final_msg = await waiter4.wait(timeout=15)			
-			if not final_msg:
-				await s.wait_reply(timeout=10)
-			await s._client(UpdateProfileRequest(about=""))
+			# await s.send("📅 每日免费积分")
+			# claim_msg = await s.wait_reply(timeout=15)
+			# if not claim_msg:
+			# 	return
+			# waiter4 = s.prepare_wait_edit()	
+			# await s.click_by_text(claim_msg, '🎁 领取奖励')
+			# await asyncio.sleep(2)
+			# final_msg = await waiter4.wait(timeout=15)			
+			# if not final_msg:
+			# 	await s.wait_reply(timeout=10)
+			# await s._client(UpdateProfileRequest(about=""))
 
 
 

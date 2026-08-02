@@ -44,6 +44,39 @@ from shared_config import SharedConfig
 SharedConfig.load(True)
 
 
+def _to_bool(value, default: bool = True) -> bool:
+    """安全解析 SharedConfig 中的布尔开关。"""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on", "enable", "enabled"}:
+        return True
+    if normalized in {"0", "false", "no", "off", "disable", "disabled"}:
+        return False
+    return default
+
+
+def _to_int_set(values) -> set[int]:
+    """将 SharedConfig 中的用户 ID 列表规范化为正整数集合。"""
+    if isinstance(values, str):
+        values = values.split(",")
+
+    result: set[int] = set()
+    for value in values or []:
+        try:
+            user_id = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        if user_id > 0:
+            result.add(user_id)
+    return result
+
+
 async def periodic_shared_config_reload(interval_seconds: int = 3600, on_reload=None):
     while True:
         await asyncio.sleep(interval_seconds)
@@ -143,6 +176,30 @@ async def handle_user_private_media(event):
 FILE_ID_REGEX = re.compile(
     r'(?:file_id\s*[:=]\s*)?([A-Za-z0-9_-]{30,})'
 )
+
+
+class WhitelistModeMiddleware(BaseMiddleware):
+    """白名单模式门禁；关闭时不改变任何原有处理流程。"""
+
+    def __init__(self, policy: dict):
+        super().__init__()
+        self.policy = policy
+
+    async def __call__(self, handler, event, data):
+        if not self.policy.get("enabled", True):
+            return await handler(event, data)
+
+        user = getattr(event, "from_user", None)
+        if user is None:
+            return None
+
+        allowed_user_ids = self.policy.get("user_ids") or set()
+        if user.id not in allowed_user_ids:
+            print("🚫 白名单模式：已忽略一位非白名单用户的事件", flush=True)
+            return None
+
+        return await handler(event, data)
+
 
 class BlacklistGuardMiddleware(BaseMiddleware):
     def __init__(self, whitelist_matrix: dict[str, set[int]] | None = None):
@@ -469,14 +526,33 @@ async def main():
 
     dp = Dispatcher(storage=MemoryStorage())
 
-    def _to_int_set(values):
-        result = set()
-        for v in values or []:
-            try:
-                result.add(int(v))
-            except Exception:
-                pass
-        return result
+    whitelist_policy = {
+        "enabled": True,
+        "user_ids": set(),
+    }
+
+    def reload_whitelist_policy():
+        whitelist_policy["enabled"] = _to_bool(
+            SharedConfig.get("whitelist_mode"),
+            default=True,
+        )
+
+        latest_user_ids = _to_int_set(
+            SharedConfig.get("whitelist_user_ids") or []
+        )
+        whitelist_policy["user_ids"].clear()
+        whitelist_policy["user_ids"].update(latest_user_ids)
+
+        if whitelist_policy["enabled"] and not latest_user_ids:
+            print(
+                "⚠️ 白名单模式已开启，但 whitelist_user_ids 为空；"
+                "系统将拒绝所有用户事件。",
+                flush=True,
+            )
+
+        return whitelist_policy
+
+    reload_whitelist_policy()
 
     whitelist_matrix = {
         "core": _to_int_set([KEY_USER_ID]),
@@ -498,7 +574,15 @@ async def main():
         # whitelist_matrix["config"].update(ADMIN_IDS)
         return whitelist_matrix
 
-   
+    def reload_access_config():
+        latest_matrix = reload_whitelist_matrix()
+        latest_policy = reload_whitelist_policy()
+        return latest_matrix, latest_policy
+
+    whitelist_mode_guard = WhitelistModeMiddleware(whitelist_policy)
+    dp.message.outer_middleware(whitelist_mode_guard)
+    dp.callback_query.outer_middleware(whitelist_mode_guard)
+
     blacklist_guard = BlacklistGuardMiddleware(whitelist_matrix=whitelist_matrix)
     dp.message.middleware(blacklist_guard)
     dp.callback_query.middleware(blacklist_guard)
@@ -520,7 +604,7 @@ async def main():
 
     await sync()
     config_reload_task = asyncio.create_task(
-        periodic_shared_config_reload(on_reload=reload_whitelist_matrix)
+        periodic_shared_config_reload(on_reload=reload_access_config)
     )
 
     # ✅ 注册 shutdown 钩子：无论 webhook/polling，退出时都能清理
@@ -557,13 +641,16 @@ async def main():
 
         try:
             await asyncio.to_thread(SharedConfig.load, True)
-            latest_matrix = reload_whitelist_matrix()
+            latest_matrix, latest_policy = reload_access_config()
         except Exception as e:
             await message.reply(f"❌ 白名单重新载入失败：{e}")
             return
 
+        mode_text = "开启" if latest_policy["enabled"] else "关闭"
         await message.reply(
-            "✅ 白名单已重新载入\n"
+            "✅ 白名单配置已重新载入\n"
+            f"白名单模式：{mode_text}\n"
+            f"模式白名单：{len(latest_policy['user_ids'])} 人\n"
             f"core: {len(latest_matrix.get('core') or set())} 人\n"
             f"config: {len(latest_matrix.get('config') or set())} 人"
         )

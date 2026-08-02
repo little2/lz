@@ -418,12 +418,12 @@ class BotScripts:
 			await asyncio.sleep(5)
 	
 
-			await s.send("📅 每日免费积分")
+			await s.send("🎁 每日福利")
 			daily_msg = await s.wait_reply(timeout=15)
 			if not daily_msg:
 				return
 			waiter4 = s.prepare_wait_edit()	
-			await s.click_by_text(daily_msg, "📅 去签到")		
+			await s.click_by_text(daily_msg, "✅ 立即签到 +0.2💎")		
 			await asyncio.sleep(2)
 			await waiter4.wait(timeout=15)
 

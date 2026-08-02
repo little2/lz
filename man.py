@@ -222,6 +222,9 @@ async def run_health_server() -> None:
 		await server.serve_forever()
 
 async def run_all_bot():
+
+	
+	
 	for target in BOT_SCRIPTS:
 		await move_mouse()
 		try:
@@ -324,6 +327,9 @@ async def process():
 
 		async def _run_shared_round_robin() -> None:
 			nonlocal forwarder_next_start
+
+
+
 			print("[RoundRobin] task started (forwarder segment -> reader segment)", flush=True)
 			last_bot_round_at = 0.0
 			while True:
@@ -436,6 +442,7 @@ async def process_bot():
 			# --------------------
 		
 			print("[process_bot] single-run started", flush=True)
+			# await BotScripts.script_ccccc000_bot()
 			await run_all_bot()
 			await _save_json_dict_to_file(global_params_file, GLOBAL_PARAMS, client=telegram_bot)
 			print("[process_bot] single-run finished, stopping", flush=True)

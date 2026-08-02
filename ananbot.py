@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 from typing import Callable, Awaitable, Any
 import re
 import html
-from aiogram import Bot, Dispatcher, F
+from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.types import (
     Message,
     InlineKeyboardMarkup,
@@ -62,6 +62,29 @@ from lz_pgsql import PGPool
 from shared_config import SharedConfig
 from lexicon_manager import LexiconManager
 SharedConfig.load()
+
+
+def _parse_user_ids(value) -> set[int]:
+    """将 SharedConfig 中的用户 ID 列表规范化为整数集合。"""
+    if isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = str(value or "").split(",")
+
+    user_ids: set[int] = set()
+    for item in values:
+        try:
+            user_id = int(str(item).strip())
+        except (TypeError, ValueError):
+            continue
+        if user_id > 0:
+            user_ids.add(user_id)
+    return user_ids
+
+
+WHITELIST_USER_IDS = _parse_user_ids(SharedConfig.get("whitelist_user_ids") or [])
+# 主要用户始终保留访问权限，避免共享配置遗漏时意外将其排除。
+WHITELIST_USER_IDS.update(_parse_user_ids([KEY_USER_ID]))
 
 publish_bot_token = SharedConfig.get("publish_bot_token", PUBLISH_BOT_TOKEN)
 my_bot_token = SharedConfig.get("my_bot_token", BOT_TOKEN)
@@ -180,6 +203,41 @@ def spawn_once(key: str, coro_factory: Callable[[], Awaitable[Any]]):
 
 bot_username = None
 dp = Dispatcher(storage=MemoryStorage())
+
+
+class WhitelistOnlyMiddleware(BaseMiddleware):
+    """只让白名单用户的事件进入业务处理器。"""
+
+    def __init__(self, allowed_user_ids: set[int]):
+        super().__init__()
+        self.allowed_user_ids = allowed_user_ids
+
+    async def __call__(self, handler, event, data):
+        user = getattr(event, "from_user", None)
+        if user is None or user.id not in self.allowed_user_ids:
+            if user is not None:
+                print("🚫 已忽略一位非白名单用户的事件", flush=True)
+            return None
+
+        return await handler(event, data)
+
+
+allowed_user_ids = set(WHITELIST_USER_IDS)
+if not allowed_user_ids:
+    raise RuntimeError(
+        '白名单为空：请设置 SharedConfig 的 "whitelist_user_ids" 或 KEY_USER_ID'
+    )
+
+internal_x_man_bot_id = getattr(lz_var, "x_man_bot_id", None)
+try:
+    if internal_x_man_bot_id:
+        allowed_user_ids.add(int(internal_x_man_bot_id))
+except (TypeError, ValueError):
+    print("⚠️ x_man_bot_id 无效，未加入内部白名单", flush=True)
+
+whitelist_guard = WhitelistOnlyMiddleware(allowed_user_ids)
+dp.message.outer_middleware(whitelist_guard)
+dp.callback_query.outer_middleware(whitelist_guard)
 
 class ProductPreviewFSM(StatesGroup):
     waiting_for_preview_photo = State(state="product_preview:waiting_for_preview_photo")
@@ -6373,6 +6431,7 @@ async def main():
     try:
         bot_username = await get_bot_username()
         print(f"\r\n===================================\r\n🤖 当前 bot 用户名：@{bot_username}")
+        print(f"🔐 白名单已启用，共允许 {len(allowed_user_ids)} 个账号（包含内部账号）", flush=True)
 
         me = await publish_bot.get_me()
         PUBLISH_BOT_USERNAME = me.username

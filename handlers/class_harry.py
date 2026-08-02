@@ -120,7 +120,7 @@ class HarryClass:
 
 	async def batch_create_group(self) -> list[str]:
 		results: list[str] = []
-		cnt = 15
+		cnt = 4
 		for i in range(cnt):
 			try:
 				print(f"[harry] creating test groups (broadcast) attempt {i + 1}/{cnt}", flush=True)
@@ -521,13 +521,13 @@ class HarryClass:
 
 			print(f"[harry] set_chat_school: granting permissions to @lykeyman", flush=True)
 			# 6️⃣ 拉入小龙阳机器人, 本子机器人, 龙阳宝机器人, 宸宸机器人, 幻弟机器人给予所有的权限
-			await self.invite_to_group(chat_id, "xiaolongyang007bot")
+			await self.invite_to_group(chat_id, "xiaolongyang008bot")
 			await self.invite_to_group(chat_id, "exshota_ly_bot")
 			await self.invite_to_group(chat_id, "longyangbaobot")
 			await self.invite_to_group(chat_id, "chenchen808bot")
 			await self.invite_to_group(chat_id, "dreamdidibot")
 
-			await self.grant_permissions(chat_id=chat_id, user_id="xiaolongyang007bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="xiaolongyang008bot")
 			await self.grant_permissions(chat_id=chat_id, user_id="exshota_ly_bot")
 			await self.grant_permissions(chat_id=chat_id, user_id="longyangbaobot")
 			await self.grant_permissions(chat_id=chat_id, user_id="chenchen808bot")
@@ -583,7 +583,7 @@ class HarryClass:
 			print(f"[harry] set_chat_{mode}: granting permissions to @lykeyman", flush=True)
 			# 6️⃣ 拉入小龙阳机器人, 萨莱机器人给予所有的权限
 
-			await self.grant_permissions(chat_id=chat_id, user_id="xiaolongyang007bot")
+			await self.grant_permissions(chat_id=chat_id, user_id="xiaolongyang008bot")
 			await self.grant_permissions(chat_id=chat_id, user_id="salai009bot")
 
 			await self.client.send_message(chat_id, f"/setup {mode}")
@@ -809,7 +809,7 @@ class HarryClass:
 
 		
 			
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="xiaolongyang007bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="xiaolongyang008bot")
 
 			
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
@@ -857,7 +857,7 @@ class HarryClass:
 
 			
 			# 6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="xiaolongyang007bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="xiaolongyang008bot")
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
 			# await self.client.send_message(chat_id, "/setup")
 			# await self.client.send_message("luzai33003bot", "/update_setting")

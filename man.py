@@ -154,9 +154,9 @@ async def _fetch_latest_json_from_telegram(
 
 	raise ValueError("找不到可用消息（chat/thread 为空或没有文本）")
 
-async def move_mouse():
-	import pyautogui
-	pyautogui.press("ctrl")
+# async def move_mouse():
+# 	import pyautogui
+# 	pyautogui.press("ctrl")
 	
 
 
@@ -226,7 +226,7 @@ async def run_all_bot():
 	
 	
 	for target in BOT_SCRIPTS:
-		await move_mouse()
+		# await move_mouse()
 		try:
 			await BotScripts.run_bot_script(target)
 		except Exception as e:

@@ -466,17 +466,26 @@ async def main_old() -> None:
 	# await inspector.set_send_only_permissions_for_roles(members)
 	# exit()
 
-async def main() -> None:
-    interval = 6 * 60 * 60  # 6 小时
+async def bot_scheduler() -> None:
+    interval = 6 * 60 * 60
 
     while True:
         try:
+            print("[main] 开始执行 process_bot()", flush=True)
             await process_bot()
+            print("[main] process_bot() 执行成功", flush=True)
         except Exception as exc:
-            print(f"[main] process_bot 执行失败: {exc}", flush=True)
+            print(f"[main] process_bot() 执行失败: {exc}", flush=True)
 
-        print("[main] 等待 6 小时后再次执行...", flush=True)
+        print("[main] 等待 6 小时后再次执行", flush=True)
         await asyncio.sleep(interval)
+
+
+async def main() -> None:
+    await asyncio.gather(
+        run_health_server(),  # 监听 Render 的 PORT
+        bot_scheduler(),      # 每 6 小时运行机器人
+    )
 
 	
 			

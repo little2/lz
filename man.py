@@ -24,7 +24,7 @@ SHOT_READER_COOLDOWN_MINUTES = max(0, int(os.getenv("SHOT_READER_COOLDOWN_MINUTE
 GLOBAL_PARAMS: dict = {}
 
 
-PROXY_TYPE = os.getenv("HARRY_PROXY_TYPE", "socks5").strip().lower()
+PROXY_TYPE = os.getenv("HARRY_PROXY_TYPE", "none").strip().lower()
 PROXY_HOST = os.getenv("HARRY_PROXY_HOST", "127.0.0.1").strip()
 PROXY_PORT = int(os.getenv("HARRY_PROXY_PORT", "3066") or 3066)
 PROXY_USERNAME = os.getenv("HARRY_PROXY_USERNAME", "").strip() or None

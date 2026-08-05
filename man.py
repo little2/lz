@@ -442,7 +442,7 @@ async def process_bot():
 			# --------------------
 		
 			print("[process_bot] single-run started", flush=True)
-			# await BotScripts.script_ccccc000_bot()
+			# await BotScripts.script_hyai001_bot()
 			await run_all_bot()
 			await _save_json_dict_to_file(global_params_file, GLOBAL_PARAMS, client=telegram_bot)
 			print("[process_bot] single-run finished, stopping", flush=True)
@@ -451,7 +451,7 @@ async def process_bot():
 				await telegram_bot.disconnect()
 
 
-async def main() -> None:
+async def main_old() -> None:
 	
 
 	# await process()
@@ -466,7 +466,17 @@ async def main() -> None:
 	# await inspector.set_send_only_permissions_for_roles(members)
 	# exit()
 
+async def main() -> None:
+    interval = 6 * 60 * 60  # 6 小时
 
+    while True:
+        try:
+            await process_bot()
+        except Exception as exc:
+            print(f"[main] process_bot 执行失败: {exc}", flush=True)
+
+        print("[main] 等待 6 小时后再次执行...", flush=True)
+        await asyncio.sleep(interval)
 
 	
 			

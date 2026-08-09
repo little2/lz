@@ -307,6 +307,10 @@ class BotScripts:
 		await BotScripts._send_only("@ainudem2bot", "签到")
 
 	@staticmethod
+	async def script_fileposterbot() -> None:
+		await BotScripts._send_only("@fileposterbot", "/checkin")
+
+	@staticmethod
 	async def script_AIVision1111_bot_bot() -> None:
 		await BotScripts._send_only("@AIVision1111_bot", "📅 每日签到")
 
@@ -607,6 +611,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@XXHL9Bot": BotScripts.script_xxhl9bot,
 	"@AiYYnvshen_bot": BotScripts.script_aiyynvshen_bot,
 	"@ainudem2bot": BotScripts.script_ainudem2bot,
+	"@fileposterbot": BotScripts.script_fileposterbot,
 	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
 	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
 	"@tangest4_bot": BotScripts.script_tangest4_bot,

@@ -355,6 +355,10 @@ class BotScripts:
 		await BotScripts._send_only("@mengokbot", "🌍 每日签到")
 
 	@staticmethod
+	async def script_xhgsgk_bot() -> None:
+		await BotScripts._send_only("@xhgsgk_bot", "/qd")
+
+	@staticmethod
 	async def script_tangest4_bot() -> None:
 		"""@tangest4_bot - 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
@@ -625,6 +629,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@linglongai_3bot": BotScripts.script_linglongai_3bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@mengokbot": BotScripts.script_mengokbot,
+	"@xhgsgk_bot": BotScripts.script_xhgsgk_bot,
 	"@JSai1bot": BotScripts.script_jsai1bot,
 	"@SrikitiBot": BotScripts.script_srikitibot,
 	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,

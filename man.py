@@ -481,10 +481,70 @@ async def bot_scheduler() -> None:
         await asyncio.sleep(interval)
 
 
+
+async def forward_media():
+	interval = 20
+	telegram_bot = _build_client()
+	try:
+		global_paras = await load_global_params(telegram_bot)
+		GroupMediaForwarder.configure_global_paras(global_paras)
+	except Exception as exc:
+		print(f"{exec}")
+	# 设定 - 转发媒体() --------
+
+	forwarder_car = GroupMediaForwarder(
+		target_group=-1003959832615,
+		forward_to="ztTower1bot",
+		start_message_id=1,
+		caption_json_mode=False,
+		skip_caption_check=True,
+		sleep_enabled=True,
+		sleep_min_seconds=2,
+		sleep_max_seconds=2,
+		white_list_group_1=[],
+		white_list_group_2=[],
+		black_list=[],
+	)
+	forwarder_car.bind_telegram_bot(telegram_bot)
+	await forwarder_car._prepare_state_data(client=telegram_bot)
+	forwarder_next_start = max(1, int(forwarder_car.resolve_start_message_id()))
+	print(f"[RoundRobin] start forwarder_next_start={forwarder_next_start}", flush=True)
+	try:
+		while True:
+			wait_seconds = 1
+			try:
+				last_checked_id = await forwarder_car.fetch_and_forward_media_or_album(
+					forwarder_next_start,
+					max_messages=10,
+					respect_sleep=False,
+				)
+				if isinstance(last_checked_id, int) and last_checked_id >= forwarder_next_start:
+					forwarder_next_start = last_checked_id + 1
+
+					"""将 dict 保存为本地 JSON 文件，并同步贴到指定 Telegram 主题。"""
+					json_text = json.dumps(GLOBAL_PARAMS, ensure_ascii=False, indent=2)
+					GLOBAL_PARAMS_FILE.write_text(json_text, encoding="utf-8")
+				if forwarder_car.last_forwarded_media_count > 0:
+					wait_seconds = interval
+			except Exception as exc:
+				print(f"[RoundRobin] forwarder segment crashed: {exc}", flush=True)
+
+			print(
+				f"[RoundRobin] 本轮转发媒体数={forwarder_car.last_forwarded_media_count}，"
+				f"等待 {wait_seconds} 秒后再次执行",
+				flush=True,
+			)
+			await asyncio.sleep(wait_seconds)
+	finally:
+		if telegram_bot.is_connected():
+			await telegram_bot.disconnect()
+
+
 async def main() -> None:
     await asyncio.gather(
         run_health_server(),  # 监听 Render 的 PORT
         bot_scheduler(),      # 每 6 小时运行机器人
+		# forward_media(),
     )
 
 	

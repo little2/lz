@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Iterable
 
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError, FileReferenceExpiredError, FloodWaitError
 from telethon.sessions import StringSession
 
@@ -93,6 +93,7 @@ class GroupMediaForwarder:
 		self.backup_chat_id = backup_chat_id
 		self.backup_thread_id = backup_thread_id
 		self.telegram_bot = telegram_bot
+		self.last_forwarded_media_count = 0
 		self._merge_legacy_into_global_store()
 
 	def bind_telegram_bot(self, telegram_bot: TelegramClient | None) -> None:
@@ -419,13 +420,18 @@ class GroupMediaForwarder:
 			for row in rows:
 				for btn in row:
 					text = getattr(btn, "text", "") or ""
+					data = getattr(btn, "data", None)
 					url = getattr(btn, "url", None)
 					copy_text = getattr(btn, "copy_text", None)
 					button_obj = getattr(btn, "button", None)
+					if data is None and button_obj is not None:
+						data = getattr(button_obj, "data", None)
 					if not url and button_obj is not None:
 						url = getattr(button_obj, "url", None)
 					if copy_text is None and button_obj is not None:
 						copy_text = getattr(button_obj, "copy_text", None)
+					if isinstance(data, bytes):
+						data = data.decode("utf-8", errors="replace")
 
 					# 某些封裝下 copy_text 可能是物件，實際值在 .text
 					if copy_text is not None and not isinstance(copy_text, str):
@@ -433,6 +439,7 @@ class GroupMediaForwarder:
 
 					buttons.append({
 						"text": text,
+						"data": data,
 						"url": url,
 						"copy_text": copy_text,
 					})
@@ -617,6 +624,239 @@ class GroupMediaForwarder:
 
 		if caption:
 			await self._send_text_chunks(client, forward_entity, caption, reply_to=reply_to)
+
+	async def _load_media_album(self, client: TelegramClient, source_entity, message) -> list:
+		"""返回 message 所属的完整相簿；普通媒体只返回自身。"""
+		grouped_id = getattr(message, "grouped_id", None)
+		if grouped_id is None:
+			return [message]
+
+		# Telegram 相簿最多 10 项且消息 ID 连续；额外扩大窗口以兼容夹杂的服务消息。
+		album_messages = []
+		async for candidate in client.iter_messages(
+			source_entity,
+			min_id=max(0, int(message.id) - 20),
+			max_id=int(message.id) + 21,
+			reverse=True,
+		):
+			if getattr(candidate, "grouped_id", None) == grouped_id and getattr(candidate, "media", None):
+				album_messages.append(candidate)
+
+		if not album_messages:
+			return [message]
+		return sorted(album_messages, key=lambda item: item.id)
+
+	async def _resend_media_album(
+		self,
+		client: TelegramClient,
+		forward_entity,
+		messages: list,
+		*,
+		reply_to: int | None = None,
+		source_entity=None,
+	) -> None:
+		"""来源禁止直接转发或目标为话题时，以相簿形式重新发送。"""
+		if len(messages) == 1:
+			message = messages[0]
+			caption = self._format_caption(message, message.message or "")
+			await self._resend_message(
+				client,
+				forward_entity,
+				message,
+				caption_override=caption,
+				reply_to=reply_to,
+				source_entity=source_entity,
+			)
+			return
+
+		captions = [self._format_caption(message, message.message or "") for message in messages]
+		send_kwargs = {
+			"entity": forward_entity,
+			"file": [message.media for message in messages],
+			"caption": captions,
+		}
+		if reply_to is not None:
+			send_kwargs["reply_to"] = reply_to
+
+		try:
+			await client.send_file(**send_kwargs)
+			return
+		except Exception as exc:
+			if not self.download_fallback_enabled:
+				raise
+			print(f"[Album] 直接重送相簿失败，改用下载重传 | error={exc}", flush=True)
+
+		with tempfile.TemporaryDirectory(prefix="man_album_") as tmp_dir:
+			downloaded_paths = []
+			for message in messages:
+				try:
+					downloaded_path = await client.download_media(message, file=tmp_dir)
+				except FileReferenceExpiredError:
+					if source_entity is None:
+						raise
+					refreshed = await client.get_messages(source_entity, ids=message.id)
+					if not refreshed or not getattr(refreshed, "media", None):
+						raise
+					downloaded_path = await client.download_media(refreshed, file=tmp_dir)
+				if not downloaded_path:
+					raise RuntimeError(f"下载相簿媒体失败: message_id={message.id}")
+				downloaded_paths.append(downloaded_path)
+
+			send_kwargs["file"] = downloaded_paths
+			await client.send_file(**send_kwargs)
+
+	async def _forward_media_or_album(
+		self,
+		client: TelegramClient,
+		source_entity,
+		forward_entity,
+		messages: list,
+		*,
+		thread_id: int | None = None,
+	) -> None:
+		"""一次转发单条媒体或完整相簿。"""
+		message_ids = [message.id for message in messages]
+		needs_resend = thread_id is not None or self.caption_json_mode
+		if needs_resend:
+			await self._resend_media_album(
+				client,
+				forward_entity,
+				messages,
+				reply_to=thread_id,
+				source_entity=source_entity,
+			)
+			return
+
+		try:
+			await client.forward_messages(
+				entity=forward_entity,
+				messages=message_ids,
+				from_peer=source_entity,
+			)
+		except ChatForwardsRestrictedError:
+			await self._resend_media_album(
+				client,
+				forward_entity,
+				messages,
+				reply_to=thread_id,
+				source_entity=source_entity,
+			)
+
+	async def _consume_bot_replies(
+		self,
+		client: TelegramClient,
+		replies: list,
+		reply_event: asyncio.Event,
+		*,
+		timeout: float,
+	) -> None:
+		"""打印已收集及后续回复，并处理“上传已完成”与“送出”按钮。"""
+		button_text = "⚙️ 上传已完成，进入配置"
+		button_data = "enc:upload:done"
+		send_button_text = "📤 送出"
+		send_button_data = "enc:send:now"
+		loop = asyncio.get_running_loop()
+		deadline = loop.time() + timeout
+		next_reply_index = 0
+
+		def _log_reply(reply) -> list[dict]:
+			reply_text = getattr(reply, "message", None) or ""
+			print(
+				f"[BotReply] 收到机器人回复 | message_id={getattr(reply, 'id', None)} | text={reply_text!r}",
+				flush=True,
+			)
+			reply_buttons = self._extract_button_info(reply).get("buttons", [])
+			if reply_buttons:
+				print(f"[BotReply] 回复按钮 | buttons={reply_buttons}", flush=True)
+			else:
+				print("[BotReply] 回复无按钮", flush=True)
+			return reply_buttons
+
+		def _has_upload_done_button(reply_buttons: list[dict]) -> bool:
+			return any(
+				button.get("text") == button_text and button.get("data") == button_data
+				for button in reply_buttons
+			)
+
+		def _has_send_button(reply_buttons: list[dict]) -> bool:
+			return any(
+				button.get("text") == send_button_text and button.get("data") == send_button_data
+				for button in reply_buttons
+			)
+
+		async def _click_upload_done(reply, *, retry: bool = False) -> None:
+			label = "再次点击" if retry else "已点击"
+			try:
+				result = await reply.click(data=button_data.encode("utf-8"))
+				print(f"[BotReply] {label} {button_text!r} | result={result}", flush=True)
+			except Exception as exc:
+				print(f"[BotReply] {label} {button_text!r} 失败 | error={exc}", flush=True)
+
+		async def _click_send_button(reply) -> None:
+			try:
+				result = await reply.click(data=send_button_data.encode("utf-8"))
+				print(f"[BotReply] 已点击 {send_button_text!r} | result={result}", flush=True)
+			except Exception as exc:
+				print(f"[BotReply] 点击 {send_button_text!r} 失败 | error={exc}", flush=True)
+
+		while True:
+			while next_reply_index < len(replies):
+				reply = replies[next_reply_index]
+				next_reply_index += 1
+				reply_buttons = _log_reply(reply)
+				if _has_send_button(reply_buttons):
+					await _click_send_button(reply)
+					return
+				should_click = _has_upload_done_button(reply_buttons)
+				if should_click:
+					await _click_upload_done(reply)
+
+					# 点击后观察同一条消息的按钮是否被机器人更新；未更新则 3 秒后再点一次。
+					clicked_message_id = getattr(reply, "id", None)
+					retry_reply = reply
+					retry_deadline = loop.time() + 3
+					while True:
+						while next_reply_index < len(replies):
+							updated_reply = replies[next_reply_index]
+							next_reply_index += 1
+							updated_buttons = _log_reply(updated_reply)
+							if _has_send_button(updated_buttons):
+								await _click_send_button(updated_reply)
+								return
+							if getattr(updated_reply, "id", None) != clicked_message_id:
+								continue
+							if not _has_upload_done_button(updated_buttons):
+								print("[BotReply] 配置按钮已改变，不再重复点击", flush=True)
+								return
+							retry_reply = updated_reply
+
+						remaining_retry = retry_deadline - loop.time()
+						if remaining_retry <= 0:
+							await _click_upload_done(retry_reply, retry=True)
+							return
+
+						reply_event.clear()
+						if next_reply_index < len(replies):
+							continue
+						try:
+							await asyncio.wait_for(reply_event.wait(), timeout=remaining_retry)
+						except asyncio.TimeoutError:
+							await _click_upload_done(retry_reply, retry=True)
+							return
+
+			remaining = deadline - loop.time()
+			if remaining <= 0:
+				print(f"[BotReply] 等待配置按钮超时（{timeout:g} 秒）", flush=True)
+				return
+
+			reply_event.clear()
+			if next_reply_index < len(replies):
+				continue
+			try:
+				await asyncio.wait_for(reply_event.wait(), timeout=remaining)
+			except asyncio.TimeoutError:
+				print(f"[BotReply] 等待配置按钮超时（{timeout:g} 秒）", flush=True)
+				return
 	# ── 核心异步方法 ──────────────────────────────────────────
 
 	async def fetch_messages(self, start_message_id: int, limit: int) -> list[dict]:
@@ -808,6 +1048,145 @@ class GroupMediaForwarder:
 
 			return last_message_id
 		finally:
+			if own_client:
+				await client.disconnect()
+
+	async def fetch_and_forward_media_or_album(
+		self,
+		start_message_id: int,
+		*,
+		max_messages: int | None = None,
+		respect_sleep: bool = True,
+		single_reply_timeout: float = 30.0,
+		album_reply_timeout: float = 90.0,
+	) -> int:
+		"""逐条检查新消息：相簿整组转发，普通媒体只转发单条。"""
+		self.last_forwarded_media_count = 0
+		client, own_client = await self._acquire_client()
+		replies = []
+		reply_event = asyncio.Event()
+		reply_handlers = []
+		listened_target_ids = set()
+		forwarded_album = False
+
+		def _listen_for_bot_replies(forward_entity) -> None:
+			target_id = getattr(forward_entity, "id", None)
+			target_key = target_id if target_id is not None else repr(forward_entity)
+			if target_key in listened_target_ids:
+				return
+			listened_target_ids.add(target_key)
+
+			async def _on_reply(event) -> None:
+				replies.append(event.message)
+				reply_event.set()
+
+			client.add_event_handler(
+				_on_reply,
+				events.NewMessage(chats=forward_entity, incoming=True),
+			)
+			client.add_event_handler(
+				_on_reply,
+				events.MessageEdited(chats=forward_entity, incoming=True),
+			)
+			reply_handlers.append(_on_reply)
+
+		try:
+			source_entity = await self._resolve_source_entity(client)
+			default_target, default_thread_id = self._resolve_forward_target()
+			default_entity = await client.get_entity(default_target)
+			_listen_for_bot_replies(default_entity)
+			last_message_id = start_message_id - 1
+			processed_grouped_ids: set[int] = set()
+			iter_kwargs = {
+				"min_id": start_message_id - 1,
+				"reverse": True,
+			}
+			if isinstance(max_messages, int) and max_messages > 0:
+				iter_kwargs["limit"] = int(max_messages)
+
+			async for message in client.iter_messages(source_entity, **iter_kwargs):
+				last_message_id = max(last_message_id, message.id)
+				if not getattr(message, "media", None):
+					await self.write_last_message_id(message.id, client=client)
+					continue
+
+				if getattr(message, "sticker", None) or getattr(message, "gif", None):
+					print(f"[Skip] id={message.id} 贴图/GIF 不转发", flush=True)
+					await self.write_last_message_id(message.id, client=client)
+					continue
+
+				grouped_id = getattr(message, "grouped_id", None)
+				if grouped_id is not None and grouped_id in processed_grouped_ids:
+					continue
+
+				media_messages = await self._load_media_album(client, source_entity, message)
+				if grouped_id is not None:
+					processed_grouped_ids.add(grouped_id)
+				media_last_id = max(item.id for item in media_messages)
+				last_message_id = max(last_message_id, media_last_id)
+				text = "\n".join(item.message or "" for item in media_messages).strip()
+
+				route = self._match_route(text)
+				if route:
+					forward_entity = await client.get_entity(route["chat_id"])
+					_listen_for_bot_replies(forward_entity)
+					thread_id = route.get("thread_id")
+					should_forward = True
+				else:
+					forward_entity = default_entity
+					thread_id = default_thread_id
+					should_forward = self.skip_caption_check or (
+						not self.is_blacklisted(text)
+						and self.classify_text(text) in {"group_1", "group_2"}
+					)
+
+				if should_forward:
+					kind = "相簿" if grouped_id is not None else "单条媒体"
+					print(f"[Forward] id={message.id} {kind}，共 {len(media_messages)} 个媒体", flush=True)
+					try:
+						await self._forward_media_or_album(
+							client,
+							source_entity,
+							forward_entity,
+							media_messages,
+							thread_id=thread_id,
+						)
+						self.last_forwarded_media_count += len(media_messages)
+						if grouped_id is not None:
+							forwarded_album = True
+					except Exception as exc:
+						print(f"[Forward] id={message.id} {kind}转发失败 | error={exc}", flush=True)
+				else:
+					print(f"[Skip] id={message.id} 不符合转发条件", flush=True)
+
+				await self.write_last_message_id(media_last_id, client=client)
+				print(f"[State] 已写入 last_message_id={media_last_id}", flush=True)
+
+				if should_forward and respect_sleep and self.sleep_enabled:
+					sleep_seconds = random.randint(
+						min(self.sleep_min_seconds, self.sleep_max_seconds),
+						max(self.sleep_min_seconds, self.sleep_max_seconds),
+					)
+					await asyncio.sleep(sleep_seconds)
+
+			if self.last_forwarded_media_count > 0:
+				reply_timeout = album_reply_timeout if forwarded_album else single_reply_timeout
+				print(
+					f"[BotReply] 全部媒体已发送，开始接收机器人回复，最多等待 {reply_timeout:g} 秒",
+					flush=True,
+				)
+				await asyncio.sleep(3)
+				await self._consume_bot_replies(
+					client,
+					replies,
+					reply_event,
+					timeout=reply_timeout,
+				)
+
+			return last_message_id
+		finally:
+			for reply_handler in reply_handlers:
+				client.remove_event_handler(reply_handler)
 			if own_client:
 				await client.disconnect()
 

@@ -68,7 +68,7 @@ class GroupMediaForwarder:
 		state_file: Path | None = None,
 		white_list_group_1: list[str] | None = None,
 		white_list_group_2: list[str] | None = None,
-		black_list: list[str] | None = None,
+		black_list: list[str | int] | None = None,
 		keyword_routes: list[dict] | None = None,
 		download_fallback_enabled: bool = True,
 		backup_chat_id: int | str | None = None,
@@ -208,7 +208,23 @@ class GroupMediaForwarder:
 		return "group_3"
 
 	def is_blacklisted(self, text: str) -> bool:
-		return any(kw and kw in text for kw in self.black_list)
+		return any(
+			isinstance(kw, str) and kw and kw in text
+			for kw in self.black_list
+		)
+
+	def is_sender_blacklisted(self, sender_id: int | None) -> bool:
+		"""检查发送者 ID 是否在黑名单中（兼容整数和数字字符串）。"""
+		if sender_id is None:
+			return False
+
+		sender_id_text = str(sender_id)
+		return any(
+			str(entry).strip() == sender_id_text
+			for entry in self.black_list
+			if isinstance(entry, int)
+			or (isinstance(entry, str) and entry.strip().lstrip("-").isdigit())
+		)
 
 	def _match_route(self, text: str) -> dict | None:
 		"""
@@ -1106,6 +1122,15 @@ class GroupMediaForwarder:
 
 			async for message in client.iter_messages(source_entity, **iter_kwargs):
 				last_message_id = max(last_message_id, message.id)
+				sender_id = getattr(message, "sender_id", None)
+				if self.is_sender_blacklisted(sender_id):
+					print(
+						f"[Skip] id={message.id} sender_id={sender_id} 发送者在黑名单中",
+						flush=True,
+					)
+					await self.write_last_message_id(message.id, client=client)
+					continue
+
 				if not getattr(message, "media", None):
 					await self.write_last_message_id(message.id, client=client)
 					continue

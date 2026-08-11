@@ -154,9 +154,9 @@ async def _fetch_latest_json_from_telegram(
 
 	raise ValueError("找不到可用消息（chat/thread 为空或没有文本）")
 
-# async def move_mouse():
-# 	import pyautogui
-# 	pyautogui.press("ctrl")
+async def move_mouse():
+	import pyautogui
+	pyautogui.press("ctrl")
 	
 
 
@@ -493,7 +493,7 @@ async def forward_media():
 	# 设定 - 转发媒体() --------
 
 	forwarder_car = GroupMediaForwarder(
-		target_group=-1003959832615,
+		target_group=-1003762786157,
 		forward_to="ztTower1bot",
 		start_message_id=1,
 		caption_json_mode=False,
@@ -503,7 +503,7 @@ async def forward_media():
 		sleep_max_seconds=2,
 		white_list_group_1=[],
 		white_list_group_2=[],
-		black_list=[],
+		black_list=[8929118401],
 	)
 	forwarder_car.bind_telegram_bot(telegram_bot)
 	await forwarder_car._prepare_state_data(client=telegram_bot)
@@ -534,6 +534,7 @@ async def forward_media():
 				f"等待 {wait_seconds} 秒后再次执行",
 				flush=True,
 			)
+			await move_mouse()
 			await asyncio.sleep(wait_seconds)
 	finally:
 		if telegram_bot.is_connected():
@@ -543,8 +544,8 @@ async def forward_media():
 async def main() -> None:
     await asyncio.gather(
         run_health_server(),  # 监听 Render 的 PORT
-        bot_scheduler(),      # 每 6 小时运行机器人
-		# forward_media(),
+        # bot_scheduler(),      # 每 6 小时运行机器人
+		forward_media(),
     )
 
 	

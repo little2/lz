@@ -544,8 +544,8 @@ async def forward_media():
 async def main() -> None:
     await asyncio.gather(
         run_health_server(),  # 监听 Render 的 PORT
-        # bot_scheduler(),      # 每 6 小时运行机器人
-		forward_media(),
+        bot_scheduler(),      # 每 6 小时运行机器人
+		# forward_media(),
     )
 
 	

@@ -2,6 +2,7 @@ import asyncio
 from datetime import date
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -300,7 +301,59 @@ class BotScripts:
 
 	@staticmethod
 	async def script_aiyynvshen_bot() -> None:
-		await BotScripts._send_only("@AiYYnvshen_bot", "⭐ 今日签到")
+		async with BotScripts._session("@AiYYnvshen_bot") as s:
+			await s.send("⭐ 今日签到")
+			reply = await s.wait_reply(timeout=30)
+			if not reply:
+				return
+
+			buttons = BotSession.parse_buttons(reply)
+			if buttons:
+				button_row = buttons[0]
+				if len(button_row) >= 2:
+					second = button_row[1]
+					print(f"[AiYYnvshen_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
+					await s.click_by_text(reply, str(second.get("text", "")))
+
+					wrong_reply = await s.wait_reply(timeout=30)
+					if wrong_reply:
+						wrong_text = getattr(wrong_reply, "message", None) or ""
+						print(f"[AiYYnvshen_bot] 错误反馈: {wrong_text!r}", flush=True)
+						match = re.search(r"([0-9]+)\s*([+\-*/])\s*([0-9]+)\s*=\s*\?", wrong_text)
+						if match:
+							a_str, op, b_str = match.groups()
+							a = int(a_str)
+							b = int(b_str)
+							if op == "+":
+								answer = a + b
+							elif op == "-":
+								answer = a - b
+							elif op == "*":
+								answer = a * b
+							elif op == "/":
+								answer = a / b
+							else:
+								answer = None
+							if answer is not None:
+								answer_texts = {str(int(answer)) if float(answer).is_integer() else str(answer)}
+								for row in buttons:
+									for btn in row:
+										btn_text = str(btn.get("text", "")).strip()
+										if btn_text in answer_texts:
+											print(f"[AiYYnvshen_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
+											await s.click_by_text(reply, btn_text)
+											return
+								for row in buttons:
+									for btn in row:
+										btn_text = str(btn.get("text", "")).strip()
+										if btn_text and str(answer) in btn_text:
+											print(f"[AiYYnvshen_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
+											await s.click_by_text(reply, btn_text)
+											return
+							return
+
+			reply_text = getattr(reply, "message", None) or ""
+			print(f"[AiYYnvshen_bot] 签到回复内容: {reply_text!r}", flush=True)
 
 	@staticmethod
 	async def script_ainudem2bot() -> None:

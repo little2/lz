@@ -442,9 +442,9 @@ async def process_bot():
 			# --------------------
 		
 			print("[process_bot] single-run started", flush=True)
-			# await BotScripts.script_hyai001_bot()
+			# await BotScripts.script_ainudem2bot()
 			await run_all_bot()
-			await _save_json_dict_to_file(global_params_file, GLOBAL_PARAMS, client=telegram_bot)
+			# await _save_json_dict_to_file(global_params_file, GLOBAL_PARAMS, client=telegram_bot)
 			print("[process_bot] single-run finished, stopping", flush=True)
 		finally:
 			if telegram_bot.is_connected():
@@ -493,7 +493,7 @@ async def forward_media():
 	# 设定 - 转发媒体() --------
 
 	forwarder_car = GroupMediaForwarder(
-		target_group=-1003762786157,
+		target_group=-1003765176520,
 		forward_to="ztTower1bot",
 		start_message_id=1,
 		caption_json_mode=False,

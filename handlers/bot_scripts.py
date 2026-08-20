@@ -412,19 +412,19 @@ class BotScripts:
 		await BotScripts._send_only("@xhgsgk_bot", "/qd")
 
 	@staticmethod
-	async def script_tangest5_bot() -> None:
-		"""@tangest5_bot - 设 bio 后签到"""
+	async def script_tangest6_bot() -> None:
+		"""@tangest6_bot - 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 		client, own_client = await BotScripts._acquire_client()
 		try:
 			user_id = BotScripts._user_info.id
 			for _ in range(2):
-				await client(UpdateProfileRequest(about=f"https://t.me/tangest5_bot?start=ref_{user_id}"))
-				print(f"[tangest5_bot] bio 已设置 https://t.me/tangest5_bot?start=ref_{user_id}", flush=True)
+				await client(UpdateProfileRequest(about=f"https://t.me/tangest6_bot?start=ref_{user_id}"))
+				print(f"[tangest6_bot] bio 已设置 https://t.me/tangest6_bot?start=ref_{user_id}", flush=True)
 				await asyncio.sleep(15)
-				entity = await client.get_entity("@tangest5_bot")
+				entity = await client.get_entity("@tangest6_bot")
 				sent = await client.send_message(entity=entity, message="📅 签到")
-				print(f"[tangest5_bot] 已发送签到 | message_id={sent.id}", flush=True)
+				print(f"[tangest6_bot] 已发送签到 | message_id={sent.id}", flush=True)
 				await asyncio.sleep(5)
 			await client(UpdateProfileRequest(about=""))
 		finally:
@@ -671,7 +671,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@fileposterprobot": BotScripts.script_fileposterprobot,
 	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
 	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
-	"@tangest5_bot": BotScripts.script_tangest5_bot,
+	"@tangest6_bot": BotScripts.script_tangest6_bot,
 	"@quyi44bot": BotScripts.script_quyi44bot,
 	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
 	"@menjjbot": BotScripts.script_menjjbot,

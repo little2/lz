@@ -11,10 +11,11 @@ import textwrap
 
 
 class HarryClass:
-	def __init__(self, client: TelegramClient, bot_client: TelegramClient, group_bots: list[int | str] | None = None) -> None:
+	def __init__(self, client: TelegramClient, bot_client: TelegramClient, group_bots: list[int | str] | None = None, group_men: list[int | str] | None = None) -> None:
 		self.client = client
 		self.bot_client = bot_client
 		self.group_bots = group_bots or []
+		self.group_men = group_men or []
 
 	@staticmethod
 	def anonymous_admin_rights(group_type: str = None) -> ChatAdminRights:
@@ -120,7 +121,7 @@ class HarryClass:
 
 	async def batch_create_group(self) -> list[str]:
 		results: list[str] = []
-		cnt = 4
+		cnt = 20
 		for i in range(cnt):
 			try:
 				print(f"[harry] creating test groups (broadcast) attempt {i + 1}/{cnt}", flush=True)
@@ -178,6 +179,7 @@ class HarryClass:
 		group_id = int(f"-100{group.id}")
 		self_admin_result = "self: skipped"
 		bot_results: list[str] = []
+		man_results: list[str] = []
 		book_result = "/book: skipped"
 		time_result = "time message: skipped"
 
@@ -207,9 +209,19 @@ class HarryClass:
 			except Exception as exc:
 				bot_results.append(f"❌ {bot}: failed: {exc}")
 			finally:
-				await asyncio.sleep(1.1)
-				
-		
+				await asyncio.sleep(3)
+
+		for man in self.group_men:
+			try:
+				await self.client(InviteToChannelRequest(
+					channel=group_id,
+					users=[man]
+				))
+				man_results.append(f"{man}: invited as member")
+			except Exception as exc:
+				man_results.append(f"❌ {man}: failed: {exc}")
+			finally:
+				await asyncio.sleep(3)
 		try:
 			await self.client.send_message(group_id, "/book")
 			book_result = "/book: sent"

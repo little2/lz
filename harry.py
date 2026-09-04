@@ -38,7 +38,7 @@ GROUP_BOTS_RAW = os.getenv("HARRY_GROUP_BOTS", os.getenv("BOT_INIT", ""))
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 BOT_RIGHTS_CHAT_RAW = os.getenv("HARRY_BOT_RIGHTS_CHAT", "").strip()
 
-
+GROUP_MEN_RAW = os.getenv("HARRY_GROUP_MEN", "")
 
 
 def parse_csv_values(raw: str) -> list[int | str]:
@@ -65,6 +65,7 @@ def parse_int_set(raw: str) -> set[int]:
 FORWARD_TARGETS = parse_csv_values(FORWARD_TARGETS_RAW)
 ADMIN_IDS = parse_int_set(ADMIN_IDS_RAW)
 GROUP_BOTS = parse_csv_values(GROUP_BOTS_RAW)
+GROUP_MEN = parse_csv_values(GROUP_MEN_RAW)
 BOT_RIGHTS_CHAT = parse_csv_values(BOT_RIGHTS_CHAT_RAW)
 
 
@@ -112,7 +113,7 @@ def build_user_client() -> TelegramClient:
 
 
 client,bot_client = build_user_client()
-harry = HarryClass(client, bot_client, GROUP_BOTS)
+harry = HarryClass(client, bot_client, GROUP_BOTS, GROUP_MEN)
 
 
 @client.on(events.NewMessage(incoming=True))

@@ -121,7 +121,7 @@ class HarryClass:
 
 	async def batch_create_group(self) -> list[str]:
 		results: list[str] = []
-		cnt = 20
+		cnt = 4
 		for i in range(cnt):
 			try:
 				print(f"[harry] creating test groups (broadcast) attempt {i + 1}/{cnt}", flush=True)
@@ -340,22 +340,33 @@ class HarryClass:
 
 
 	async def grant_permissions_by_man(self, chat_id: int, bot_name: int | str, nonanonymous: bool = False) -> None:
+		try:
+			me = await self.client.get_me()
+			result = await self.client(GetParticipantRequest(
+				channel=chat_id,
+				participant=me
+			))
 
-		me = await self.client.get_me()
-		result = await self.client(GetParticipantRequest(
-			channel=chat_id,
-			participant=me
-		))
+			participant = result.participant
+			rights = participant.admin_rights
 
-		participant = result.participant
-		rights = participant.admin_rights
-
-		return await self.client(EditAdminRequest(
-			channel=chat_id,
-			user_id=bot_name,
-			admin_rights=rights,
-			rank="ㅤ"
-		))
+			request_result = await self.client(EditAdminRequest(
+				channel=chat_id,
+				user_id=bot_name,
+				admin_rights=rights,
+				rank="ㅤ"
+			))
+			print(
+				f"[harry] Granted permissions to {bot_name} in chat {chat_id}",
+				flush=True,
+			)
+			return request_result
+		except Exception as exc:
+			print(
+				f"[harry] Failed to grant permissions to {bot_name} in chat {chat_id}: {exc}",
+				flush=True,
+			)
+			raise
 
 	async def revoke_permissions(self, chat_id: int, user_id: int):
 		"""
@@ -881,6 +892,58 @@ class HarryClass:
 			print(f"[harry] xiaodi_topic: failed to grant permissions or invite bots: {exc}", flush=True)
 		return sop_text
 
+	async def set_chat_airplane(self, board_info: dict) -> str:
+		"""
+		设置群组为機場频道
+		"""
+		
+		chat_id = board_info["chat_id"]
+		
+		sop_text = textwrap.dedent("""
+			<blockquote>機場频道 基础设置</blockquote>
+			1️⃣ 新增私密频道
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>机器人指令</blockquote>
+			4️⃣ 在机器人私信中，发送 <code>!setchat airplane -100[频道ID]</code> 指令
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入小龙阳(入群审核)/核心二号机器人给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setchat airplane</code> 指令 (待完成)
+			8️⃣ 
+			9️⃣ 完成				 				                     
+		""").strip()
+		# print(f"[harry] subscribe_preview: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			# man_me = await self.client.get_me()
+			# await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			
+			# 6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower2bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower5bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower7bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower8bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower9bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower10bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower11bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower12bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower13bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower14bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower15bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
+			# await self.client.send_message(chat_id, "/setup")
+			# await self.client.send_message("luzai33003bot", "/update_setting")
+
+			# await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+		except Exception as exc:
+			print(f"[harry] xiaodi_topic: failed to grant permissions or invite bots: {exc}", flush=True)
+		return sop_text
 
 	async def set_chat_ltgphoto(self, board_info: dict) -> str:
 		"""

@@ -41,6 +41,7 @@ BOT_RIGHTS_CHAT_RAW = os.getenv("HARRY_BOT_RIGHTS_CHAT", "").strip()
 GROUP_MEN_RAW = os.getenv("HARRY_GROUP_MEN", "")
 
 
+
 def parse_csv_values(raw: str) -> list[int | str]:
     values: list[int | str] = []
     for part in raw.replace(";", ",").split(","):
@@ -96,24 +97,32 @@ def build_proxy():
 def build_user_client() -> TelegramClient:
     proxy = build_proxy()
     # proxy = None
+
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+    BOT_ID = BOT_TOKEN.split(":", 1)[0]
+
+    bot_client = TelegramClient(
+        str(BASE_DIR / f"bot_{BOT_ID}"),
+        API_ID,
+        API_HASH,
+        proxy=proxy,
+    )
+
+
     if SESSION_STRING:
         # 人类账号 session
         user_client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH, proxy=proxy)
-
-        # Telegram Bot session
-        bot_client = TelegramClient("bot_session", API_ID, API_HASH, proxy=proxy)
-
         return user_client,bot_client
     
 
-
     user_client = TelegramClient(USER_SESSION or "harry", API_ID, API_HASH, proxy=proxy)
-    bot_client = TelegramClient("bot_session", API_ID, API_HASH, proxy=proxy)
     return user_client,bot_client
 
 
 client,bot_client = build_user_client()
-harry = HarryClass(client, bot_client, GROUP_BOTS, GROUP_MEN)
+from shared_config import SharedConfig
+SharedConfig.load(True)
+harry = HarryClass(client, bot_client, GROUP_BOTS, GROUP_MEN, SharedConfig)
 
 
 @client.on(events.NewMessage(incoming=True))
@@ -210,17 +219,29 @@ async def main() -> None:
 
     await client.start()
     me = await client.get_me()
-    # await bot_client.start(bot_token=os.getenv("BOT_TOKEN", ""))
-    # bot_me = await bot_client.get_me()
-    
-    # print(f"[harry] Telethon userbot online: id={me.id} username={me.username}", flush=True)
-    # print(f"[harry] Telethon bot online: id={bot_me.id} username={bot_me.username}", flush=True)
-    # print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
-    # print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
 
-    # await harry.set_chat_airplane({'chat_id': -1003993091033})
-    results = await harry.batch_create_group()
-    print(f"[harry] batch_create_group results: {results}", flush=True)
+    if not BOT_TOKEN:
+        raise RuntimeError("BOT_TOKEN is not configured")
+
+    await bot_client.start(bot_token=BOT_TOKEN)
+    bot_me = await bot_client.get_me()
+
+    if not bot_me.bot:
+        raise RuntimeError(
+            f"bot_client 登录的不是机器人账号：id={bot_me.id}, username={bot_me.username}"
+        )
+
+
+ 
+    
+    print(f"[harry] Telethon userbot online: id={me.id} username={me.username}", flush=True)
+    print(f"[harry] Telethon bot online: id={bot_me.id} username={bot_me.username}", flush=True)
+    print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
+    print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
+
+    await harry.set_chat_airplane({'chat_id': -1004499995795})
+    # results = await harry.batch_create_group()
+    # print(f"[harry] batch_create_group results: {results}", flush=True)
     exit()
     await client.run_until_disconnected()
     

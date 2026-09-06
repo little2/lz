@@ -1,21 +1,32 @@
 import asyncio
+import os
 from datetime import datetime
+from pathlib import Path
 
 from telethon import TelegramClient, utils
-from telethon.errors.rpcerrorlist import ChatAdminRequiredError, FloodWaitError, UserAlreadyParticipantError, UserPrivacyRestrictedError
-from telethon.tl.functions.channels import CreateChannelRequest, EditAdminRequest, GetParticipantRequest, InviteToChannelRequest
-from telethon.tl.functions.messages import ExportChatInviteRequest
-from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator, ChatAdminRights, InputUser
+from telethon.errors.rpcerrorlist import ChatAdminRequiredError, ChatNotModifiedError, FloodWaitError, LinkNotModifiedError, UserAlreadyParticipantError, UserPrivacyRestrictedError
+from telethon.tl.functions.channels import CreateChannelRequest, EditAdminRequest, EditPhotoRequest, GetParticipantRequest, InviteToChannelRequest
+from telethon.tl.functions.messages import EditChatAboutRequest, ExportChatInviteRequest
+from telethon.tl.types import ChannelParticipantAdmin, ChannelParticipantCreator, ChatAdminRights, InputChatUploadedPhoto, InputUser
 import textwrap
+
+from telethon.tl.functions.channels import (
+	EditTitleRequest,
+    SetDiscussionGroupRequest,
+    TogglePreHistoryHiddenRequest,
+)
+
 
 
 
 class HarryClass:
-	def __init__(self, client: TelegramClient, bot_client: TelegramClient, group_bots: list[int | str] | None = None, group_men: list[int | str] | None = None) -> None:
+	def __init__(self, client: TelegramClient, bot_client: TelegramClient, group_bots: list[int | str] | None = None, group_men: list[int | str] | None = None, shared_config=None) -> None:
 		self.client = client
 		self.bot_client = bot_client
 		self.group_bots = group_bots or []
 		self.group_men = group_men or []
+		self.shared_config = shared_config
+
 
 	@staticmethod
 	def anonymous_admin_rights(group_type: str = None) -> ChatAdminRights:
@@ -475,6 +486,129 @@ class HarryClass:
 		except Exception as e:
 			print(f"邀請失敗：{type(e).__name__}: {e}")
 
+	async def edit_channel_title(self, channel_id: int | str, new_title: str):
+		new_title = new_title.strip()
+		if not new_title:
+			raise ValueError("频道名称不能为空")
+
+		try:
+			await self.client(
+				EditTitleRequest(
+					channel=channel_id,
+					title=new_title,
+				)
+			)
+
+			print(f"频道名称已修改为：{new_title}")
+
+			return f"频道名称已修改为：{new_title}"
+		except Exception as e:
+			print(f"修改频道名称失败或一样：{type(e).__name__}: {e}")
+			
+
+	async def edit_channel_description(self, channel_id: int | str, new_description: str) -> str:
+		"""修改频道简介；传入空字符串可清空简介。"""
+		new_description = new_description.strip()
+		try:
+			await self.client(
+				EditChatAboutRequest(
+					peer=channel_id,
+					about=new_description,
+				)
+			)
+
+			print(f"频道简介已修改为：{new_description}", flush=True)
+			return f"频道简介已修改为：{new_description}"
+		except Exception as e:
+			print(f"修改频道简介失败或一样：{type(e).__name__}: {e}")
+
+	async def edit_channel_photo(self, channel_id: int | str, photo_path: str | Path) -> str:
+		"""上传本地图片并设为频道头像。"""
+		photo_path = Path(photo_path).expanduser()
+		if not photo_path.is_file():
+			raise FileNotFoundError(f"频道头像文件不存在：{photo_path}")
+
+		uploaded_photo = await self.client.upload_file(str(photo_path))
+		await self.client(
+			EditPhotoRequest(
+				channel=channel_id,
+				photo=InputChatUploadedPhoto(file=uploaded_photo),
+			)
+		)
+
+		print(f"频道头像已修改：{photo_path}", flush=True)
+		return f"频道头像已修改：{photo_path}"
+
+	async def delete_channel_history(self, channel_id: int | str) -> int:
+		"""删除频道中当前存在的所有历史消息。"""
+		channel = await self.client.get_entity(channel_id)
+		message_ids: list[int] = []
+		deleted_count = 0
+
+		async for message in self.client.iter_messages(channel):
+			message_ids.append(message.id)
+			if len(message_ids) < 100:
+				continue
+
+			await self.client.delete_messages(channel, message_ids)
+			deleted_count += len(message_ids)
+			message_ids.clear()
+
+		if message_ids:
+			await self.client.delete_messages(channel, message_ids)
+			deleted_count += len(message_ids)
+
+		print(
+			f"[harry] deleted {deleted_count} historical messages from channel {channel_id}",
+			flush=True,
+		)
+		return deleted_count
+
+
+	async def set_channel_discussion(
+		self,
+		channel_id: int | str,
+		discussion_group_id: int | str,
+	) -> bool:
+		channel = await self.client.get_input_entity(channel_id)
+		discussion_group = await self.client.get_input_entity(
+			discussion_group_id
+		)
+
+		# 讨论群必须允许新成员查看历史消息。
+		try:
+			await self.client(
+				TogglePreHistoryHiddenRequest(
+					channel=discussion_group,
+					enabled=False,
+				)
+			)
+		except ChatNotModifiedError:
+			print(
+				f"讨论群 {discussion_group_id} 已允许查看历史消息",
+				flush=True,
+			)
+
+		try:
+			result = await self.client(
+				SetDiscussionGroupRequest(
+					broadcast=channel,
+					group=discussion_group,
+				)
+			)
+		except LinkNotModifiedError:
+			print(
+				f"频道 {channel_id} 已关联讨论群 {discussion_group_id}",
+				flush=True,
+			)
+			return True
+
+		print(
+			f"频道 {channel_id} 已关联讨论群 {discussion_group_id}",
+			flush=True,
+		)
+		return bool(result)
+
 
 	async def set_chat(self, params: list[str], board_info: dict) -> str | None:
 		if not params:
@@ -506,6 +640,8 @@ class HarryClass:
 			return await self.set_chat_ltgphoto(board_info)
 		elif chat_type == "ltgphoto_review":
 			return await self.set_chat_ltgphoto_review(board_info)		
+		elif chat_type == "airplane":
+			return await self.set_chat_airplane(board_info)
 		try:
 			await self.client.send_message("me", f"/setchat {chat_type}")
 			print(f"[harry] set_chat: sent /setchat {chat_type}", flush=True)
@@ -903,12 +1039,12 @@ class HarryClass:
 			<blockquote>機場频道 基础设置</blockquote>
 			1️⃣ 新增私密频道
 			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
-			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			3️⃣ 将晓洋以一般的成员身份邀请进群
 			<blockquote>机器人指令</blockquote>
 			4️⃣ 在机器人私信中，发送 <code>!setchat airplane -100[频道ID]</code> 指令
 			5️⃣ 授与人型机器人管理员权限
-			6️⃣ 拉入小龙阳(入群审核)/核心二号机器人给予所有的权限
-			7️⃣ 在群组中，发送 <code>/setchat airplane</code> 指令 (待完成)
+			6️⃣ 拉入塔台机器人给予所有的权限
+			7️⃣ 
 			8️⃣ 
 			9️⃣ 完成				 				                     
 		""").strip()
@@ -917,32 +1053,56 @@ class HarryClass:
 
 		try:
 			# 5️⃣ 授与人型机器人管理员权限
-			
-			# man_me = await self.client.get_me()
-			# await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+			if self.shared_config is None:
+				raise RuntimeError("HarryClass 未传入 SharedConfig")
 
+			chat_config = self.shared_config.get("chat") or {}
+			zttower_duty_free_group = chat_config.get("zttower_airport_lobby_group")
+			if not isinstance(zttower_duty_free_group, dict):
+				raise RuntimeError("SharedConfig.chat 缺少 zttower_airport_lobby_group 配置")
+
+			zttower_airport_lobby_group_chat_id = zttower_duty_free_group.get("chat_id")
+			if not zttower_airport_lobby_group_chat_id:
+				raise RuntimeError("SharedConfig.chat.zttower_airport_lobby_group 缺少 chat_id")
+
+			man_me = await self.client.get_me()
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			await self.grant_permissions(chat_id=zttower_airport_lobby_group_chat_id, user_id=man_me.id, nonanonymous=True)
+
+			await self.delete_channel_history(channel_id=chat_id)
+			await self.edit_channel_title(channel_id=chat_id, new_title="飞机场✈️")
+			await self.edit_channel_description(channel_id=chat_id, new_description="飞机场✈️不就是用来起来的吗")
+
+			await self.edit_channel_photo(channel_id=chat_id, photo_path="./chatphoto/TERMINAL_CHANNEL.png")
+			
 			
 			# 6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower2bot")
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower5bot")
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower7bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower8bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower8bot")
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower9bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower10bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower11bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower12bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower13bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower14bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower15bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower10bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower11bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower12bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower13bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower14bot")
+			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower15bot")
 			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
 			# await self.client.send_message(chat_id, "/setup")
 			# await self.client.send_message("luzai33003bot", "/update_setting")
+			
+			await self.set_channel_discussion(channel_id=chat_id,discussion_group_id=zttower_airport_lobby_group_chat_id,)
 
-			# await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+			await self.revoke_permissions(chat_id=zttower_duty_free_group["chat_id"], user_id=man_me.id)
+			
 
 			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
 		except Exception as exc:
-			print(f"[harry] xiaodi_topic: failed to grant permissions or invite bots: {exc}", flush=True)
+			print(f"[harry] airplane: failed to grant permissions or invite bots: {exc}", flush=True)
 		return sop_text
 
 	async def set_chat_ltgphoto(self, board_info: dict) -> str:

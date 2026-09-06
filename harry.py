@@ -218,9 +218,9 @@ async def main() -> None:
     # print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
     # print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
 
-    await harry.set_chat_airplane({'chat_id': -1003993091033})
-    # results = await harry.batch_create_group()
-    # print(f"[harry] batch_create_group results: {results}", flush=True)
+    # await harry.set_chat_airplane({'chat_id': -1003993091033})
+    results = await harry.batch_create_group()
+    print(f"[harry] batch_create_group results: {results}", flush=True)
     exit()
     await client.run_until_disconnected()
     

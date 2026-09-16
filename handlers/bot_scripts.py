@@ -281,10 +281,10 @@ class BotScripts:
 				for row in rows:
 					for btn in row:
 						if btn.get("text") == text:
-							print(f"[hyai001_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							print(f"[nangefake88_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
 							return recent
 			await asyncio.sleep(poll)
-		print(f"[hyai001_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		print(f"[nangefake88_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
 		return None
 
 	@staticmethod
@@ -392,8 +392,8 @@ class BotScripts:
 		await BotScripts._send_only("@quyi198bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_linglongai_3bot() -> None:
-		await BotScripts._send_only("@linglongai_3bot", "📅 签到")
+	async def script_linglongai_4bot() -> None:
+		await BotScripts._send_only("@linglongai_4bot", "📅 签到")
 
 	@staticmethod
 	async def script_jsai1bot() -> None:
@@ -412,19 +412,19 @@ class BotScripts:
 		await BotScripts._send_only("@xhgsgk_bot", "/qd")
 
 	@staticmethod
-	async def script_tangest_jaogidnv_bot() -> None:
-		"""@tangest_jaogidnv_bot - 设 bio 后签到"""
+	async def script_tang_ihgcbnj_bot() -> None:
+		"""@tang_ihgcbnj_bot - 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 		client, own_client = await BotScripts._acquire_client()
 		try:
 			user_id = BotScripts._user_info.id
 			for _ in range(2):
 				await client(UpdateProfileRequest(about=f"便宜好用全能去衣视频bot\n点击即可体验\nhttps://gaoren.me?start=ref_{user_id}"))
-				print(f"[tangest_jaogidnv_bot] bio 已设置 便宜好用全能去衣视频bot\n点击即可体验\nhttps://gaoren.me?start=ref_{user_id}", flush=True)
+				print(f"[tang_ihgcbnj_bot] bio 已设置 便宜好用全能去衣视频bot\n点击即可体验\nhttps://gaoren.me?start=ref_{user_id}", flush=True)
 				await asyncio.sleep(15)
-				entity = await client.get_entity("@tangest_jaogidnv_bot")
+				entity = await client.get_entity("@tang_ihgcbnj_bot")
 				sent = await client.send_message(entity=entity, message="📅 签到")
-				print(f"[tangest_jaogidnv_bot] 已发送签到 | message_id={sent.id}", flush=True)
+				print(f"[tang_ihgcbnj_bot] 已发送签到 | message_id={sent.id}", flush=True)
 				await asyncio.sleep(5)
 			await client(UpdateProfileRequest(about=""))
 		finally:
@@ -432,11 +432,11 @@ class BotScripts:
 				await client.disconnect()
 
 	@staticmethod
-	async def script_hyai001_bot() -> None:
-		"""@hyai001_bot - 浏览作品/点赞/签到流程"""
+	async def script_nangefake88_bot() -> None:
+		"""@nangefake88_bot - 浏览作品/点赞/签到流程"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 
-		async with BotScripts._session("@hyai001_bot") as s:
+		async with BotScripts._session("@nangefake88_bot") as s:
 
 			
 	
@@ -473,8 +473,8 @@ class BotScripts:
 			if s._client is None:
 				return
 														 
-			await s._client(UpdateProfileRequest(about=f"https://t.me/hyai001_bot?start={user_id}"))
-			print(f"[hyai001_bot] bio 已设置 user_id = {user_id}", flush=True)
+			await s._client(UpdateProfileRequest(about=f"https://t.me/nangefake88_bot?start={user_id}"))
+			print(f"[nangefake88_bot] bio 已设置 user_id = {user_id}", flush=True)
 			
 			await asyncio.sleep(5)
 	
@@ -671,7 +671,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@posterre_bot": BotScripts.script_posterre_bot,
 	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
 	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
-	"@tangest_jaogidnv_bot": BotScripts.script_tangest_jaogidnv_bot,
+	"@tang_ihgcbnj_bot": BotScripts.script_tang_ihgcbnj_bot,
 	"@quyi44bot": BotScripts.script_quyi44bot,
 	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
 	"@menjjbot": BotScripts.script_menjjbot,
@@ -679,7 +679,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@quyi198bot": BotScripts.script_quyi198bot,
 	
 	
-	"@linglongai_3bot": BotScripts.script_linglongai_3bot,
+	"@linglongai_4bot": BotScripts.script_linglongai_4bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@mengokbot": BotScripts.script_mengokbot,
 	"@xhgsgk_bot": BotScripts.script_xhgsgk_bot,
@@ -687,7 +687,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@SrikitiBot": BotScripts.script_srikitibot,
 	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
-	"@hyai001_bot": BotScripts.script_hyai001_bot,
+	"@nangefake88_bot": BotScripts.script_nangefake88_bot,
 }
 
 

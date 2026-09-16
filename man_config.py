@@ -53,6 +53,7 @@ API_ID = int(config.get('api_id', os.getenv('API_ID', 0)))
 API_HASH = config.get('api_hash', os.getenv('API_HASH', ''))
 SESSION_STRING = config.get('session_string', os.getenv('SESSION_STRING', ''))
 SESSION_STRINGS = _parse_session_strings(config.get('session_strings', os.getenv('SESSION_STRINGS', '')))
+print(f"SESSION_STRINGS={SESSION_STRINGS}")
 FORWARDER_RUN_TARGET = str(
 	config.get('forwarder_run_target', os.getenv('FORWARDER_RUN_TARGET', 'forwarder_th'))
 ).strip().lower()

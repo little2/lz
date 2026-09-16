@@ -417,6 +417,7 @@ async def process_bot():
 	for session_string in SESSION_STRINGS:
 		global_params_file = _global_params_file_for_session(session_string)
 
+		print(f"==>{session_string}")
 		telegram_bot = _build_client(session_string)
 		await telegram_bot.start()
 
@@ -467,7 +468,7 @@ async def main_old() -> None:
 	# exit()
 
 async def bot_scheduler() -> None:
-    interval = 6 * 60 * 60
+    interval = 7 * 60 * 60
 
     while True:
         try:
@@ -477,7 +478,7 @@ async def bot_scheduler() -> None:
         except Exception as exc:
             print(f"[main] process_bot() 执行失败: {exc}", flush=True)
 
-        print("[main] 等待 6 小时后再次执行", flush=True)
+        print("[main] 等待 7 小时后再次执行", flush=True)
         await asyncio.sleep(interval)
 
 

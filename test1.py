@@ -1526,8 +1526,8 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_aiyynvshen_bot() -> None:
-		await BotScripts._send_only("@AiYYnvshen_bot", "⭐ 今日签到")
+	async def script_AiYYnvshen001_bot() -> None:
+		await BotScripts._send_only("@AiYYnvshen001_bot", "⭐ 今日签到")
 
 	@staticmethod
 	async def script_ainudem2bot() -> None:
@@ -1550,8 +1550,8 @@ class BotScripts:
 		await BotScripts._send_only("@tuoyi55bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_menjjbot() -> None:
-		await BotScripts._send_only("@menjjbot", "🌍 每日签到")
+	async def script_tuoyi235bot() -> None:
+		await BotScripts._send_only("@tuoyi235bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_tuoyi03bot() -> None:
@@ -1675,9 +1675,9 @@ class BotScripts:
 				await s.wait_reply(timeout=10)
 
 	@staticmethod
-	async def script_aifaceswap01bot() -> None:
-		"""@AiFaceSwap01Bot — 点击个人中心后签到"""
-		async with BotSession("@AiFaceSwap01Bot") as s:
+	async def script_TujieAibot() -> None:
+		"""@TujieAibot — 点击个人中心后签到"""
+		async with BotSession("@TujieAibot") as s:
 			await s.send("/start")
 			msg = await s.wait_reply(timeout=30)
 			if not msg:
@@ -1734,13 +1734,13 @@ class BotScripts:
 
 BOT_SCRIPTS: dict[str, object] = {
 	"@XXHL9Bot": BotScripts.script_xxhl9bot,
-	"@AiYYnvshen_bot": BotScripts.script_aiyynvshen_bot,
+	"@AiYYnvshen001_bot": BotScripts.script_AiYYnvshen001_bot,
 	"@ainudem2bot": BotScripts.script_ainudem2bot,
 	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
 	"@HuuY2024_bot": BotScripts.script_huuy2024_bot,
 	"@quyi44bot": BotScripts.script_quyi44bot,
 	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
-	"@menjjbot": BotScripts.script_menjjbot,
+	"@tuoyi235bot": BotScripts.script_tuoyi235bot,
 	"@tuoyi03bot": BotScripts.script_tuoyi03bot,
 	"@quyi198bot": BotScripts.script_quyi198bot,
 	"@tangest4_bot": BotScripts.script_tangest4_bot,
@@ -1750,7 +1750,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@mengokbot": BotScripts.script_mengokbot,
 	"@JSai1bot": BotScripts.script_jsai1bot,
 	"@SrikitiBot": BotScripts.script_srikitibot,
-	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,
+	"@TujieAibot": BotScripts.script_TujieAibot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
 }
 

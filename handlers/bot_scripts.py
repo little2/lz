@@ -300,8 +300,8 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_aiyynvshen_bot() -> None:
-		async with BotScripts._session("@AiYYnvshen_bot") as s:
+	async def script_AiYYnvshen001_bot() -> None:
+		async with BotScripts._session("@AiYYnvshen001_bot") as s:
 			await s.send("⭐ 今日签到")
 			reply = await s.wait_reply(timeout=30)
 			if not reply:
@@ -312,13 +312,13 @@ class BotScripts:
 				button_row = buttons[0]
 				if len(button_row) >= 2:
 					second = button_row[1]
-					print(f"[AiYYnvshen_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
+					print(f"[AiYYnvshen001_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
 					await s.click_by_text(reply, str(second.get("text", "")))
 
 					wrong_reply = await s.wait_reply(timeout=30)
 					if wrong_reply:
 						wrong_text = getattr(wrong_reply, "message", None) or ""
-						print(f"[AiYYnvshen_bot] 错误反馈: {wrong_text!r}", flush=True)
+						print(f"[AiYYnvshen001_bot] 错误反馈: {wrong_text!r}", flush=True)
 						match = re.search(r"([0-9]+)\s*([+\-*/])\s*([0-9]+)\s*=\s*\?", wrong_text)
 						if match:
 							a_str, op, b_str = match.groups()
@@ -340,20 +340,20 @@ class BotScripts:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text in answer_texts:
-											print(f"[AiYYnvshen_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[AiYYnvshen001_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 								for row in buttons:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text and str(answer) in btn_text:
-											print(f"[AiYYnvshen_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[AiYYnvshen001_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 							return
 
 			reply_text = getattr(reply, "message", None) or ""
-			print(f"[AiYYnvshen_bot] 签到回复内容: {reply_text!r}", flush=True)
+			print(f"[AiYYnvshen001_bot] 签到回复内容: {reply_text!r}", flush=True)
  
 	@staticmethod
 	async def script_ainudem2bot() -> None:
@@ -380,8 +380,8 @@ class BotScripts:
 		await BotScripts._send_only("@tuoyi55bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_menjjbot() -> None:
-		await BotScripts._send_only("@menjjbot", "🌍 每日签到")
+	async def script_tuoyi235bot() -> None:
+		await BotScripts._send_only("@tuoyi235bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_tuoyi03bot() -> None:
@@ -543,9 +543,9 @@ class BotScripts:
 				await s.wait_reply(timeout=10)
 
 	@staticmethod
-	async def script_aifaceswap01bot() -> None:
-		"""@AiFaceSwap01Bot - 点击个人中心后签到"""
-		async with BotScripts._session("@AiFaceSwap01Bot") as s:
+	async def script_TujieAibot() -> None:
+		"""@TujieAibot - 点击个人中心后签到"""
+		async with BotScripts._session("@TujieAibot") as s:
 			await s.send("/start")
 			msg = await s.wait_reply(timeout=30)
 			if not msg:
@@ -666,7 +666,7 @@ class BotScripts:
 BOT_SCRIPTS: dict[str, object] = {
 	
 	"@XXHL9Bot": BotScripts.script_xxhl9bot,
-	"@AiYYnvshen_bot": BotScripts.script_aiyynvshen_bot,
+	"@AiYYnvshen001_bot": BotScripts.script_AiYYnvshen001_bot,
 	"@ainudem2bot": BotScripts.script_ainudem2bot,
 	"@posterre_bot": BotScripts.script_posterre_bot,
 	"@AIVision1111_bot": BotScripts.script_AIVision1111_bot_bot,
@@ -674,7 +674,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@tang_ihgcbnj_bot": BotScripts.script_tang_ihgcbnj_bot,
 	"@quyi44bot": BotScripts.script_quyi44bot,
 	"@tuoyi55bot": BotScripts.script_tuoyi55bot,
-	"@menjjbot": BotScripts.script_menjjbot,
+	"@tuoyi235bot": BotScripts.script_tuoyi235bot,
 	"@tuoyi03bot": BotScripts.script_tuoyi03bot,
 	"@quyi198bot": BotScripts.script_quyi198bot,
 	
@@ -685,7 +685,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@xhgsgk_bot": BotScripts.script_xhgsgk_bot,
 	"@JSai1bot": BotScripts.script_jsai1bot,
 	"@SrikitiBot": BotScripts.script_srikitibot,
-	"@AiFaceSwap01Bot": BotScripts.script_aifaceswap01bot,
+	"@TujieAibot": BotScripts.script_TujieAibot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
 	"@nangefake88_bot": BotScripts.script_nangefake88_bot,
 }

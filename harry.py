@@ -95,8 +95,8 @@ def build_proxy():
 
 
 def build_user_client() -> TelegramClient:
-    proxy = build_proxy()
-    # proxy = None
+    # proxy = build_proxy()
+    proxy = None
 
     BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
     BOT_ID = BOT_TOKEN.split(":", 1)[0]

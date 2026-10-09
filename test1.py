@@ -1526,40 +1526,40 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_AiYYnvshen001_bot() -> None:
-		await BotScripts._send_only("@AiYYnvshen001_bot", "⭐ 今日签到")
+	async def script_AiYYnvshen002_bot() -> None:
+		await BotScripts._send_only("@AiYYnvshen002_bot", "⭐ 今日签到")
 
 	@staticmethod
-	async def script_ainudem3bot() -> None:
-		await BotScripts._send_only("@ainudem3bot", "签到")
+	async def script_cyberdancer1bot() -> None:
+		await BotScripts._send_only("@cyberdancer1bot", "签到")
 
 	@staticmethod
 	async def script_QQCC_123_bot_bot() -> None:
 		await BotScripts._send_only("@QQCC_123_bot", "📅 每日签到")
 
 	@staticmethod
-	async def script_Huuuya_bot() -> None:
-		await BotScripts._send_only("@Huuuya_bot", "📆 每日签到")
+	async def script_HHuuya_bot() -> None:
+		await BotScripts._send_only("@HHuuya_bot", "📆 每日签到")
 
 	@staticmethod
-	async def script_quyi44bot() -> None:
-		await BotScripts._send_only("@quyi44bot", "🌍 每日签到")
+	async def script_quyi7bot() -> None:
+		await BotScripts._send_only("@quyi7bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_tuo29bot() -> None:
-		await BotScripts._send_only("@tuo29bot", "🌍 每日签到")
+	async def script_jiai4bot() -> None:
+		await BotScripts._send_only("@jiai4bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_tuoyi235bot() -> None:
 		await BotScripts._send_only("@tuoyi235bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_tian22bot() -> None:
-		await BotScripts._send_only("@tian22bot", "🌍 每日签到")
+	async def script_tian50bot() -> None:
+		await BotScripts._send_only("@tian50bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_quyi199bot() -> None:
-		await BotScripts._send_only("@quyi199bot", "🌍 每日签到")
+	async def script_quyi200bot() -> None:
+		await BotScripts._send_only("@quyi200bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_linglongai_4bot() -> None:
@@ -1568,16 +1568,16 @@ class BotScripts:
 
 
 	@staticmethod
-	async def script_jsai1bot() -> None:
-		await BotScripts._send_only("@JSai1bot", "🌍 每日签到")
+	async def script_jisuan1111bot() -> None:
+		await BotScripts._send_only("@jisuan1111bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_srikitibot() -> None:
-		await BotScripts._send_only("@SrikitiBot", "🌍 每日签到")
+	async def script_hdtuoyibot() -> None:
+		await BotScripts._send_only("@hdtuoyibot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_meng5bot() -> None:
-		await BotScripts._send_only("@meng5bot", "🌍 每日签到")
+	async def script_men533bot () -> None:
+		await BotScripts._send_only("@men533bot ", "🌍 每日签到")
 
 	@staticmethod
 	async def script_tangest4_bot() -> None:
@@ -1734,22 +1734,22 @@ class BotScripts:
 
 BOT_SCRIPTS: dict[str, object] = {
 	"@martinbb_ai_bot": BotScripts.script_martinbb_ai_bot,
-	"@AiYYnvshen001_bot": BotScripts.script_AiYYnvshen001_bot,
-	"@ainudem3bot": BotScripts.script_ainudem3bot,
+	"@AiYYnvshen002_bot": BotScripts.script_AiYYnvshen002_bot,
+	"@cyberdancer1bot": BotScripts.script_cyberdancer1bot,
 	"@QQCC_123_bot": BotScripts.script_QQCC_123_bot_bot,
-	"@Huuuya_bot": BotScripts.script_Huuuya_bot,
-	"@quyi44bot": BotScripts.script_quyi44bot,
-	"@tuo29bot": BotScripts.script_tuo29bot,
+	"@HHuuya_bot": BotScripts.script_HHuuya_bot,
+	"@quyi7bot": BotScripts.script_quyi7bot,
+	"@jiai4bot": BotScripts.script_jiai4bot,
 	"@tuoyi235bot": BotScripts.script_tuoyi235bot,
-	"@tian22bot": BotScripts.script_tian22bot,
-	"@quyi199bot": BotScripts.script_quyi199bot,
+	"@tian50bot": BotScripts.script_tian50bot,
+	"@quyi200bot": BotScripts.script_quyi200bot,
 	"@tangest4_bot": BotScripts.script_tangest4_bot,
 	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
 	"@linglongai_4bot": BotScripts.script_linglongai_4bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
-	"@meng5bot": BotScripts.script_meng5bot,
-	"@JSai1bot": BotScripts.script_jsai1bot,
-	"@SrikitiBot": BotScripts.script_srikitibot,
+	"@men533bot ": BotScripts.script_men533bot ,
+	"@jisuan1111bot": BotScripts.script_jisuan1111bot,
+	"@hdtuoyibot": BotScripts.script_hdtuoyibot,
 	"@TujieAibot": BotScripts.script_TujieAibot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
 }

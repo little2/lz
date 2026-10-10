@@ -165,13 +165,14 @@ async def handle_private_message(event: events.NewMessage.Event) -> None:
         <code>!add group</code>
         <code>!add forum</code>
         <blockquote>设置群组</blockquote>
-        <code>!setchat school</code> 学院群
-        <code>!setchat public</code> 公开群
+        <code>!setchat school</code> 学院群(桃花源)
+        <code>!setchat public</code> 公开群(桃花林)
         <code>!setchat oldfriend</code> 老铁群    
         <code>!setchat jwc</code> 教务处 
         <code>!setchat tr_rw</code> 资源审核群
         <code>!setchat ltgphoto</code> 清水群
         <blockquote>设置频道</blockquote>
+        <code>!setchat peach_hw_channel -100[频道ID]</code> 桃子仓库频道
         <code>!setchat subscribe_preview -100[频道ID]</code> 资源预览图频道
         <code>!setchat xiaodi_topic -100[频道ID]</code> 晓迪时空频道
     """).strip()
@@ -239,10 +240,12 @@ async def main() -> None:
     print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
     print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
 
-    # await harry.set_chat_airplane({'chat_id': -1004499995795})
-    results = await harry.batch_create_group()
-    print(f"[harry] batch_create_group results: {results}", flush=True)
-    exit()
+    await harry.set_peach_hw_channel({'chat_id': -1003975624183})
+    
+    # results = await harry.batch_create_group()
+    # print(f"[harry] batch_create_group results: {results}", flush=True)
+    # exit()
+    
     await client.run_until_disconnected()
     
 

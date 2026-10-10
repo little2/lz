@@ -634,6 +634,9 @@ class HarryClass:
 			return await self.set_chat_tr_rw(board_info)
 		elif chat_type == "subscribe_preview":
 			return await self.set_chat_subscribe_preview(board_info)	
+		elif chat_type == "peach_hw_channel":
+			return await self.set_peach_hw_channel(board_info)
+		# //3975624183
 		elif chat_type == "xiaodi_topic":
 			return await self.set_chat_xiaodi_topic(board_info)
 		elif chat_type == "ltgphoto":
@@ -929,6 +932,54 @@ class HarryClass:
 
 
 		return sop_text
+
+	
+	async def set_peach_hw_channel(self, board_info: dict) -> str:
+		"""
+		设置群组为桃子仓库频道
+		"""
+		
+		chat_id = board_info["chat_id"]
+		
+		sop_text = textwrap.dedent("""
+			<blockquote>订阅桃子仓库频道 基础设置</blockquote>
+			1️⃣ 新增私密频道
+			2️⃣ 将核心一号机器人邀请为匿名管理员，给予所有的权限 ( @deletedaccount34654bot )
+			3️⃣ 将 @lykeyman 以一般的成员身份邀请进群
+			<blockquote>机器人指令</blockquote>
+			4️⃣ 在人型机器人私信中，发送 <code>!setchat peach_hw_channel -100[群ID]</code> 指令
+			5️⃣ 授与人型机器人管理员权限
+			6️⃣ 拉入桃宝机器人/核二(noexists666bot)给予所有的权限
+			7️⃣ 在群组中，发送 <code>/setchat peach_hw_channel_ask</code> 指令 (待完成)
+			8️⃣ 
+			9️⃣ 完成				 				                     
+		""").strip()
+		# print(f"[harry] subscribe_preview: returning SOP text {sop_text}", flush=True)
+
+
+		try:
+			# 5️⃣ 授与人型机器人管理员权限
+			
+			man_me = await self.client.get_me()
+			await self.grant_permissions(chat_id=chat_id, user_id=man_me.id, nonanonymous=True)
+
+			
+			# 6️⃣ 拉入桃宝(内容)/核心二号机器人给予所有的权限
+			
+			
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="ppdd001bot")	
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="noexists666bot")
+
+
+
+
+			await self.revoke_permissions(chat_id=chat_id, user_id=man_me.id)
+
+			# await self.grant_permissions(board_info["chat_id"], board_info["sender_id"])
+		except Exception as exc:
+			print(f"[harry] subscribe_preview: failed to grant permissions or invite bots: {exc}", flush=True)
+		return sop_text
+
 
 	async def set_chat_subscribe_preview(self, board_info: dict) -> str:
 		"""

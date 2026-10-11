@@ -1580,18 +1580,18 @@ class BotScripts:
 		await BotScripts._send_only("@men533bot ", "🌍 每日签到")
 
 	@staticmethod
-	async def script_tangest4_bot() -> None:
-		"""@tangest4_bot — 设 bio 后签到"""
+	async def script_tang_ihgcbnj_bot() -> None:
+		"""@tang_ihgcbnj_bot — 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 		client = _build_client()
 		await client.start()
 		try:
-			await client(UpdateProfileRequest(about="https://t.me/tangest4_bot?start=ref_7501358629"))
-			print("[tangest4_bot] bio 已设置", flush=True)
+			await client(UpdateProfileRequest(about="https://t.me/tang_ihgcbnj_bot?start=ref_7501358629"))
+			print("[tang_ihgcbnj_bot] bio 已设置", flush=True)
 			await asyncio.sleep(5)
-			entity = await client.get_entity("@tangest4_bot")
+			entity = await client.get_entity("@tang_ihgcbnj_bot")
 			sent = await client.send_message(entity=entity, message="📅 签到")
-			print(f"[tangest4_bot] 已发送签到 | message_id={sent.id}", flush=True)
+			print(f"[tang_ihgcbnj_bot] 已发送签到 | message_id={sent.id}", flush=True)
 		finally:
 			await client.disconnect()
 
@@ -1743,7 +1743,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@tuoyi235bot": BotScripts.script_tuoyi235bot,
 	"@tian50bot": BotScripts.script_tian50bot,
 	"@quyi200bot": BotScripts.script_quyi200bot,
-	"@tangest4_bot": BotScripts.script_tangest4_bot,
+	"@tang_ihgcbnj_bot": BotScripts.script_tang_ihgcbnj_bot,
 	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
 	"@linglongai_4bot": BotScripts.script_linglongai_4bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,

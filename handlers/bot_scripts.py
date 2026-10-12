@@ -281,10 +281,10 @@ class BotScripts:
 				for row in rows:
 					for btn in row:
 						if btn.get("text") == text:
-							print(f"[HY321_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							print(f"[HY9999_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
 							return recent
 			await asyncio.sleep(poll)
-		print(f"[HY321_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		print(f"[HY9999_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
 		return None
 
 	@staticmethod
@@ -300,8 +300,8 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_AiYYnvshen002_bot() -> None:
-		async with BotScripts._session("@AiYYnvshen002_bot") as s:
+	async def script_LitLovAI_bot() -> None:
+		async with BotScripts._session("@LitLovAI_bot") as s:
 			await s.send("⭐ 今日签到")
 			reply = await s.wait_reply(timeout=30)
 			if not reply:
@@ -312,13 +312,13 @@ class BotScripts:
 				button_row = buttons[0]
 				if len(button_row) >= 2:
 					second = button_row[1]
-					print(f"[AiYYnvshen002_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
+					print(f"[LitLovAI_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
 					await s.click_by_text(reply, str(second.get("text", "")))
 
 					wrong_reply = await s.wait_reply(timeout=30)
 					if wrong_reply:
 						wrong_text = getattr(wrong_reply, "message", None) or ""
-						print(f"[AiYYnvshen002_bot] 错误反馈: {wrong_text!r}", flush=True)
+						print(f"[LitLovAI_bot] 错误反馈: {wrong_text!r}", flush=True)
 						match = re.search(r"([0-9]+)\s*([+\-*/])\s*([0-9]+)\s*=\s*\?", wrong_text)
 						if match:
 							a_str, op, b_str = match.groups()
@@ -340,20 +340,20 @@ class BotScripts:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text in answer_texts:
-											print(f"[AiYYnvshen002_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[LitLovAI_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 								for row in buttons:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text and str(answer) in btn_text:
-											print(f"[AiYYnvshen002_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[LitLovAI_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 							return
 
 			reply_text = getattr(reply, "message", None) or ""
-			print(f"[AiYYnvshen002_bot] 签到回复内容: {reply_text!r}", flush=True)
+			print(f"[LitLovAI_bot] 签到回复内容: {reply_text!r}", flush=True)
  
 	@staticmethod
 	async def script_cyberdancer1bot() -> None:
@@ -369,7 +369,7 @@ class BotScripts:
 
 	@staticmethod
 	async def script_HHuuya_bot() -> None:
-		await BotScripts._send_only("@HHuuya_bot", "📆 每日签到")
+		await BotScripts._send_only("@HHuuya_bot", "📅 每日签到")
 
 	@staticmethod
 	async def script_quyi7bot() -> None:
@@ -396,8 +396,8 @@ class BotScripts:
 		await BotScripts._send_only("@linglongai_4bot", "📅 签到")
 
 	@staticmethod
-	async def script_jisuan1111bot() -> None:
-		await BotScripts._send_only("@jisuan1111bot", "🌍 每日签到")
+	async def script_tian882bot() -> None:
+		await BotScripts._send_only("@tian882bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_hdtuoyibot() -> None:
@@ -432,11 +432,11 @@ class BotScripts:
 				await client.disconnect()
 
 	@staticmethod
-	async def script_HY321_bot() -> None:
-		"""@HY321_bot - 浏览作品/点赞/签到流程"""
+	async def script_HY9999_bot() -> None:
+		"""@HY9999_bot - 浏览作品/点赞/签到流程"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 
-		async with BotScripts._session("@HY321_bot") as s:
+		async with BotScripts._session("@HY9999_bot") as s:
 
 			
 	
@@ -474,7 +474,7 @@ class BotScripts:
 				return
 														 
 			await s._client(UpdateProfileRequest(about=f"https://t.me/hy9999_bot?start={user_id}"))
-			print(f"[HY321_bot] bio 已设置 user_id = {user_id}", flush=True)
+			print(f"[HY9999_bot] bio 已设置 user_id = {user_id}", flush=True)
 			
 			await asyncio.sleep(5)
 	
@@ -543,9 +543,9 @@ class BotScripts:
 				await s.wait_reply(timeout=10)
 
 	@staticmethod
-	async def script_TujieAibot() -> None:
-		"""@TujieAibot - 点击个人中心后签到"""
-		async with BotScripts._session("@TujieAibot") as s:
+	async def script_TJAI88bot() -> None:
+		"""@TJAI88bot - 点击个人中心后签到"""
+		async with BotScripts._session("@TJAI88bot") as s:
 			await s.send("/start")
 			msg = await s.wait_reply(timeout=30)
 			if not msg:
@@ -666,7 +666,7 @@ class BotScripts:
 BOT_SCRIPTS: dict[str, object] = {
 	
 	"@martinbb_ai_bot": BotScripts.script_martinbb_ai_bot,
-	"@AiYYnvshen002_bot": BotScripts.script_AiYYnvshen002_bot,
+	"@LitLovAI_bot": BotScripts.script_LitLovAI_bot,
 	"@cyberdancer1bot": BotScripts.script_cyberdancer1bot,
 	"@posterre_bot": BotScripts.script_posterre_bot,
 	"@QQCC_123_bot": BotScripts.script_QQCC_123_bot_bot,
@@ -683,11 +683,11 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@men533bot ": BotScripts.script_men533bot ,
 	"@xhgsgk_bot": BotScripts.script_xhgsgk_bot,
-	"@jisuan1111bot": BotScripts.script_jisuan1111bot,
+	"@tian882bot": BotScripts.script_tian882bot,
 	"@hdtuoyibot": BotScripts.script_hdtuoyibot,
-	"@TujieAibot": BotScripts.script_TujieAibot,
+	"@TJAI88bot": BotScripts.script_TJAI88bot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
-	"@HY321_bot": BotScripts.script_HY321_bot,
+	"@HY9999_bot": BotScripts.script_HY9999_bot,
 }
 
 

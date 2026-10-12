@@ -1508,10 +1508,10 @@ class BotScripts:
 				for row in rows:
 					for btn in row:
 						if btn.get("text") == text:
-							print(f"[ccccc000_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							print(f"[HY9999_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
 							return recent
 			await asyncio.sleep(poll)
-		print(f"[ccccc000_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		print(f"[HY9999_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
 		return None
 
 	@staticmethod
@@ -1526,8 +1526,8 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_AiYYnvshen002_bot() -> None:
-		await BotScripts._send_only("@AiYYnvshen002_bot", "⭐ 今日签到")
+	async def script_LitLovAI_bot() -> None:
+		await BotScripts._send_only("@LitLovAI_bot", "⭐ 今日签到")
 
 	@staticmethod
 	async def script_cyberdancer1bot() -> None:
@@ -1568,8 +1568,8 @@ class BotScripts:
 
 
 	@staticmethod
-	async def script_jisuan1111bot() -> None:
-		await BotScripts._send_only("@jisuan1111bot", "🌍 每日签到")
+	async def script_tian882bot() -> None:
+		await BotScripts._send_only("@tian882bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_hdtuoyibot() -> None:
@@ -1596,11 +1596,11 @@ class BotScripts:
 			await client.disconnect()
 
 	@staticmethod
-	async def script_ccccc000_bot() -> None:
-		"""@ccccc000_bot — 浏览作品/点赞/签到流程"""
+	async def script_HY9999_bot() -> None:
+		"""@HY9999_bot — 浏览作品/点赞/签到流程"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 
-		async with BotSession("@ccccc000_bot") as s:
+		async with BotSession("@HY9999_bot") as s:
 			await s.send("/start")
 			menu = await s.wait_reply(timeout=30)
 			if not menu:
@@ -1630,8 +1630,8 @@ class BotScripts:
 
 			if s._client is None:
 				return
-			await s._client(UpdateProfileRequest(about="https://t.me/ccccc000_bot?start=7501358629"))
-			print("[ccccc000_bot] bio 已设置", flush=True)
+			await s._client(UpdateProfileRequest(about="https://t.me/HY9999_bot?start=7501358629"))
+			print("[HY9999_bot] bio 已设置", flush=True)
 
 			await asyncio.sleep(5)
 
@@ -1675,9 +1675,9 @@ class BotScripts:
 				await s.wait_reply(timeout=10)
 
 	@staticmethod
-	async def script_TujieAibot() -> None:
-		"""@TujieAibot — 点击个人中心后签到"""
-		async with BotSession("@TujieAibot") as s:
+	async def script_TJAI88bot() -> None:
+		"""@TJAI88bot — 点击个人中心后签到"""
+		async with BotSession("@TJAI88bot") as s:
 			await s.send("/start")
 			msg = await s.wait_reply(timeout=30)
 			if not msg:
@@ -1734,7 +1734,7 @@ class BotScripts:
 
 BOT_SCRIPTS: dict[str, object] = {
 	"@martinbb_ai_bot": BotScripts.script_martinbb_ai_bot,
-	"@AiYYnvshen002_bot": BotScripts.script_AiYYnvshen002_bot,
+	"@LitLovAI_bot": BotScripts.script_LitLovAI_bot,
 	"@cyberdancer1bot": BotScripts.script_cyberdancer1bot,
 	"@QQCC_123_bot": BotScripts.script_QQCC_123_bot_bot,
 	"@HHuuya_bot": BotScripts.script_HHuuya_bot,
@@ -1744,13 +1744,13 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@tian50bot": BotScripts.script_tian50bot,
 	"@quyi200bot": BotScripts.script_quyi200bot,
 	"@tang_ihgcbnj_bot": BotScripts.script_tang_ihgcbnj_bot,
-	"@ccccc000_bot": BotScripts.script_ccccc000_bot,
+	"@HY9999_bot": BotScripts.script_HY9999_bot,
 	"@linglongai_4bot": BotScripts.script_linglongai_4bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@men533bot ": BotScripts.script_men533bot ,
-	"@jisuan1111bot": BotScripts.script_jisuan1111bot,
+	"@tian882bot": BotScripts.script_tian882bot,
 	"@hdtuoyibot": BotScripts.script_hdtuoyibot,
-	"@TujieAibot": BotScripts.script_TujieAibot,
+	"@TJAI88bot": BotScripts.script_TJAI88bot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
 }
 

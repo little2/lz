@@ -447,6 +447,7 @@ async def process_bot():
 			await run_all_bot()
 			# await _save_json_dict_to_file(global_params_file, GLOBAL_PARAMS, client=telegram_bot)
 			print("[process_bot] single-run finished, stopping", flush=True)
+		
 		finally:
 			if telegram_bot.is_connected():
 				await telegram_bot.disconnect()

@@ -240,9 +240,9 @@ async def main() -> None:
     print(f"[harry] media forward targets: {FORWARD_TARGETS}", flush=True)
     print(f"[harry] /admin whitelist: {sorted(ADMIN_IDS)}", flush=True)
 
-    await harry.set_peach_hw_channel({'chat_id': -1003975624183})
+    # await harry.set_peach_hw_channel({'chat_id': -1003975624183})
     
-    # results = await harry.batch_create_group()
+    results = await harry.batch_create_group()
     # print(f"[harry] batch_create_group results: {results}", flush=True)
     # exit()
     

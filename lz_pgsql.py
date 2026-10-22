@@ -2,6 +2,7 @@
 import os
 import asyncio
 import asyncpg
+from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List, Tuple
 import jieba
 
@@ -20,6 +21,9 @@ ACQUIRE_TIMEOUT = float(os.getenv("POSTGRES_ACQUIRE_TIMEOUT", "10"))
 COMMAND_TIMEOUT = float(os.getenv("POSTGRES_COMMAND_TIMEOUT", "60"))
 CONNECT_TIMEOUT = float(os.getenv("POSTGRES_CONNECT_TIMEOUT", "10"))
 CONNECT_RETRIES = int(os.getenv("POSTGRES_CONNECT_RETRIES", "2"))
+HEARTBEAT_INTERVAL = float(os.getenv("POSTGRES_HEARTBEAT_INTERVAL", "240"))
+HEARTBEAT_TIMEOUT = float(os.getenv("POSTGRES_HEARTBEAT_TIMEOUT", "10"))
+HEARTBEAT_FAILURE_THRESHOLD = int(os.getenv("POSTGRES_HEARTBEAT_FAILURE_THRESHOLD", "3"))
 
 # （保留：若你后续在 PG 里要做中文分词/同义词替换，这里仍可复用）
 SYNONYM = {
@@ -127,6 +131,76 @@ class PGPool:
     async def release(cls, conn: Optional[asyncpg.Connection]):
         if conn and cls._pool:
             await cls._pool.release(conn)
+
+    @classmethod
+    @asynccontextmanager
+    async def connection(cls):
+        """统一取得和释放 PostgreSQL 连接，并套用 acquire timeout。"""
+        pool = await cls.ensure_pool()
+        async with pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+            yield conn
+
+    @classmethod
+    async def ping(cls, timeout: float = HEARTBEAT_TIMEOUT) -> bool:
+        """执行一次轻量查询，让 PostgreSQL 服务保持活动并验证连接。"""
+        try:
+            pool = await cls.ensure_pool()
+            async with pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
+                return await conn.fetchval("SELECT 1", timeout=timeout) == 1
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(
+                f"⚠️ PostgreSQL 心跳失败: {type(exc).__name__}: {exc}",
+                flush=True,
+            )
+            return False
+
+    @classmethod
+    async def heartbeat_loop(
+        cls,
+        interval_seconds: float = HEARTBEAT_INTERVAL,
+        query_timeout: float = HEARTBEAT_TIMEOUT,
+        failure_threshold: int = HEARTBEAT_FAILURE_THRESHOLD,
+    ):
+        """持续执行 SELECT 1；调用方应在应用关闭时取消此任务。"""
+        interval_seconds = max(1.0, float(interval_seconds))
+        query_timeout = max(1.0, float(query_timeout))
+        failure_threshold = max(1, int(failure_threshold))
+        consecutive_failures = 0
+        print(
+            "💓 PostgreSQL 心跳任务已启动 "
+            f"(interval={interval_seconds:g}s, timeout={query_timeout:g}s)",
+            flush=True,
+        )
+
+        while True:
+            try:
+                healthy = await cls.ping(timeout=query_timeout)
+                if healthy:
+                    if consecutive_failures:
+                        print("✅ PostgreSQL 心跳已恢复", flush=True)
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= failure_threshold:
+                        print(
+                            "🚨 PostgreSQL 心跳连续失败 "
+                            f"{consecutive_failures} 次",
+                            flush=True,
+                        )
+
+                await asyncio.sleep(interval_seconds)
+            except asyncio.CancelledError:
+                print("🛑 PostgreSQL 心跳任务已停止", flush=True)
+                raise
+            except Exception as exc:
+                consecutive_failures += 1
+                print(
+                    f"⚠️ PostgreSQL 心跳任务异常: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                await asyncio.sleep(interval_seconds)
 
     @classmethod
     async def close(cls):
@@ -572,71 +646,68 @@ class PGPool:
           - sora_media(content_id, source_bot_name, file_id, thumb_file_id, UNIQUE(content_id, source_bot_name))
           - file_extension(file_unique_id, bot, file_id)
         """
-        await cls.ensure_pool()
-        conn = await cls.acquire()
         try:
-            sql = """
-                SELECT
-                    c.member_content_id,           -- 用于回写 sora_media.content_id
-                    s.source_id,
-                    c.file_type,
-                    s.content,
-                    s.file_size,
-                    s.duration,
-                    m.source_bot_name,
-                    m.thumb_file_id,
-                    m.file_id,
-                    fe.file_id AS ext_file_id,
-                    c.preview 
-                FROM album_items AS c
-                LEFT JOIN sora_content AS s
-                    ON c.member_content_id = s.id
-                LEFT JOIN sora_media   AS m
-                    ON c.member_content_id = m.content_id
-                   AND m.source_bot_name   = $1
-                LEFT JOIN file_extension AS fe
-                    ON fe.file_unique_id = s.source_id
-                   AND fe.bot            = $1
-                WHERE c.content_id = $2
-                ORDER BY c.file_type;
-            """
-
-            rows = await conn.fetch(sql, bot_name, content_id)
-
-            dict_rows: List[Dict[str, Any]] = []
-            to_upsert: List[Tuple[int, str, str]] = []  # (content_id, bot_name, file_id)
-
-            for rec in rows or []:
-                d = dict(rec)
-                if d.get("file_id") is None and d.get("ext_file_id") is not None:
-                    # 用 ext_file_id 回填到返回值
-                    d["file_id"] = d["ext_file_id"]
-                    # 收集需要写回 sora_media 的条目
-                    if d.get("member_content_id") is not None:
-                        to_upsert.append((
-                            int(d["member_content_id"]),
-                            bot_name,
-                            str(d["ext_file_id"]),
-                        ))
-                dict_rows.append(d)
-
-            if to_upsert:
-                upsert_sql = """
-                    INSERT INTO sora_media (content_id, source_bot_name, file_id)
-                    VALUES ($1, $2, $3)
-                    ON CONFLICT (content_id, source_bot_name)
-                    DO UPDATE SET file_id = EXCLUDED.file_id
+            async with cls.connection() as conn:
+                sql = """
+                    SELECT
+                        c.member_content_id,           -- 用于回写 sora_media.content_id
+                        s.source_id,
+                        c.file_type,
+                        s.content,
+                        s.file_size,
+                        s.duration,
+                        m.source_bot_name,
+                        m.thumb_file_id,
+                        m.file_id,
+                        fe.file_id AS ext_file_id,
+                        c.preview
+                    FROM album_items AS c
+                    LEFT JOIN sora_content AS s
+                        ON c.member_content_id = s.id
+                    LEFT JOIN sora_media   AS m
+                        ON c.member_content_id = m.content_id
+                       AND m.source_bot_name   = $1
+                    LEFT JOIN file_extension AS fe
+                        ON fe.file_unique_id = s.source_id
+                       AND fe.bot            = $1
+                    WHERE c.content_id = $2
+                    ORDER BY c.file_type;
                 """
-                async with conn.transaction():
-                    await conn.executemany(upsert_sql, to_upsert)
 
-            return dict_rows
+                rows = await conn.fetch(sql, bot_name, content_id)
+
+                dict_rows: List[Dict[str, Any]] = []
+                to_upsert: List[Tuple[int, str, str]] = []  # (content_id, bot_name, file_id)
+
+                for rec in rows or []:
+                    d = dict(rec)
+                    if d.get("file_id") is None and d.get("ext_file_id") is not None:
+                        # 用 ext_file_id 回填到返回值
+                        d["file_id"] = d["ext_file_id"]
+                        # 收集需要写回 sora_media 的条目
+                        if d.get("member_content_id") is not None:
+                            to_upsert.append((
+                                int(d["member_content_id"]),
+                                bot_name,
+                                str(d["ext_file_id"]),
+                            ))
+                    dict_rows.append(d)
+
+                if to_upsert:
+                    upsert_sql = """
+                        INSERT INTO sora_media (content_id, source_bot_name, file_id)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (content_id, source_bot_name)
+                        DO UPDATE SET file_id = EXCLUDED.file_id
+                    """
+                    async with conn.transaction():
+                        await conn.executemany(upsert_sql, to_upsert)
+
+                return dict_rows
 
         except Exception as e:
             print(f"⚠️ [PG] get_album_list 出错: {e}", flush=True)
             return []
-        finally:
-            await cls.release(conn)
 
 
 # lz_pgsql.py

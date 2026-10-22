@@ -110,7 +110,7 @@ class RedeemFSM(StatesGroup):
 
 async def _ensure_sora_manage_permission(callback: CallbackQuery, content_id: int) -> tuple[int, bool]:
     """校验管理权限。
-    
+
     Returns:
         tuple(owner_user_id, has_permission)
         - owner_user_id: 资源真正上传者 user_id（查不到时为 0）
@@ -5459,10 +5459,10 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
             
             try:
                 
-                album_list_results = await db.get_album_list(content_id, lz_var.bot_username)
+                album_list_results = await PGPool.get_album_list(content_id, lz_var.bot_username)
                 if(album_list_results == []):
                     await sync_album_items(content_id)
-                    album_list_results = await db.get_album_list(content_id, lz_var.bot_username)
+                    album_list_results = await PGPool.get_album_list(content_id, lz_var.bot_username)
                 
                 
                 list_text = await Tplate.list_template(album_list_results)
@@ -5804,4 +5804,4 @@ async def handle_private_text(message: Message, state: FSMContext):
             except Exception as e:
                 print(f"【Telethon】解析文本失败: {e}", flush=True)
 
-    
+

@@ -89,6 +89,21 @@ async def periodic_shared_config_reload(interval_seconds: int = 3600, on_reload=
             print(f"⚠️ SharedConfig 定时刷新失败: {e}", flush=True)
 
 
+async def stop_postgres_heartbeat(task: asyncio.Task | None):
+    if task is None:
+        return
+
+    if not task.done():
+        task.cancel()
+
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[shutdown] PostgreSQL heartbeat error: {e}", flush=True)
+
+
 def create_user_client():
     from lz_config import API_HASH, API_ID, SESSION_STRING, USER_SESSION
     from telethon import TelegramClient
@@ -463,6 +478,7 @@ async def main():
 
     # 10.2 并行运行 Telethon 与 Aiogram
     config_reload_task = None
+    pg_heartbeat_task = None
    
     my_bot_token = SharedConfig.get("my_bot_token",BOT_TOKEN)  
     switch_bot_token = SharedConfig.get("switch_bot_token",SWITCHBOT_TOKEN)
@@ -600,6 +616,10 @@ async def main():
 
     # 3) 再连 PostgreSQL（此时 db.connect 内加载 jieba 就不会跳过）
     await PGPool.init_pool()
+    pg_heartbeat_task = asyncio.create_task(
+        PGPool.heartbeat_loop(),
+        name="aiven-postgres-heartbeat",
+    )
     # await db.connect()
 
     await sync()
@@ -611,6 +631,7 @@ async def main():
     @dp.shutdown()
     async def _on_shutdown():
         try:
+            await stop_postgres_heartbeat(pg_heartbeat_task)
             # await db.disconnect()    
             await PGPool.close()        
         except Exception as e:
@@ -711,6 +732,7 @@ async def main():
     finally:
          # 双保险：若没走到 @dp.shutdown（例如异常中断），也清理资源
         try:
+            await stop_postgres_heartbeat(pg_heartbeat_task)
             # await db.disconnect()
             await PGPool.close()
 

@@ -135,12 +135,12 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
 
         if tpl_data.get("product_type") == "a" or tpl_data.get("product_type") == "album":
             #TODO 找不到
-            results = await db.get_album_list(content_id, lz_var.bot_username)
+            results = await PGPool.get_album_list(content_id, lz_var.bot_username)
             if(results == []):
                 await sync_album_items(content_id)
                
                 
-                results = await db.get_album_list(content_id, lz_var.bot_username)
+                results = await PGPool.get_album_list(content_id, lz_var.bot_username)
             
             print(f"{results}", flush=True)
             if results:
@@ -283,7 +283,7 @@ async def get_product_material(content_id: int, transaction_id: int | None = Non
     from lz_db import db  # 延迟导入避免循环依赖
         # ✅ 统一在这里连一次
     # await db.connect()
-    rows = await db.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)    
+    rows = await PGPool.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
 
     if rows:
         # print(f"✅ get_product_material: found rows {rows}", flush=True)

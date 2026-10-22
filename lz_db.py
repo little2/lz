@@ -654,82 +654,13 @@ class DB:
 
     
     async def get_album_list(self, content_id: int, bot_name: str) -> list[dict]:
-        """
-        查询某个 album 下的所有成员文件（PostgreSQL 版）
-        - 对应 PHP 的 get_album_list()
-        - 使用 asyncpg，占位符 $1/$2
-        - 若 m.file_id 为空且从 file_extension 匹配到 ext_file_id，则回写/新增到 sora_media.file_id
-        - 返回值：list[dict]
-        """
-        await self._ensure_pool()
+        """兼容旧调用；实际实现已迁移到 PGPool。"""
+        from lz_pgsql import PGPool
 
-        sql = """
-            SELECT
-                c.member_content_id,           -- 用于回写 sora_media.content_id
-                s.source_id,
-                c.file_type,
-                s.content,
-                s.file_size,
-                s.duration,
-                m.source_bot_name,
-                m.thumb_file_id,
-                m.file_id,
-                fe.file_id AS ext_file_id,
-                c.preview 
-            FROM album_items AS c 
-            LEFT JOIN sora_content AS s
-                ON c.member_content_id = s.id
-            LEFT JOIN sora_media   AS m
-                ON c.member_content_id = m.content_id
-                AND m.source_bot_name   = $1
-            LEFT JOIN file_extension AS fe
-                ON fe.file_unique_id = s.source_id
-                AND fe.bot            = $1
-            WHERE c.content_id = $2
-            ORDER BY c.file_type;
-        """
-
-        upsert_sql = """
-            INSERT INTO sora_media (content_id, source_bot_name, file_id)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (content_id, source_bot_name)
-            DO UPDATE SET file_id = EXCLUDED.file_id
-        """
-
-        try:
-            async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-                rows = await conn.fetch(sql, bot_name, content_id)
-
-               
-
-                # 先把记录转成可变 dict，并收集需要回写的条目
-                dict_rows: list[dict] = []
-                to_upsert: list[tuple[int, str, str]] = []  # (content_id, bot_name, file_id)
-
-                for rec in rows or []:
-                    d = dict(rec)
-                    # 用 ext_file_id 填充返回值
-                    if d.get("file_id") is None and d.get("ext_file_id") is not None:
-                        d["file_id"] = d["ext_file_id"]
-                        # 准备回写/新增到 sora_media
-                        if d.get("member_content_id") is not None:
-                            to_upsert.append((
-                                int(d["member_content_id"]),
-                                bot_name,
-                                str(d["ext_file_id"]),
-                            ))
-                    dict_rows.append(d)
-
-                # 批量 UPSERT 回写 sora_media（只处理确实需要写入的）
-                if to_upsert:
-                    async with conn.transaction():
-                        for cid, bn, fid in to_upsert:
-                            await conn.execute(upsert_sql, cid, bn, fid)
-
-                return dict_rows
-        except Exception as e:
-            print(f"⚠️ 802 get_album_list 出错: {e}", flush=True)
-            return []
+        return await PGPool.get_album_list(
+            content_id=content_id,
+            bot_name=bot_name,
+        )
 
 
    

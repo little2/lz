@@ -830,7 +830,7 @@ async def render_results(results: list[dict], search_key_id: int , page: int , t
     stag = "f"
     if callback_function in {"pageid"}:
         stag = "f"
-        keyword = await db.get_keyword_by_id(search_key_id)
+        keyword = await PGPool.get_keyword_by_id(search_key_id)
         lines = [
             f"<b>🔍 关键词：</b> <code>{keyword}</code>\r\n"
         ]
@@ -1208,7 +1208,7 @@ async def _build_pagination(
         # 用 keyword_id 查回 keyword 文本
         
         
-        keyword = await db.get_keyword_by_id(keyword_id)
+        keyword = await PGPool.get_keyword_by_id(keyword_id)
       
         if not keyword:
             return {"ok": False, "message": "⚠️ 无法找到对应关键词"}
@@ -1383,8 +1383,8 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
     if len(keyword) > 50:
         keyword = keyword[:50]
 
-    await db.insert_search_log(message.from_user.id, keyword)
-    result = await db.upsert_search_keyword_stat(keyword)
+    await PGPool.insert_search_log(message.from_user.id, keyword)
+    result = await PGPool.upsert_search_keyword_stat(keyword)
 
 
     keyword = get_tw2s_converter().convert(keyword)
@@ -1392,7 +1392,7 @@ async def handle_search_s(message: Message, state: FSMContext, command: Command 
 
     await handle_search_component(message, state, keyword)
     
-    # keyword_id = await db.get_search_keyword_id(keyword)
+    # keyword_id = await PGPool.get_search_keyword_id(keyword)
 
     # list_info = await _build_pagination(callback_function="pageid", keyword_id=keyword_id, state=state)
     # if not list_info.get("ok"):
@@ -1500,7 +1500,7 @@ async def handle_bootstrap_command(message: Message, state: FSMContext):
     await message.answer("✅ 初始化完成：已执行 /reload , /update_setting 与 /setcommand")
    
 async def handle_search_component(message: Message, state: FSMContext, keyword:str):  
-    keyword_id = await db.get_search_keyword_id(keyword)
+    keyword_id = await PGPool.get_search_keyword_id(keyword)
     if message.chat.type != "private":
         search_type = "group"
     else:
@@ -1877,7 +1877,7 @@ async def _build_product_info(content_id :int , search_key_index: str, state: FS
         if stag == "f":
         # 尝试从搜索结果中定位当前位置
             
-            keyword = await db.get_keyword_by_id(int(search_key_index))
+            keyword = await PGPool.get_keyword_by_id(int(search_key_index))
             if keyword:
                 print(f"🔍 取得搜索结果以定位当前位置: {keyword}", flush=True)
                 search_result = await db.search_keyword_page_plain(keyword)
@@ -3426,8 +3426,8 @@ async def handle_toggle_tag(callback_query: CallbackQuery, state: FSMContext):
     keyword = " ".join(tag2cn.get(t, t) for t in selected_tags)
     
 
-    await db.insert_search_log(callback_query.message.from_user.id, keyword)
-    result = await db.upsert_search_keyword_stat(keyword)
+    await PGPool.insert_search_log(callback_query.message.from_user.id, keyword)
+    result = await PGPool.upsert_search_keyword_stat(keyword)
 
     await handle_search_component(callback_query.message, state, keyword)
 
@@ -4407,7 +4407,7 @@ async def handle_sora_page(callback: CallbackQuery, state: FSMContext):
         search_from = str(search_from) or "search"
         if search_from == "search" or search_from == "f":
             # 查回 keyword
-            keyword = await db.get_keyword_by_id(search_key_index)
+            keyword = await PGPool.get_keyword_by_id(search_key_index)
             if not keyword:
                 await callback.answer("⚠️ 无法找到对应关键词", show_alert=True)
                 return
@@ -4763,7 +4763,7 @@ async def handle_redeem(callback: CallbackQuery, state: FSMContext):
     
 
     timer.lap("⌛️ get_latest_membership_expire")
-    expire_ts_raw = await db.get_latest_membership_expire(from_user_id)
+    expire_ts_raw = await PGPool.get_latest_membership_expire(from_user_id)
     timer.lap("👆 get_latest_membership_expire done")
 
     now_utc = int(datetime.now(timezone.utc).timestamp())
@@ -5525,7 +5525,7 @@ async def load_sora_content_by_id(content_id: int, state: FSMContext, search_key
                 
                 ret_content += f"\r\n🪟 资源橱窗: {clt_info.get('title')}\n\n"
             else:
-                keyword = await db.get_keyword_by_id(int(search_key_index))
+                keyword = await PGPool.get_keyword_by_id(int(search_key_index))
                 if keyword:
                     ret_content += f"\r\n🔑 关键字: {keyword}\n\n"
 

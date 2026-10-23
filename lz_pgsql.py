@@ -3,10 +3,11 @@ import os
 import asyncio
 import asyncpg
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 import jieba
 
-from lz_config import POSTGRES_DSN,VALKEY_URL
+from lz_config import POSTGRES_DSN, CACHE_TTL, VALKEY_URL
 from lz_memory_cache import MemoryCache
 from lz_cache import TwoLevelCache
 import lz_var
@@ -629,6 +630,117 @@ class PGPool:
 
 
     # ========= Collect 相关 =========
+
+
+    # ========= Search 相关 =========
+    @classmethod
+    async def insert_search_log(cls, user_id: int, keyword: str) -> None:
+        """记录一次用户搜索，保持旧实现使用 UTC 应用时间的行为。"""
+        async with cls.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO search_log (user_id, keyword, search_time)
+                VALUES ($1, $2, $3)
+                """,
+                user_id,
+                keyword,
+                datetime.utcnow(),
+            )
+
+
+    @classmethod
+    async def upsert_search_keyword_stat(cls, keyword: str) -> str:
+        """新增或累加关键字搜索次数，并返回 asyncpg 命令结果。"""
+        async with cls.connection() as conn:
+            return await conn.execute(
+                """
+                INSERT INTO search_keyword_stat (keyword, search_count, last_search_time)
+                VALUES ($1, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT (keyword)
+                DO UPDATE SET
+                    search_count = search_keyword_stat.search_count + 1,
+                    last_search_time = CURRENT_TIMESTAMP
+                """,
+                keyword,
+            )
+
+
+    @classmethod
+    async def get_search_keyword_id(cls, keyword: str) -> int | None:
+        """取得关键字 ID；关键字不存在时以原子 CTE 建立后返回 ID。"""
+        async with cls.connection() as conn:
+            row = await conn.fetchrow(
+                """
+                WITH ins AS (
+                    INSERT INTO search_keyword_stat (keyword)
+                    VALUES ($1)
+                    ON CONFLICT (keyword) DO NOTHING
+                    RETURNING id
+                )
+                SELECT id FROM ins
+                UNION ALL
+                SELECT id FROM search_keyword_stat WHERE keyword = $1
+                LIMIT 1
+                """,
+                keyword,
+            )
+
+        return row["id"] if row else None
+
+
+    @classmethod
+    async def get_keyword_by_id(cls, keyword_id: int) -> str | None:
+        """按 ID 取得关键字，并使用 PGPool 的两级缓存。"""
+        await cls.ensure_pool()
+        cache_key = f"keyword:id:{keyword_id}"
+
+        if cls.cache:
+            cached = await cls.cache.get(cache_key)
+            if cached:
+                return cached
+
+        async with cls.connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT keyword
+                FROM search_keyword_stat
+                WHERE id = $1
+                """,
+                keyword_id,
+            )
+
+        if not row:
+            return None
+
+        keyword = row["keyword"]
+        if cls.cache:
+            cls.cache.set(cache_key, keyword, ttl=CACHE_TTL)
+        return keyword
+
+
+    # ========= Membership 相关 =========
+    @classmethod
+    async def get_latest_membership_expire(cls, user_id: str | int) -> int | None:
+        """
+        查询 membership 表中该 user_id 的最新有效期。
+
+        返回 UNIX 时间戳（秒）；没有记录或有效期为 NULL 时返回 None。
+        """
+        async with cls.connection() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT expire_timestamp
+                FROM membership
+                WHERE user_id = $1
+                ORDER BY expire_timestamp DESC NULLS LAST
+                LIMIT 1
+                """,
+                str(user_id),
+            )
+
+        if row and row["expire_timestamp"] is not None:
+            return int(row["expire_timestamp"])
+        return None
 
 
     # ========= Album 相关 =========

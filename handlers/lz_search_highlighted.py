@@ -5,6 +5,7 @@ from aiogram.enums import ParseMode
 from aiogram.enums import ChatType
 from utils.string_utils import LZString
 from lz_db import db
+from lz_pgsql import PGPool
 import lz_var
 
 from utils.aes_crypto import AESCrypto
@@ -37,7 +38,7 @@ async def render_results_plain(results: list[dict], keyword: str, page: int, tot
         f"<b>🔍 关键词：</b> <code>{keyword}</code>\r\n"
     ]
 
-    keyword_id = await db.get_search_keyword_id(keyword)
+    keyword_id = await PGPool.get_search_keyword_id(keyword)
     # lines = [f"<b>📄 第 {page + 1}/{total_pages} 页（共 {total} 项）</b>\n"]
 
     for r in results:
@@ -92,8 +93,8 @@ async def handle_search(message: Message):
 
     keyword = parts[1]
 
-    await db.insert_search_log(message.from_user.id, keyword)
-    await db.upsert_search_keyword_stat(keyword)
+    await PGPool.insert_search_log(message.from_user.id, keyword)
+    await PGPool.upsert_search_keyword_stat(keyword)
 
     result = await db.search_keyword_page_plain(keyword)
     if not result:
@@ -106,7 +107,7 @@ async def handle_search(message: Message):
 
     text = await render_results_plain(sliced, keyword, page, total=len(result), per_page=RESULTS_PER_PAGE)
 
-    keyword_id = await db.get_search_keyword_id(keyword)
+    keyword_id = await PGPool.get_search_keyword_id(keyword)
 
     await message.reply(
         text, parse_mode=ParseMode.HTML,
@@ -124,7 +125,7 @@ async def handle_pagination(callback: CallbackQuery):
     page = int(page_str)
 
     # 用 keyword_id 查回 keyword 文本
-    keyword = await db.get_keyword_by_id(keyword_id)
+    keyword = await PGPool.get_keyword_by_id(keyword_id)
     if not keyword:
         await callback.answer("⚠️ 无法找到对应关键词", show_alert=True)
         return

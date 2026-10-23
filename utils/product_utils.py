@@ -12,7 +12,6 @@ from lz_mysql import MySQLPool
 from lz_pgsql import PGPool
 from lz_config import AES_KEY,UPLOADER_BOT_NAME
 import lz_var
-from lz_db import db
 from lexicon_manager import LexiconManager
 from handlers.handle_jieba_export import ensure_and_load_lexicon_runtime
 from opencc import OpenCC
@@ -122,13 +121,9 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         
         # print(f"tpl_data: {tpl_data}", flush=True)
 
-        from lz_db import db  # 延迟导入避免循环依赖
-            # ✅ 统一在这里连一次
-        await db.connect()
-
         if tpl_data.get("guild_keyword"):
           
-            keyword_id = await db.get_search_keyword_id(tpl_data["guild_keyword"])
+            keyword_id = await PGPool.get_search_keyword_id(tpl_data["guild_keyword"])
             
         else:
             keyword_id = "-1"
@@ -147,8 +142,6 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
                 list_text = await Tplate.list_template(results)
                 print(f"{list_text}", flush=True)
                 tpl_data["album_cont_list_text"] = list_text['opt_text']
-
-        await db.disconnect()
 
         tpl_data["content_id_str"] = content_id_str
 
@@ -280,9 +273,6 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
     return {'review_status': review_status , 'result_send': retGuild}
 
 async def get_product_material(content_id: int, transaction_id: int | None = None):
-    from lz_db import db  # 延迟导入避免循环依赖
-        # ✅ 统一在这里连一次
-    # await db.connect()
     rows = await PGPool.get_album_list(content_id=int(content_id), bot_name=lz_var.bot_username)
 
     if rows:

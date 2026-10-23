@@ -511,96 +511,35 @@ class DB:
             return [r['file_id'] for r in rows if r['file_id']]
 
     async def insert_search_log(self, user_id: int, keyword: str):
-        await self._ensure_pool()
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            await conn.execute(
-                """
-                INSERT INTO search_log (user_id, keyword, search_time)
-                VALUES ($1, $2, $3)
-                """,
-                user_id, keyword, datetime.utcnow()
-            )
+        """兼容旧调用；实际实现已迁移到 PGPool。"""
+        from lz_pgsql import PGPool
+
+        await PGPool.insert_search_log(user_id, keyword)
 
     async def upsert_search_keyword_stat(self, keyword: str):
-        await self._ensure_pool()
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            result = await conn.execute(
-                 """
-                INSERT INTO search_keyword_stat (keyword, search_count, last_search_time)
-                VALUES ($1, 1, CURRENT_TIMESTAMP)
-                ON CONFLICT (keyword)
-                DO UPDATE SET 
-                    search_count = search_keyword_stat.search_count + 1,
-                    last_search_time = CURRENT_TIMESTAMP
-                """,
-                keyword
-            )
-            return result
+        """兼容旧调用；实际实现已迁移到 PGPool。"""
+        from lz_pgsql import PGPool
+
+        return await PGPool.upsert_search_keyword_stat(keyword)
 
     async def get_search_keyword_id(self, keyword: str) -> int | None:
-        await self._ensure_pool()
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            row = await conn.fetchrow(
-                """
-                WITH ins AS (
-                    INSERT INTO search_keyword_stat (keyword)
-                    VALUES ($1)
-                    ON CONFLICT (keyword) DO NOTHING
-                    RETURNING id
-                )
-                SELECT id FROM ins
-                UNION ALL
-                SELECT id FROM search_keyword_stat WHERE keyword = $1
-                LIMIT 1
-                """,
-                keyword
-            )
-            return row["id"] if row else None
+        """兼容旧调用；实际实现已迁移到 PGPool。"""
+        from lz_pgsql import PGPool
+
+        return await PGPool.get_search_keyword_id(keyword)
 
     async def get_keyword_by_id(self, keyword_id: int) -> str | None:
-        await self._ensure_pool()
-        cache_key = f"keyword:id:{keyword_id}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
-        
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT keyword
-                FROM search_keyword_stat
-                WHERE id = $1
-                """,
-                keyword_id
-            )
-            if row:
-                self.cache.set(cache_key, row["keyword"], ttl=CACHE_TTL)
-                return row["keyword"]
-            return None
+        """兼容旧调用；实际实现已迁移到 PGPool。"""
+        from lz_pgsql import PGPool
+
+        return await PGPool.get_keyword_by_id(keyword_id)
 
 
     async def get_latest_membership_expire(self, user_id: str | int) -> int | None:
-        """
-        查询 membership 表中该 user_id 的最新有效期（expire_timestamp 最大值）。
-        返回值:
-          - int (UNIX 时间戳, 秒)
-          - None (未找到记录)
-        """
-        await self._ensure_pool()
-        async with self.pool.acquire(timeout=ACQUIRE_TIMEOUT) as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT expire_timestamp
-                FROM membership
-                WHERE user_id = $1
-                ORDER BY expire_timestamp DESC NULLS LAST
-                LIMIT 1
-                """,
-                str(user_id)  # membership.user_id 是 varchar
-            )
-            if row and row["expire_timestamp"] is not None:
-                return int(row["expire_timestamp"])
-            return None
+        """兼容旧调用；实际实现已迁移到 PGPool。"""
+        from lz_pgsql import PGPool
+
+        return await PGPool.get_latest_membership_expire(user_id)
 
     
     async def upsert_membership_bulk(self, rows: list[dict]) -> dict:

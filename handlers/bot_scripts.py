@@ -281,10 +281,10 @@ class BotScripts:
 				for row in rows:
 					for btn in row:
 						if btn.get("text") == text:
-							print(f"[HY9999_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							print(f"[aizthuanyibot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
 							return recent
 			await asyncio.sleep(poll)
-		print(f"[HY9999_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		print(f"[aizthuanyibot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
 		return None
 
 	@staticmethod
@@ -432,11 +432,11 @@ class BotScripts:
 				await client.disconnect()
 
 	@staticmethod
-	async def script_HY9999_bot() -> None:
-		"""@HY9999_bot - 浏览作品/点赞/签到流程"""
+	async def script_aizthuanyibot() -> None:
+		"""@aizthuanyibot - 浏览作品/点赞/签到流程"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 
-		async with BotScripts._session("@HY9999_bot") as s:
+		async with BotScripts._session("@aizthuanyibot") as s:
 
 			
 	
@@ -473,8 +473,8 @@ class BotScripts:
 			if s._client is None:
 				return
 														 
-			await s._client(UpdateProfileRequest(about=f"https://t.me/hy9999_bot?start={user_id}"))
-			print(f"[HY9999_bot] bio 已设置 user_id = {user_id}", flush=True)
+			await s._client(UpdateProfileRequest(about=f"https://t.me/aizthuanyibot?start={user_id}"))
+			print(f"[aizthuanyibot] bio 已设置 user_id = {user_id}", flush=True)
 			
 			await asyncio.sleep(5)
 	
@@ -687,7 +687,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@hdtuoyibot": BotScripts.script_hdtuoyibot,
 	"@TJAI88bot": BotScripts.script_TJAI88bot,
 	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
-	"@HY9999_bot": BotScripts.script_HY9999_bot,
+	"@aizthuanyibot": BotScripts.script_aizthuanyibot,
 }
 
 

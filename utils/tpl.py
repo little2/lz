@@ -291,7 +291,7 @@ class Tplate:
             try:
                 print(f"🧾 {name}: 向 x-man {lz_var.x_man_bot_id} 请求 file_id…（{fu}）")
                 msg = await lz_var.bot.send_message(chat_id=lz_var.x_man_bot_id, text=f"{fu}")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 
             except Exception as e:
                 print(f"⚠️ 向 x-man 请求失败：{e} - {lz_var.x_man_bot_id}",flush=True)

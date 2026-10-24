@@ -335,7 +335,7 @@ async def handle_x_media_when_waiting(message: Message, state: FSMContext, reply
           f"from={message.from_user.id}，reply_to_msg_id={reply_to.message_id}", flush=True)
 
     user_id = int(message.from_user.id) if message.from_user else None
-    
+
     lz_var.bot_username = await get_bot_username()
 
     await AnanBOTPool.insert_file_extension(
@@ -433,7 +433,7 @@ async def make_product_folder(callback_query: CallbackQuery, state: FSMContext):
         # 1) 取候选成员（优先缓存）：_PENDING_ALBUM_MEMBERS[(chat_id, 占位消息ID)]
         candidates = _PENDING_ALBUM_MEMBERS.pop((chat_id, holder_mid), None)
         # print(f"candidates==>{candidates} candidates for album from cache", flush=True)
-        
+
 
         # 若缓存不存在（极少数情况），退化为仅当前这条
         if not candidates:
@@ -3847,8 +3847,14 @@ async def send_to_review_group(content_id: int, state: FSMContext, chat_id = Non
     
     
     product_row = await get_product_info(content_id)
+    if not isinstance(product_row, dict):
+        error = f"找不到待审核内容 content_id={content_id}"
+        print(f"⚠️ {error}", flush=True)
+        return False, error
+
     preview_text = product_row.get("preview_text") or ""
-    bot_url = f"https://t.me/{(await get_bot_username())}"
+    bot_username = await get_bot_username()
+    bot_url = f"https://t.me/{bot_username}"
     product_info = product_row.get("product_info") or {}
     file_id = product_info.get("m_file_id") or ""
     thumb_file_id = product_info.get("m_thumb_file_id") or ""
@@ -3881,22 +3887,35 @@ async def send_to_review_group(content_id: int, state: FSMContext, chat_id = Non
 
     preview_text = f"{preview_text} #未审核"
 
+
+    if chat_id in (None, "", 0, "0"):
+        error = "未配置审核群组 chat_id"
+        print(f"⚠️ {error}", flush=True)
+        return False, error
+
     try:
-        result = await bot.send_message(
+        await bot.send_message(
             chat_id=chat_id,
             text=preview_text,
             reply_markup=kb,
             message_thread_id=thread_id,  # 指定话题
             parse_mode="HTML"
         )
-        print(f"✅ 发送到审核群组成功:", flush=True)
+        print("✅ 发送到审核群组成功", flush=True)
         invalidate_cached_product(content_id)
-        
+
         return True, None
-        
+
     except Exception as e:
-        print(f"⚠️ 发送到审核群组失败: {e}", flush=True)
-        return False,e
+        error = str(e)
+        text = f"⚠️ 发送到审核群组失败: {error}, chat_id = {chat_id}, thread_id = {thread_id}"
+        print(text, flush=True)
+        try:
+            await _send_controlpanel_alert(text)
+        except Exception as alert_error:
+            print(f"⚠️ 审核群组失败告警发送失败（忽略）: {alert_error}", flush=True)
+
+        return False, error
         
 
 async def _rename_review_button_to_in_progress(callback_query: CallbackQuery, content_id: int) -> None:
@@ -6060,6 +6079,27 @@ async def safe_copy_message(message: Message, max_retry: int = 3):
     return ret
 
 
+async def _send_controlpanel_alert(text: str):
+    chat_id = SharedConfig.get("control_channel")
+    if chat_id in (None, "", 0, "0"):
+        print("⚠️ premark_thumb 告警跳过：control_channel 未配置", flush=True)
+        return None
+
+    send_kwargs = {
+        "chat_id": chat_id,
+        "text": text,
+    }
+    raw_thread_id = SharedConfig.get("board_id")
+    try:
+        thread_id = int(str(raw_thread_id).strip())
+    except (TypeError, ValueError):
+        thread_id = 0
+    if thread_id > 0:
+        send_kwargs["message_thread_id"] = thread_id
+
+    return await lz_var.switchbot.send_message(**send_kwargs)
+
+
 async def premark_thumb(meta):
     raw_chat_id = getattr(lz_var, "m_man_bot_id", 0)
     try:
@@ -6078,13 +6118,13 @@ async def premark_thumb(meta):
         return None
 
     if chat_id == 0:
-        try:
-            await lz_var.switchbot.send_message(
-                KEY_USER_ID,
-                "[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) 已启动！",
-            )
-        except Exception as e:
-            print(f"⚠️ premark_thumb 提示消息发送失败（忽略）: {e}", flush=True)
+        # 没有中介机器人，不需要产生预览图
+        # try:
+        #     await _send_controlpanel_alert(
+        #         "[LZ-Uploader] 没有设置预览图机器人(m_man_bot_id) ！"
+        #     )
+        # except Exception as e:
+        #     print(f"⚠️ premark_thumb 提示消息发送失败（忽略）: {e}", flush=True)
         return None
 
     try:
@@ -6101,12 +6141,12 @@ async def premark_thumb(meta):
             flush=True,
         )
         try:
-            await lz_var.switchbot.send_message(
-                KEY_USER_ID,
-                f"[LZ-Uploader] 预览图机器人 chat 不可达，请检查 m_man_bot_id 与关连状态。chat_id={chat_id}",
+            await _send_controlpanel_alert(
+                "[LZ-Uploader] 预览图机器人 chat 不可达，请检查 "
+                f"m_man_bot_id 与关连状态。chat_id={chat_id}"
             )
-        except Exception as e2:
-            print(f"⚠️ premark_thumb 告警发送失败（忽略）: {e2}", flush=True)
+        except Exception as e:
+            print(f"⚠️ premark_thumb 提示消息发送失败（忽略）: {e}", flush=True)
         return None
     except Exception as e:
         print(
@@ -6401,17 +6441,20 @@ async def say_hello(text:str = 'Started news bot!'):
     bot_name = me.username if me and me.username else "UnknownSwitchBot"
     bot_id = me.id if me and me.id else 0
     try:
-        await lz_var.switchbot.send_message(
-            chat_id=f"-100{SWITCHBOT_CHAT_ID}",
-            message_thread_id=SWITCHBOT_THREAD_ID,
-            text=f"[{bot_name} - {bot_id}] {text}",
-        )
+        await _send_controlpanel_alert(f"✅ [{bot_name} - {bot_id}] {text}")
+        # await lz_var.switchbot.send_message(
+        #     chat_id=f"-100{SWITCHBOT_CHAT_ID}",
+        #     message_thread_id=SWITCHBOT_THREAD_ID,
+        #     text=f"[{bot_name} - {bot_id}] {text}",
+        # )
     except Exception as e:
+
         print(
             f"⚠️ say_hello 发送失败: chat_id=-100{SWITCHBOT_CHAT_ID}", 
             f"thread_id={SWITCHBOT_THREAD_ID}, error={e}",
             flush=True,
         )
+        await _send_controlpanel_alert(f"❌ [{bot_name} - {bot_id}] say_hello 发送失败: {text}")
 
 
 async def keep_alive_ping():

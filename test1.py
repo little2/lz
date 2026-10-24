@@ -1508,10 +1508,10 @@ class BotScripts:
 				for row in rows:
 					for btn in row:
 						if btn.get("text") == text:
-							print(f"[HY9999_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							print(f"[aizthuanyibot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
 							return recent
 			await asyncio.sleep(poll)
-		print(f"[HY9999_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		print(f"[aizthuanyibot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
 		return None
 
 	@staticmethod
@@ -1596,11 +1596,11 @@ class BotScripts:
 			await client.disconnect()
 
 	@staticmethod
-	async def script_HY9999_bot() -> None:
-		"""@HY9999_bot — 浏览作品/点赞/签到流程"""
+	async def script_aizthuanyibot() -> None:
+		"""@aizthuanyibot — 浏览作品/点赞/签到流程"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 
-		async with BotSession("@HY9999_bot") as s:
+		async with BotSession("@aizthuanyibot") as s:
 			await s.send("/start")
 			menu = await s.wait_reply(timeout=30)
 			if not menu:
@@ -1630,8 +1630,9 @@ class BotScripts:
 
 			if s._client is None:
 				return
-			await s._client(UpdateProfileRequest(about="https://t.me/HY9999_bot?start=7501358629"))
-			print("[HY9999_bot] bio 已设置", flush=True)
+
+			await s._client(UpdateProfileRequest(about="https://t.me/nangefake88_bot?start=8233782869"))
+			print("[aizthuanyibot] bio 已设置", flush=True)
 
 			await asyncio.sleep(5)
 
@@ -1744,7 +1745,7 @@ BOT_SCRIPTS: dict[str, object] = {
 	"@tian50bot": BotScripts.script_tian50bot,
 	"@quyi200bot": BotScripts.script_quyi200bot,
 	"@tang_ihgcbnj_bot": BotScripts.script_tang_ihgcbnj_bot,
-	"@HY9999_bot": BotScripts.script_HY9999_bot,
+	"@aizthuanyibot": BotScripts.script_aizthuanyibot,
 	"@linglongai_4bot": BotScripts.script_linglongai_4bot,
 	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
 	"@men533bot ": BotScripts.script_men533bot ,

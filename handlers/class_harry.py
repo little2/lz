@@ -1130,9 +1130,9 @@ class HarryClass:
 			
 			# 6️⃣ 拉入鲁仔四号(内容)/小龙阳(入群审核)/核心二号机器人给予所有的权限
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower2bot")
-			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower5bot")
+			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower11bot")
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower7bot")
-			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower8bot")
+		
 			await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower9bot")
 			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower10bot")
 			# await self.grant_permissions_by_man(chat_id=chat_id, bot_name="zttower11bot")

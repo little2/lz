@@ -1272,7 +1272,7 @@ async def handle_start_with_param(message: Message, command: CommandStart):
     # try:
     #     await message.bot.send_message(
     #         chat_id=user.id,
-    #         text="<a href='https://t.me/Huuuya_bot?start=eYTbHEqy'>@Huuuya_bot</a>",
+    #         text="<a href='https://t.me/huyaback_bot?start=eYTbHEqy'>@huyaback_bot</a>",
     #         parse_mode=ParseMode.HTML,
     #     )
     # except Exception as e:
@@ -1369,7 +1369,7 @@ def tpl(stock_row,user_id):
     # try:
     #     await message.bot.send_message(
     #         chat_id=user.id,
-    #         text="<a href='https://t.me/Huuuya_bot?start=eYTbHEqy'>@Huuuya_bot</a>",
+    #         text="<a href='https://t.me/huyaback_bot?start=eYTbHEqy'>@huyaback_bot</a>",
     #         parse_mode=ParseMode.HTML,
     #     )
     # except Exception as e:
@@ -1386,7 +1386,7 @@ def tpl(stock_row,user_id):
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    # InlineKeyboardButton(text="◀️",url=f"https://t.me/tang_ihgcbnj_bot?start=ref_7681995255"),  
+                    # InlineKeyboardButton(text="◀️",url=f"https://t.me/gaoren1231211_bot?start=ref_7681995255"),  
                     InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
                     InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
                     InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
@@ -1404,7 +1404,7 @@ def tpl(stock_row,user_id):
             inline_keyboard=[
                 [
                     InlineKeyboardButton(text="◀️",callback_data=f"item:{id}:-1"),  
-                    # InlineKeyboardButton(text="◀️",url=f"https://t.me/Huuuya_bot?start=eYTbHEqy"),  
+                    # InlineKeyboardButton(text="◀️",url=f"https://t.me/huyaback_bot?start=eYTbHEqy"),  
                     InlineKeyboardButton(text="🤲 化缘",callback_data=f"redeem:{id}"),
                     InlineKeyboardButton(text="▶️",callback_data=f"item:{id}:1")                  
                 ],

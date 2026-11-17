@@ -281,16 +281,16 @@ class BotScripts:
 				for row in rows:
 					for btn in row:
 						if btn.get("text") == text:
-							print(f"[aizthuanyibot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
+							print(f"[huangdoubaozi_bot] 找到按钮 {text!r} | message_id={recent.id}", flush=True)
 							return recent
 			await asyncio.sleep(poll)
-		print(f"[aizthuanyibot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
+		print(f"[huangdoubaozi_bot] 未找到按钮 {text!r}（{timeout}s）", flush=True)
 		return None
 
 	@staticmethod
-	async def script_martinbb_ai_bot() -> None:
-		"""@martinbb_ai_bot - 每日签到流程"""
-		async with BotScripts._session("@martinbb_ai_bot") as s:
+	async def script_lijiankaige_bot() -> None:
+		"""@lijiankaige_bot - 每日签到流程"""
+		async with BotScripts._session("@lijiankaige_bot") as s:
 
 			await s.send("📅 每日签到")
 			msg = await s.wait_reply(timeout=30)
@@ -300,8 +300,8 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_LitLovAI_bot() -> None:
-		async with BotScripts._session("@LitLovAI_bot") as s:
+	async def script_lijiankaige_bot() -> None:
+		async with BotScripts._session("@lijiankaige_bot") as s:
 			await s.send("⭐ 今日签到")
 			reply = await s.wait_reply(timeout=30)
 			if not reply:
@@ -312,13 +312,13 @@ class BotScripts:
 				button_row = buttons[0]
 				if len(button_row) >= 2:
 					second = button_row[1]
-					print(f"[LitLovAI_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
+					print(f"[lijiankaige_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
 					await s.click_by_text(reply, str(second.get("text", "")))
 
 					wrong_reply = await s.wait_reply(timeout=30)
 					if wrong_reply:
 						wrong_text = getattr(wrong_reply, "message", None) or ""
-						print(f"[LitLovAI_bot] 错误反馈: {wrong_text!r}", flush=True)
+						print(f"[lijiankaige_bot] 错误反馈: {wrong_text!r}", flush=True)
 						match = re.search(r"([0-9]+)\s*([+\-*/])\s*([0-9]+)\s*=\s*\?", wrong_text)
 						if match:
 							a_str, op, b_str = match.groups()
@@ -340,24 +340,24 @@ class BotScripts:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text in answer_texts:
-											print(f"[LitLovAI_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[lijiankaige_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 								for row in buttons:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text and str(answer) in btn_text:
-											print(f"[LitLovAI_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[lijiankaige_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 							return
 
 			reply_text = getattr(reply, "message", None) or ""
-			print(f"[LitLovAI_bot] 签到回复内容: {reply_text!r}", flush=True)
+			print(f"[lijiankaige_bot] 签到回复内容: {reply_text!r}", flush=True)
  
 	@staticmethod
-	async def script_cyberdancer1bot() -> None:
-		await BotScripts._send_only("@cyberdancer1bot", "签到")
+	async def script_cyaibox116bot() -> None:
+		await BotScripts._send_only("@cyaibox116bot", "签到")
 
 	@staticmethod
 	async def script_posterre_bot() -> None:
@@ -368,16 +368,16 @@ class BotScripts:
 		await BotScripts._send_only("@QQCC_123_bot", "📅 每日签到")
 
 	@staticmethod
-	async def script_Huuuya_bot() -> None:
-		await BotScripts._send_only("@Huuuya_bot", "📅 每日签到")
+	async def script_huyaback_bot() -> None:
+		await BotScripts._send_only("@huyaback_bot", "📅 每日签到")
 
 	@staticmethod
-	async def script_quyi7bot() -> None:
-		await BotScripts._send_only("@quyi7bot", "🌍 每日签到")
+	async def script_ShuoWen_bot() -> None:
+		await BotScripts._send_only("@ShuoWen_bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_jiai4bot() -> None:
-		await BotScripts._send_only("@jiai4bot", "🌍 每日签到")
+	async def script_Higirlkissme_bot() -> None:
+		await BotScripts._send_only("@Higirlkissme_bot", "🌍 每日签到")
 
 	@staticmethod
 	async def script_tuoyi235bot() -> None:
@@ -392,8 +392,8 @@ class BotScripts:
 		await BotScripts._send_only("@quyi200bot", "🌍 每日签到")
 
 	@staticmethod
-	async def script_linglongai_4bot() -> None:
-		await BotScripts._send_only("@linglongai_4bot", "📅 签到")
+	async def script_linglongai_10bot() -> None:
+		await BotScripts._send_only("@linglongai_10bot", "📅 签到")
 
 	@staticmethod
 	async def script_tian882bot() -> None:
@@ -412,19 +412,19 @@ class BotScripts:
 		await BotScripts._send_only("@xhgsgk_bot", "/qd")
 
 	@staticmethod
-	async def script_tang_ihgcbnj_bot() -> None:
-		"""@tang_ihgcbnj_bot - 设 bio 后签到"""
+	async def script_gaoren1231211_bot() -> None:
+		"""@gaoren1231211_bot - 设 bio 后签到"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 		client, own_client = await BotScripts._acquire_client()
 		try:
 			user_id = BotScripts._user_info.id
 			for _ in range(2):
 				await client(UpdateProfileRequest(about=f"便宜好用全能去衣视频bot\n点击即可体验\nhttps://gaoren.me?start=ref_{user_id}"))
-				print(f"[tang_ihgcbnj_bot] bio 已设置 便宜好用全能去衣视频bot\n点击即可体验\nhttps://gaoren.me?start=ref_{user_id}", flush=True)
+				print(f"[gaoren1231211_bot] bio 已设置 便宜好用全能去衣视频bot\n点击即可体验\nhttps://gaoren.me?start=ref_{user_id}", flush=True)
 				await asyncio.sleep(15)
-				entity = await client.get_entity("@tang_ihgcbnj_bot")
+				entity = await client.get_entity("@gaoren1231211_bot")
 				sent = await client.send_message(entity=entity, message="📅 签到")
-				print(f"[tang_ihgcbnj_bot] 已发送签到 | message_id={sent.id}", flush=True)
+				print(f"[gaoren1231211_bot] 已发送签到 | message_id={sent.id}", flush=True)
 				await asyncio.sleep(5)
 			await client(UpdateProfileRequest(about=""))
 		finally:
@@ -432,11 +432,11 @@ class BotScripts:
 				await client.disconnect()
 
 	@staticmethod
-	async def script_aizthuanyibot() -> None:
-		"""@aizthuanyibot - 浏览作品/点赞/签到流程"""
+	async def script_huangdoubaozi_bot() -> None:
+		"""@huangdoubaozi_bot - 浏览作品/点赞/签到流程"""
 		from telethon.tl.functions.account import UpdateProfileRequest
 
-		async with BotScripts._session("@aizthuanyibot") as s:
+		async with BotScripts._session("@huangdoubaozi_bot") as s:
 
 			
 	
@@ -473,8 +473,8 @@ class BotScripts:
 			if s._client is None:
 				return
 														 
-			await s._client(UpdateProfileRequest(about=f"https://t.me/aizthuanyibot?start={user_id}"))
-			print(f"[aizthuanyibot] bio 已设置 user_id = {user_id}", flush=True)
+			await s._client(UpdateProfileRequest(about=f"https://aimu.art/?ref={user_id}"))
+			print(f"[huangdoubaozi_bot] bio 已设置 user_id = {user_id}", flush=True)
 			
 			await asyncio.sleep(5)
 	
@@ -524,9 +524,9 @@ class BotScripts:
 			
 
 	@staticmethod
-	async def script_ftcyy01bot() -> None:
-		"""@ftcyy01bot - 签到领积分流程"""
-		async with BotScripts._session("@ftcyy01bot") as s:
+	async def script_ftcyy04bot() -> None:
+		"""@ftcyy04bot - 签到领积分流程"""
+		async with BotScripts._session("@ftcyy04bot") as s:
 			await s.send("/start")
 			msg = await s.wait_reply(timeout=30)
 			if not msg:
@@ -663,31 +663,22 @@ class BotScripts:
 				await client.disconnect()
 
 
+
 BOT_SCRIPTS: dict[str, object] = {
 	
-	"@martinbb_ai_bot": BotScripts.script_martinbb_ai_bot,
-	"@LitLovAI_bot": BotScripts.script_LitLovAI_bot,
-	"@cyberdancer1bot": BotScripts.script_cyberdancer1bot,
-	"@posterre_bot": BotScripts.script_posterre_bot,
-	"@QQCC_123_bot": BotScripts.script_QQCC_123_bot_bot,
-	"@Huuuya_bot": BotScripts.script_Huuuya_bot,
-	"@tang_ihgcbnj_bot": BotScripts.script_tang_ihgcbnj_bot,
-	"@quyi7bot": BotScripts.script_quyi7bot,
-	"@jiai4bot": BotScripts.script_jiai4bot,
-	"@tuoyi235bot": BotScripts.script_tuoyi235bot,
-	"@tian50bot": BotScripts.script_tian50bot,
-	"@quyi200bot": BotScripts.script_quyi200bot,
-	
-	
-	"@linglongai_4bot": BotScripts.script_linglongai_4bot,
-	"@ftcyy01bot": BotScripts.script_ftcyy01bot,
-	"@men533bot ": BotScripts.script_men533bot ,
-	"@xhgsgk_bot": BotScripts.script_xhgsgk_bot,
-	"@tian882bot": BotScripts.script_tian882bot,
-	"@hdtuoyibot": BotScripts.script_hdtuoyibot,
-	"@TJAI88bot": BotScripts.script_TJAI88bot,
-	"@dkeiwfBot": BotScripts.script_dkeiwfbot,
-	"@aizthuanyibot": BotScripts.script_aizthuanyibot,
+	"@lijiankaige_bot": BotScripts.script_lijiankaige_bot, # oixel.net
+	"@cyaibox116bot": BotScripts.script_cyaibox116bot,
+	"@QQCC_123_bot": BotScripts.script_QQCC_123_bot_bot, #https://t.me/AiVisionAV
+	"@huyaback_bot": BotScripts.script_huyaback_bot,
+	"@linglongai_10bot": BotScripts.script_linglongai_10bot,
+	"@gaoren1231211_bot": BotScripts.script_gaoren1231211_bot,	#http://gaoren.me/
+	"@ShuoWen_bot": BotScripts.script_ShuoWen_bot, 
+	"@ftcyy04bot": BotScripts.script_ftcyy04bot,	#LuLu作图机器人 https://t.me/luluvideo01/1106
+	"@xhgsgk_bot": BotScripts.script_xhgsgk_bot,	#一诺社工库 @YNDB
+	"@TJAI88bot": BotScripts.script_TJAI88bot,	#图界AI<
+	"@dkeiwfBot": BotScripts.script_dkeiwfbot,	#窝趣免费AI脱衣换脸俱乐部
+	"@huangdoubaozi_bot": BotScripts.script_huangdoubaozi_bot,	#https://aimu.art/ 幻衣
+	"@Higirlkissme_bot": BotScripts.script_Higirlkissme_bot, #
 }
 
 

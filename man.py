@@ -443,7 +443,7 @@ async def process_bot():
 			# --------------------
 		
 			print("[process_bot] single-run started", flush=True)
-			# await BotScripts.script_cyaibox116bot()
+			# await BotScripts.script_cyaibox118bot()
 			await run_all_bot()
 			# await _save_json_dict_to_file(global_params_file, GLOBAL_PARAMS, client=telegram_bot)
 			print("[process_bot] single-run finished, stopping", flush=True)

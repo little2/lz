@@ -288,9 +288,9 @@ class BotScripts:
 		return None
 
 	@staticmethod
-	async def script_lijiankaige_bot() -> None:
-		"""@lijiankaige_bot - 每日签到流程"""
-		async with BotScripts._session("@lijiankaige_bot") as s:
+	async def script_juno_fnj7ubot() -> None:
+		"""@juno_fnj7ubot - 每日签到流程"""
+		async with BotScripts._session("@juno_fnj7ubot") as s:
 
 			await s.send("📅 每日签到")
 			msg = await s.wait_reply(timeout=30)
@@ -300,8 +300,8 @@ class BotScripts:
 			await s.wait_reply(timeout=15)
 
 	@staticmethod
-	async def script_lijiankaige_bot() -> None:
-		async with BotScripts._session("@lijiankaige_bot") as s:
+	async def script_juno_fnj7ubot() -> None:
+		async with BotScripts._session("@juno_fnj7ubot") as s:
 			await s.send("⭐ 今日签到")
 			reply = await s.wait_reply(timeout=30)
 			if not reply:
@@ -312,13 +312,13 @@ class BotScripts:
 				button_row = buttons[0]
 				if len(button_row) >= 2:
 					second = button_row[1]
-					print(f"[lijiankaige_bot] 发现按钮，固定点第二个: {second!r}", flush=True)
+					print(f"[juno_fnj7ubot] 发现按钮，固定点第二个: {second!r}", flush=True)
 					await s.click_by_text(reply, str(second.get("text", "")))
 
 					wrong_reply = await s.wait_reply(timeout=30)
 					if wrong_reply:
 						wrong_text = getattr(wrong_reply, "message", None) or ""
-						print(f"[lijiankaige_bot] 错误反馈: {wrong_text!r}", flush=True)
+						print(f"[juno_fnj7ubot] 错误反馈: {wrong_text!r}", flush=True)
 						match = re.search(r"([0-9]+)\s*([+\-*/])\s*([0-9]+)\s*=\s*\?", wrong_text)
 						if match:
 							a_str, op, b_str = match.groups()
@@ -340,24 +340,24 @@ class BotScripts:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text in answer_texts:
-											print(f"[lijiankaige_bot] 找到正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[juno_fnj7ubot] 找到正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 								for row in buttons:
 									for btn in row:
 										btn_text = str(btn.get("text", "")).strip()
 										if btn_text and str(answer) in btn_text:
-											print(f"[lijiankaige_bot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
+											print(f"[juno_fnj7ubot] 模糊匹配正确答案按钮: {btn_text!r}", flush=True)
 											await s.click_by_text(reply, btn_text)
 											return
 							return
 
 			reply_text = getattr(reply, "message", None) or ""
-			print(f"[lijiankaige_bot] 签到回复内容: {reply_text!r}", flush=True)
+			print(f"[juno_fnj7ubot] 签到回复内容: {reply_text!r}", flush=True)
  
 	@staticmethod
-	async def script_cyaibox116bot() -> None:
-		await BotScripts._send_only("@cyaibox116bot", "签到")
+	async def script_cyaibox118bot() -> None:
+		await BotScripts._send_only("@cyaibox118bot", "签到")
 
 	@staticmethod
 	async def script_posterre_bot() -> None:
@@ -666,8 +666,8 @@ class BotScripts:
 
 BOT_SCRIPTS: dict[str, object] = {
 	
-	"@lijiankaige_bot": BotScripts.script_lijiankaige_bot, # oixel.net
-	"@cyaibox116bot": BotScripts.script_cyaibox116bot,
+	"@juno_fnj7ubot": BotScripts.script_juno_fnj7ubot, # oixel.net
+	"@cyaibox118bot": BotScripts.script_cyaibox118bot,
 	"@QQCC_123_bot": BotScripts.script_QQCC_123_bot_bot, #https://t.me/AiVisionAV
 	"@huyaback_bot": BotScripts.script_huyaback_bot,
 	"@linglongai_10bot": BotScripts.script_linglongai_10bot,
